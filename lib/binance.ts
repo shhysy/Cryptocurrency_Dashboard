@@ -1,4 +1,8 @@
 import type { Candle, Trade } from "@/strategy/types";
+import { FALLBACK_BINANCE_API_KEY, FALLBACK_BINANCE_API_SECRET } from "./credentials";
+
+const apiKey = () => process.env.BINANCE_API_KEY || FALLBACK_BINANCE_API_KEY;
+const apiSecret = () => process.env.BINANCE_API_SECRET || FALLBACK_BINANCE_API_SECRET;
 
 /**
  * 币安接口封装。
@@ -50,7 +54,7 @@ async function publicGet<T>(path: string): Promise<T> {
 }
 
 export function hasCredentials() {
-  return Boolean(process.env.BINANCE_API_KEY && process.env.BINANCE_API_SECRET);
+  return Boolean(apiKey() && apiSecret());
 }
 
 async function hmacHex(secret: string, message: string) {
@@ -77,8 +81,8 @@ async function serverNow(): Promise<number> {
 }
 
 async function signedGet<T>(path: string, params: Record<string, string | number> = {}): Promise<T> {
-  const key = process.env.BINANCE_API_KEY!;
-  const secret = process.env.BINANCE_API_SECRET!;
+  const key = apiKey();
+  const secret = apiSecret();
   const qs = new URLSearchParams(
     Object.entries({ ...params, recvWindow: 10000, timestamp: Math.round(await serverNow()) }).map(([k, v]) => [k, String(v)]),
   ).toString();
