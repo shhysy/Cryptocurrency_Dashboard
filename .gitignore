@@ -1,0 +1,11 @@
+.env
+.env.local
+.env.*.local
+node_modules
+.next
+.open-next
+.wrangler
+
+# 构建缓存与本地临时文件
+*.tsbuildinfo
+dash.tmp.json

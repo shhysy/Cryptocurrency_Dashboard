@@ -1,0 +1,301 @@
+@import "tailwindcss";
+
+/* 一屏模式：桌面宽度且高度足够时，整页塞进一个屏幕；手机和矮窗口仍然是向下滚动 */
+@custom-variant fit (@media (min-width: 1024px) and (min-height: 760px));
+
+/* ============ 主题变量：深色为默认，html[data-theme="light"] 覆盖为浅色 ============ */
+:root {
+  color-scheme: dark;
+  --c-bg: #05070d;
+  --c-bg-2: #0a1020;
+  --c-fg: #eef1f8;
+  --c-sub: #aab3c8;
+  --c-mute: #7c869e;
+  --c-gold: #e8b84a;
+  --c-gold-soft: #f6dc9b;
+  --c-up: #2ee59d;
+  --c-down: #ff5b6b;
+  --c-warn: #ffa23a;
+  --c-calm: #8fa3c7;
+  --c-line: rgba(255, 255, 255, 0.1);
+  --c-track: rgba(255, 255, 255, 0.06);
+  --c-soft: rgba(255, 255, 255, 0.025);
+  --c-soft-2: rgba(255, 255, 255, 0.05);
+  --c-tick: rgba(255, 255, 255, 0.25);
+  --c-grid: rgba(255, 255, 255, 0.05);
+  --c-pop: rgba(11, 18, 36, 0.96);
+  --c-halo: #080c18;
+  --c-glow: rgba(46, 229, 157, 0.35);
+  --glass-top: rgba(255, 255, 255, 0.055);
+  --glass-bot: rgba(255, 255, 255, 0.02);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-shadow: 0 10px 40px -20px rgba(0, 0, 0, 0.8);
+  --page-glow-1: rgba(232, 184, 74, 0.07);
+  --page-glow-2: rgba(80, 110, 255, 0.06);
+  --hero-sheen: rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --c-bg: #f6f3ec;
+  --c-bg-2: #ece8de;
+  --c-fg: #1b2230;
+  --c-sub: #4a5468;
+  --c-mute: #7a8396;
+  --c-gold: #a97a12;
+  --c-gold-soft: #c9992f;
+  --c-up: #0c9b69;
+  --c-down: #d6364a;
+  --c-warn: #c4690a;
+  --c-calm: #5b6f94;
+  --c-line: rgba(27, 34, 48, 0.12);
+  --c-track: rgba(27, 34, 48, 0.08);
+  --c-soft: rgba(255, 255, 255, 0.55);
+  --c-soft-2: rgba(255, 255, 255, 0.9);
+  --c-tick: rgba(27, 34, 48, 0.3);
+  --c-grid: rgba(27, 34, 48, 0.07);
+  --c-pop: rgba(255, 255, 255, 0.98);
+  --c-halo: #f6f3ec;
+  --c-glow: rgba(12, 155, 105, 0.3);
+  --glass-top: rgba(255, 255, 255, 0.92);
+  --glass-bot: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(27, 34, 48, 0.09);
+  --glass-shadow: 0 12px 34px -18px rgba(60, 50, 20, 0.28);
+  --page-glow-1: rgba(214, 160, 40, 0.16);
+  --page-glow-2: rgba(90, 120, 255, 0.1);
+  --hero-sheen: rgba(255, 255, 255, 0.6);
+}
+
+@theme {
+  --color-bg: var(--c-bg);
+  --color-ink: var(--c-bg);
+  --color-gold: var(--c-gold);
+  --color-gold-soft: var(--c-gold-soft);
+  --color-up: var(--c-up);
+  --color-down: var(--c-down);
+  --color-warn: var(--c-warn);
+  --color-calm: var(--c-calm);
+  --color-fg: var(--c-fg);
+  --color-sub: var(--c-sub);
+  --color-mute: var(--c-mute);
+  --color-line: var(--c-line);
+  --color-track: var(--c-track);
+  --color-soft: var(--c-soft);
+  --color-soft-2: var(--c-soft-2);
+  --color-tick: var(--c-tick);
+  --color-pop: var(--c-pop);
+  --font-sans: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html,
+body {
+  background: var(--c-bg);
+  color: var(--c-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background:
+    radial-gradient(1200px 600px at 50% -10%, var(--page-glow-1), transparent 60%),
+    radial-gradient(900px 500px at 100% 30%, var(--page-glow-2), transparent 60%),
+    linear-gradient(180deg, var(--c-bg) 0%, var(--c-bg-2) 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* ---------- 毛玻璃卡片 ---------- */
+.glass {
+  position: relative;
+  background: linear-gradient(180deg, var(--glass-top), var(--glass-bot));
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--glass-shadow);
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(140deg, rgba(232, 184, 74, 0.35), transparent 35%, transparent 65%, rgba(232, 184, 74, 0.12));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.55;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+.glass-hover:hover {
+  transform: translateY(-3px);
+  border-color: rgba(232, 184, 74, 0.28);
+  box-shadow: 0 18px 50px -18px rgba(232, 184, 74, 0.22);
+}
+.glass-hover:hover::before {
+  opacity: 1;
+}
+
+/* ---------- 结论横幅 ---------- */
+.hero {
+  --c: 143, 163, 199;
+  position: relative;
+  overflow: hidden;
+  border-radius: 28px;
+  border: 1px solid rgba(var(--c), 0.28);
+  background:
+    radial-gradient(700px 320px at 15% 0%, rgba(var(--c), 0.22), transparent 70%),
+    radial-gradient(600px 300px at 100% 100%, rgba(var(--c2, var(--c)), 0.14), transparent 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
+  box-shadow: 0 0 80px -30px rgba(var(--c), 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.hero-none {
+  --c: 143, 163, 199;
+}
+.hero-accumulate {
+  --c: 46, 229, 157;
+  animation: breathe 4.5s ease-in-out infinite;
+}
+.hero-strong {
+  --c: 46, 229, 157;
+  --c2: 232, 184, 74;
+  animation: breathe-strong 3s ease-in-out infinite;
+}
+.hero-risk {
+  --c: 255, 162, 58;
+}
+.hero-sell {
+  --c: 255, 91, 107;
+  --c2: 232, 184, 74;
+  animation: pulse-red 1.8s ease-in-out infinite;
+}
+.hero-title-none {
+  color: #c9d5ee;
+}
+.hero-title-accumulate {
+  background: linear-gradient(90deg, #7dffc6, #2ee59d);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.hero-title-strong {
+  background: linear-gradient(90deg, #2ee59d, #f6dc9b 55%, #e8b84a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.hero-title-risk {
+  background: linear-gradient(90deg, #ffc26b, #ffa23a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.hero-title-sell {
+  background: linear-gradient(90deg, #ff7a88, #ff5b6b 50%, #e8b84a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.hero-icon {
+  filter: drop-shadow(0 0 28px rgba(var(--c), 0.55));
+}
+
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 60px -30px rgba(var(--c), 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06); }
+  50% { box-shadow: 0 0 100px -20px rgba(var(--c), 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06); }
+}
+@keyframes breathe-strong {
+  0%, 100% { box-shadow: 0 0 80px -25px rgba(var(--c), 0.5), 0 0 40px -20px rgba(var(--c2), 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.08); }
+  50% { box-shadow: 0 0 140px -10px rgba(var(--c), 0.75), 0 0 70px -10px rgba(var(--c2), 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08); }
+}
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 70px -25px rgba(var(--c), 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06); border-color: rgba(var(--c), 0.35); }
+  50% { box-shadow: 0 0 130px -5px rgba(var(--c), 0.8), 0 0 60px -15px rgba(var(--c2), 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08); border-color: rgba(var(--c), 0.7); }
+}
+
+/* ---------- 价格闪烁 ---------- */
+.flash-up { animation: flash-up 0.9s ease-out; }
+.flash-down { animation: flash-down 0.9s ease-out; }
+@keyframes flash-up {
+  0% { color: #fff; text-shadow: 0 0 18px rgba(46, 229, 157, 0.9); background: rgba(46, 229, 157, 0.18); }
+  100% { background: transparent; }
+}
+@keyframes flash-down {
+  0% { color: #fff; text-shadow: 0 0 18px rgba(255, 91, 107, 0.9); background: rgba(255, 91, 107, 0.18); }
+  100% { background: transparent; }
+}
+
+.fade-in { animation: fade-in 0.6s ease both; }
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+details > summary { list-style: none; cursor: pointer; }
+details > summary::-webkit-details-marker { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ============ 浅色主题：横幅与闪烁的专用覆盖 ============ */
+html[data-theme="light"] .hero {
+  background:
+    radial-gradient(700px 320px at 15% 0%, rgba(var(--c), 0.2), transparent 70%),
+    radial-gradient(600px 300px at 100% 100%, rgba(var(--c2, var(--c)), 0.14), transparent 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.7));
+  border-color: rgba(var(--c), 0.45);
+  box-shadow: 0 18px 50px -24px rgba(var(--c), 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+html[data-theme="light"] .hero-none { --c: 91, 111, 148; }
+html[data-theme="light"] .hero-accumulate,
+html[data-theme="light"] .hero-strong { --c: 12, 155, 105; }
+html[data-theme="light"] .hero-strong { --c2: 169, 122, 18; }
+html[data-theme="light"] .hero-risk { --c: 196, 105, 10; }
+html[data-theme="light"] .hero-sell { --c: 214, 54, 74; --c2: 169, 122, 18; }
+
+html[data-theme="light"] .hero-title-none { color: #3d4a66; }
+html[data-theme="light"] .hero-title-accumulate { background-image: linear-gradient(90deg, #0a8a5c, #0c9b69); }
+html[data-theme="light"] .hero-title-strong { background-image: linear-gradient(90deg, #0a8a5c, #8a6410 70%, #a97a12); }
+html[data-theme="light"] .hero-title-risk { background-image: linear-gradient(90deg, #b45f08, #c4690a); }
+html[data-theme="light"] .hero-title-sell { background-image: linear-gradient(90deg, #c22b40, #d6364a 55%, #a97a12); }
+html[data-theme="light"] .hero-icon { filter: drop-shadow(0 6px 18px rgba(var(--c), 0.4)); }
+
+html[data-theme="light"] .flash-up { animation-name: flash-up-light; }
+html[data-theme="light"] .flash-down { animation-name: flash-down-light; }
+@keyframes flash-up-light {
+  0% { color: #0a7a53; background: rgba(12, 155, 105, 0.22); }
+  100% { background: transparent; }
+}
+@keyframes flash-down-light {
+  0% { color: #b82a3d; background: rgba(214, 54, 74, 0.2); }
+  100% { background: transparent; }
+}
+
+/* 主题切换按钮 */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--c-line);
+  background: var(--c-soft);
+  color: var(--c-sub);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+.theme-toggle:hover {
+  background: var(--c-soft-2);
+  color: var(--c-fg);
+  border-color: var(--c-gold);
+}
