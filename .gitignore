@@ -9,3 +9,7 @@ node_modules
 # 构建缓存与本地临时文件
 *.tsbuildinfo
 dash.tmp.json
+
+# Cloudflare 本地文件（含 .dev.vars 密钥）
+.dev.vars
+.dev.vars.*
