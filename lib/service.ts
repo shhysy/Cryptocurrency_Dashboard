@@ -4,7 +4,17 @@ import { applyTrackingStart } from "@/strategy/tracking";
 import { trackingStart } from "@/tracking.config";
 import type { Candle, Trade } from "@/strategy/types";
 import { quote, watchlist } from "@/watchlist.config";
-import { accountEnabled, fetchBalances, fetchBuyTrades, fetchKlines, fetchTickers, hasCredentials } from "./binance";
+import {
+  accountEnabled,
+  fetchBalances,
+  fetchBuyTrades,
+  fetchFearGreed,
+  fetchKlines,
+  fetchTickers,
+  fetchYahooQuote,
+  fetchYahooWeekly,
+  hasCredentials,
+} from "./binance";
 import { cached } from "./cache";
 import { buildDashboard, STABLES, type RawData } from "./dashboard";
 import { normalizeManual, type ManualRow } from "./manual";
@@ -12,7 +22,7 @@ import { buildMock } from "./mock";
 import type { DashboardData } from "./types";
 
 const MIN = 60_000;
-const TTL = { ticker: 1 * MIN, account: 3 * MIN, klines: 30 * MIN, trades: 15 * MIN };
+const TTL = { ticker: 1 * MIN, account: 3 * MIN, klines: 30 * MIN, trades: 15 * MIN, fearGreed: 30 * MIN };
 
 export async function getDashboard(opts: { scenario?: string } = {}): Promise<DashboardData> {
   const forceMock = process.env.USE_MOCK === "1";
@@ -28,7 +38,9 @@ function buildMock_(scenario?: string): DashboardData {
 
 async function buildReal(): Promise<DashboardData> {
   const account = accountEnabled();
-  const pairs = watchlist.map((w) => w.symbol + quote);
+  const spot = watchlist.filter((w) => !w.yahoo); // 币安现货品种
+  const outside = watchlist.filter((w) => w.yahoo); // 币安没有的品种（如原油），走 Yahoo，只出信号
+  const pairs = spot.map((w) => w.symbol + quote);
   const stamps: number[] = [];
   const errors: string[] = [];
   const track = <T,>(c: { value: T; at: number; stale: boolean; error?: string }) => {
@@ -45,21 +57,39 @@ async function buildReal(): Promise<DashboardData> {
       : Promise.resolve<Record<string, number>>({}),
   ]);
 
+  // 恐惧贪婪指数是辅助项：取不到时按「无数据」处理，不让整个看板失败
+  const fearGreed = await cached("fng", TTL.fearGreed, fetchFearGreed)
+    .then(track)
+    .catch(() => null);
+
   const weekly: Record<string, Candle[]> = {};
-  const monthly: Record<string, Candle[]> = {};
   const apiTrades: Trade[] = [];
+  const outsideErrors: string[] = [];
+
+  // Yahoo 品种：任何一步失败都只让该品种没数据，不影响其他币种
   await Promise.all(
-    watchlist.map(async (w) => {
+    outside.map(async (w) => {
+      const sym = w.yahoo as string;
+      try {
+        weekly[w.symbol] = await cached(`y1w:${sym}`, TTL.klines, () => fetchYahooWeekly(sym)).then(track);
+        tickers[w.symbol + quote] = await cached(`yq:${sym}`, TTL.ticker, () => fetchYahooQuote(sym)).then(track);
+      } catch (e) {
+        weekly[w.symbol] ??= [];
+        outsideErrors.push(`${w.name}：${e instanceof Error ? e.message.slice(0, 80) : "取数失败"}`);
+      }
+    }),
+  );
+
+  await Promise.all(
+    spot.map(async (w) => {
       const pair = w.symbol + quote;
-      const [wk, mo, tr] = await Promise.all([
+      const [wk, tr] = await Promise.all([
         cached(`1w:${pair}`, TTL.klines, () => fetchKlines(pair, "1w", 400)).then(track),
- cached(`1M:${pair}`, TTL.klines, () => fetchKlines(pair, "1M", 120)).then(track),
         account
           ? cached(`trades:${pair}`, TTL.trades, () => fetchBuyTrades(w.symbol, quote)).then(track)
           : Promise.resolve<Trade[]>([]),
       ]);
       weekly[w.symbol] = wk;
-      monthly[w.symbol] = mo;
       apiTrades.push(...tr);
     }),
   );
@@ -83,7 +113,8 @@ async function buildReal(): Promise<DashboardData> {
   const raw: RawData = {
     tickers: Object.fromEntries(watchlist.map((w) => [w.symbol, tickers[w.symbol + quote]]).filter(([, v]) => v)),
     weekly,
-    monthly,
+    fearGreed,
+    accountKnown: account,
     trades,
     balances: heldNow,
   };
@@ -97,6 +128,8 @@ async function buildReal(): Promise<DashboardData> {
     .sort((a, b) => (b.usdt ?? -1) - (a.usdt ?? -1));
 
   const notes: string[] = [
+    ...(outside.length ? [`${outside.map((w) => w.name).join("、")} 的行情来自 Yahoo Finance，只出信号，不读余额和成交；币安现货没有该品种。`] : []),
+    ...outsideErrors,
     `收益从 ${trackingStart} 起算，更早的买卖不计入（见 tracking.config.ts）。` +
       (synthetic.length ? `${synthetic.join("、")} 起算日前已持有，成本按起算日周线开盘价计，想用真实成本请在 data/manual-trades.json 手动填写。` : ""),
   ];

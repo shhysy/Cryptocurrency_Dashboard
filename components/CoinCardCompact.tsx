@@ -1,16 +1,14 @@
 "use client";
 
-import { PriceChart, TAG_STYLE, indicatorItems } from "./CoinCard";
+import { ActionBox, PriceChart, TAG_STYLE, indicatorItems } from "./CoinCard";
 import { useFlash, useSize } from "./hooks";
 import type { CoinCard } from "@/lib/types";
 import { pct, price as fmtPrice, qty as fmtQty, tone, usd } from "@/lib/format";
 
 const SHORT: [string, string][] = [
   ["周线 ", "周"],
-  ["月线 ", "月"],
-  ["距 52 周高点", "回撤"],
   ["对周线 MA200", "MA200"],
-  ["对月线 MA20", "MA20"],
+  ["恐惧贪婪", "贪婪"],
 ];
 const shorten = (s: string) => SHORT.reduce((acc, [a, b]) => acc.replace(a, b), s);
 
@@ -110,9 +108,10 @@ export default function CoinCardCompact({ coin }: { coin: CoinCard }) {
  </div>
       )}
 
+      <ActionBox sig={sig} compact />
       <div className="mt-1 flex items-start justify-between gap-2 border-t border-line pt-1 text-[10px]">
         <span className="shrink-0 text-mute">
-   机会 <b className="num text-xs text-fg">{sig.score}</b>
+   机会 <b className="num text-xs text-fg">{sig.score}</b>/90
         </span>
         <span className="flex min-w-0 flex-wrap justify-end gap-x-2 gap-y-0">
           {items.map((it) => (

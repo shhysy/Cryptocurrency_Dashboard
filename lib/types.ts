@@ -1,4 +1,4 @@
-import type { CoinSignal, Verdict } from "@/strategy/types";
+import type { CoinSignal, MarketState, Verdict } from "@/strategy/types";
 
 export type Position = "low" | "mid" | "high";
 
@@ -49,7 +49,6 @@ export interface DashboardData {
     pnl: number;
     pnlPct: number;
     investedCny: number;
-    capitalLimitCny: number;
     usdtCny: number;
   };
   equityCurve: { t: number; value: number; invested: number }[];
@@ -57,6 +56,7 @@ export interface DashboardData {
   coins: CoinCard[];
   trades: TradeRow[];
   verdict: Verdict;
+  market: { fearGreed: number | null; btcState: MarketState | null; accountKnown: boolean };
   config: {
     doubleLine: number;
   };

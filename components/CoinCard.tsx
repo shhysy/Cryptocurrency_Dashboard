@@ -6,15 +6,23 @@ import type { CoinCard, Position } from "@/lib/types";
 import { date, pct, price as fmtPrice, qty as fmtQty, tone, usd } from "@/lib/format";
 import { strategyConfig as cfg } from "@/strategy.config";
 import type { CoinSignal } from "@/strategy/types";
+import { num } from "@/lib/format";
 
 export const POS_COLOR: Record<Position, string> = { low: "var(--c-up)", mid: "var(--c-sub)", high: "var(--c-warn)" };
 export const POS_LABEL: Record<Position, string> = { low: "低位买入", mid: "中位买入", high: "高位买入" };
 
+const BUY_TAG = "border-up/40 bg-up/10 text-up";
+const SELL_TAG = "border-down/40 bg-down/10 text-down";
 export const TAG_STYLE: Record<string, string> = {
-  加仓区: "border-up/40 bg-up/10 text-up",
+  头仓: BUY_TAG,
+  补仓: BUY_TAG,
+  备用金: "border-gold/50 bg-gold/10 text-gold",
+  止盈: SELL_TAG,
+  指标止盈: SELL_TAG,
+  追踪止损: SELL_TAG,
+  底仓减仓: SELL_TAG,
+  暂缓: "border-warn/40 bg-warn/10 text-warn",
   观望: "border-line bg-soft text-mute",
-  过热: "border-warn/40 bg-warn/10 text-warn",
-  可卖出: "border-down/40 bg-down/10 text-down",
 };
 
 /* ---------- 周线走势图：买入点 / 平均成本线 / 翻倍目标线 ---------- */
@@ -194,38 +202,82 @@ export default function CoinCardView({ coin }: { coin: CoinCard }) {
   );
 }
 
-/** 各项指标 + 是否触发。触发条件是「任意一条」，不要求同时满足。 */
+/** 得分明细：价格位置（RSI 与 MA200 折减合并）、情绪、企稳；再加 BTC 状态和建议动作。 */
 export function indicatorItems(sig: CoinSignal, price: number) {
   const m = sig.metrics;
-  const dd = cfg.drawdown.tiers[0].dd;
+  const b = sig.breakdown;
   const items: { label: string; value: string; hit: boolean; hint: string }[] = [];
 
-  if (m.weeklyRsi !== null)
-    items.push({ label: "周线 RSI", value: m.weeklyRsi.toFixed(0), hit: m.weeklyRsi < cfg.rsi.weeklyBuy, hint: `< ${cfg.rsi.weeklyBuy} 触发` });
-  if (m.monthlyRsi !== null)
-    items.push({ label: "月线 RSI", value: m.monthlyRsi.toFixed(0), hit: m.monthlyRsi <= cfg.rsi.monthlyLow, hint: `≤ ${cfg.rsi.monthlyLow} 触发` });
-  if (m.drawdown !== null)
-    items.push({ label: "距 52 周高点", value: `-${(m.drawdown * 100).toFixed(0)}%`, hit: m.drawdown >= dd, hint: `≥ ${Math.round(dd * 100)}% 触发` });
-  if (m.ma200 !== null) {
-    const diff = price / m.ma200 - 1;
-    items.push({
-      label: m.ma200Source === "weekly" ? "对周线 MA200" : "对月线 MA20",
-      value: `${diff >= 0 ? "+" : ""}${(diff * 100).toFixed(0)}%`,
-      hit: price <= m.ma200 * (1 + cfg.ma.nearPct),
-      hint: `≤ +${Math.round(cfg.ma.nearPct * 100)}% 触发`,
-    });
-  }
+  items.push({
+    label: "周线 RSI",
+    value: m.weeklyRsi !== null ? `${m.weeklyRsi.toFixed(0)} · ${b.rsi}分` : "—",
+    hit: b.rsi > 0,
+    hint: cfg.rsi.tiers.map((t) => `≤ ${t.max}: ${t.points}分`).join(" / "),
+  });
+  items.push({
+    label: "对周线 MA200",
+    value: m.ma200 !== null ? `${price / m.ma200 - 1 >= 0 ? "+" : ""}${((price / m.ma200 - 1) * 100).toFixed(0)}% · ${b.ma}分` : "—",
+    hit: b.ma > 0,
+    hint: cfg.ma.tiers.map((t) => `价格/MA200 ≤ ${t.max}: ${t.points}分`).join(" / "),
+  });
+  items.push({
+    label: "恐惧贪婪",
+    value: m.fearGreed !== null ? `${m.fearGreed} · ${b.sentiment}分` : "—",
+    hit: b.sentiment > 0,
+    hint: cfg.fearGreed.tiers.map((t) => `≤ ${t.max}: ${t.points}分`).join(" / "),
+  });
+  items.push({
+    label: "企稳",
+    value: m.stableCount === null ? "—" : `${m.stableCount}/3 · ${b.trend}分`,
+    hit: m.stabilized === true,
+    hint: "收盘>上周最高；RSI<45 且回升；近 4 周未创 8 周新低",
+  });
 
   return items;
+}
+
+/** 建议动作：买入给金额和被哪些上限压低；卖出给数量；被挡住的列出原因。 */
+export function ActionBox({ sig, compact = false }: { sig: CoinSignal; compact?: boolean }) {
+  const a = sig.action;
+  const lines: { text: string; tone: string }[] = [];
+  if (a.side === "buy") {
+    const planned = a.plannedUsdt !== null && a.usdt !== null && a.usdt < a.plannedUsdt ? `（计划 $${num(a.plannedUsdt)}）` : "";
+    lines.push({
+      text: a.usdt !== null ? `${a.label}：建议买入 $${num(a.usdt)}${planned}` : `${a.label}：满足条件，仅给方向`,
+      tone: "text-up",
+    });
+    a.limits.forEach((t) => lines.push({ text: t, tone: "text-mute" }));
+  } else if (a.side === "sell") {
+    const sellPct = a.sellPct !== null ? Math.round(a.sellPct * 100) : "?";
+    const approx = a.usdt !== null ? `（约 $${num(a.usdt)}）` : "";
+    lines.push({ text: `${a.label}：建议卖出 ${sellPct}%${approx}`, tone: "text-down" });
+  } else if (a.blocked.length) {
+    lines.push({ text: `${a.label || "买入"}：暂缓`, tone: "text-warn" });
+    a.blocked.forEach((t) => lines.push({ text: t, tone: "text-mute" }));
+  }
+  a.notes.forEach((t) => lines.push({ text: t, tone: "text-mute" }));
+  if (!lines.length) return null;
+  const shown = compact ? lines.slice(0, 2) : lines;
+  const cls = compact
+    ? "mt-1 space-y-0.5 text-[10px] leading-snug"
+    : "mt-3 space-y-1 rounded-lg border border-line bg-soft px-3 py-2 text-xs";
+  return (
+    <ul className={cls}>
+      {shown.map((l, i) => (
+        <li key={i} className={i === 0 ? `font-medium ${l.tone}` : l.tone}>{l.text}</li>
+      ))}
+    </ul>
+  );
 }
 
 function Indicators({ sig, price }: { sig: CoinSignal; price: number }) {
   const items = indicatorItems(sig, price);
   return (
     <div className="mt-4 border-t border-line pt-3">
+      <ActionBox sig={sig} />
       <div className="mb-2 flex items-center justify-between text-[11px] text-mute">
-        <span>机会指数 <b className="num text-sm text-fg">{sig.score}</b> / 100</span>
- <span>任意一项触发即计分</span>
+        <span>机会指数 <b className="num text-sm text-fg">{sig.score}</b> / {cfg.scoreMax}</span>
+ <span>{sig.group === "core" ? "积极型" : "保守型"}</span>
       </div>
       <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
  {items.map((it) => (

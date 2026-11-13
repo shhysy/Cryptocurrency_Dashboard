@@ -1,7 +1,7 @@
 import { strategyConfig } from "@/strategy.config";
 import { quote, watchlist } from "@/watchlist.config";
 import { computeCost } from "@/strategy/cost";
-import { buildVerdict, evaluateCoin } from "@/strategy/engine";
+import { btcMarketState, buildVerdict, evaluateCoin, isCore } from "@/strategy/engine";
 import type { Candle, Trade } from "@/strategy/types";
 import type { CoinCard, DashboardData, Position, TradeRow } from "./types";
 
@@ -12,7 +12,8 @@ export const STABLES = ["USDT", "USDC", "FDUSD", "BUSD"];
 export interface RawData {
   tickers: Record<string, { price: number; change24h: number }>; // key = 基础币
   weekly: Record<string, Candle[]>;
-  monthly: Record<string, Candle[]>;
+  fearGreed?: number | null; // 恐惧贪婪指数，取不到为 null
+  accountKnown?: boolean; // 是否读取了账户余额与成交（决定能否给出买入金额建议）
   trades: Trade[];
   balances?: Record<string, number>; // 真实持仓数量；没有则按成交累计
   extraAssets?: { asset: string; qty: number; usdt: number | null }[]; // 账户内全部非零资产
@@ -54,15 +55,36 @@ export function buildDashboard(
 
   const totalValue = base.reduce((s, b) => s + b.marketValue, 0);
   const totalInvested = base.reduce((s, b) => s + (b.qty > 0 ? b.cost.invested : 0), 0);
-  const ctx = { totalInvestedUsdt: totalInvested, totalValueUsdt: totalValue };
+  const btcWeekly = raw.weekly.BTC ?? [];
+  const btcPrice = raw.tickers.BTC?.price ?? btcWeekly.at(-1)?.c ?? 0;
+  const btcState = btcWeekly.length && btcPrice ? btcMarketState(btcWeekly, btcPrice, cfg) : null;
+  const fearGreed = raw.fearGreed ?? null;
+
+  const cashUsdt = (raw.extraAssets ?? [])
+    .filter((a) => STABLES.includes(a.asset) && a.qty >= cfg.minAssetUsdt)
+    .reduce((s, a) => s + a.qty, 0);
+  const held = base.filter((b) => b.qty > 0);
+  const now = Date.now();
+  const account = {
+    known: raw.accountKnown ?? raw.balances !== undefined,
+    cashUsdt,
+    netWorthUsdt: cashUsdt + totalValue,
+    coreCostUsdt: held.filter((b) => isCore(b.w.symbol, cfg)).reduce((s, b) => s + b.cost.invested, 0),
+    altCostUsdt: held.filter((b) => !isCore(b.w.symbol, cfg)).reduce((s, b) => s + b.cost.invested, 0),
+    altHeldCount: held.filter((b) => !isCore(b.w.symbol, cfg)).length,
+    // 近 7 天新增买入：只算真实成交，起算日补的期初买入不算
+    weeklyBuyUsdt: raw.trades
+      .filter((t) => !t.id.startsWith("opening-") && now - t.time <= 7 * 864e5)
+      .reduce((s, t) => s + t.price * t.qty + (INCLUDE_FEE ? t.fee : 0), 0),
+  };
+  const ctx = { fearGreed, btcState, account, now };
 
   // ---- 2. 信号与卡片 ----
   const coins: CoinCard[] = base.map(({ w, trades, cost, price, qty, marketValue }) => {
     const weekly = raw.weekly[w.symbol] ?? [];
-    const monthly = raw.monthly[w.symbol] ?? [];
     const avgCost = qty > 0 ? cost.avgCost : null;
     const signal = evaluateCoin(
-      { symbol: w.symbol, price, weekly, monthly, qty, avgCost, invested: cost.invested, marketValue },
+      { symbol: w.symbol, price, weekly, qty, avgCost, invested: cost.invested, marketValue, buys: trades, signalOnly: Boolean(w.yahoo) },
       ctx,
       cfg,
     );
@@ -138,9 +160,6 @@ export function buildDashboard(
     last.invested = totalInvested || last.invested;
   }
 
-  const cashUsdt = (raw.extraAssets ?? [])
-    .filter((a) => STABLES.includes(a.asset) && a.qty >= cfg.minAssetUsdt)
-    .reduce((s, a) => s + a.qty, 0);
   const pnl = totalValue - totalInvested;
   const verdict = buildVerdict(coins.map((c) => c.signal));
 
@@ -160,7 +179,6 @@ export function buildDashboard(
       pnl,
       pnlPct: totalInvested > 0 ? pnl / totalInvested : 0,
       investedCny: totalInvested * cfg.risk.usdtCny,
-      capitalLimitCny: cfg.risk.maxTotalCapitalCny,
       usdtCny: cfg.risk.usdtCny,
     },
     equityCurve,
@@ -170,6 +188,7 @@ export function buildDashboard(
     coins,
     trades,
     verdict,
+    market: { fearGreed, btcState, accountKnown: account.known },
     config: { doubleLine: cfg.sell.levels[0].ret },
   };
 }

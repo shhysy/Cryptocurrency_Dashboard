@@ -17,8 +17,8 @@ const PUBLIC_BASES = [
   "https://api.binance.com",
 ].filter(Boolean) as string[];
 
-/** 账户余额 / 成交默认关闭（需要主域名 + 签名）。设置 ENABLE_ACCOUNT=1 后再开启。 */
-export const accountEnabled = () => process.env.ENABLE_ACCOUNT === "1";
+/** 账户余额 / 成交默认开启（需要主域名 + 签名）。设置 ENABLE_ACCOUNT=0 可关闭（如部署到受限的云环境）。 */
+export const accountEnabled = () => process.env.ENABLE_ACCOUNT !== "0";
 
 const SIGNED_BASE = process.env.BINANCE_BASE_URL || "https://api.binance.com";
 
@@ -110,7 +110,7 @@ export async function fetchTickers(pairs: string[]): Promise<Record<string, Tick
   return out;
 }
 
-export async function fetchKlines(pair: string, interval: "1w" | "1M", limit: number): Promise<Candle[]> {
+export async function fetchKlines(pair: string, interval: "1w", limit: number): Promise<Candle[]> {
   const rows = await publicGet<(string | number)[][]>(
     `/api/v3/klines?symbol=${pair}&interval=${interval}&limit=${limit}`,
   );
@@ -122,6 +122,58 @@ export async function fetchKlines(pair: string, interval: "1w" | "1M", limit: nu
     c: Number(r[4]),
     v: Number(r[5]),
   }));
+}
+
+/**
+ * 恐惧贪婪指数（alternative.me，0 = 极度恐惧，100 = 极度贪婪）。
+ * 不是币安数据，所以独立于 publicGet；失败时由上层缓存兜底。
+ */
+export async function fetchFearGreed(): Promise<number> {
+  const j = await getJson<{ data: { value: string }[] }>("https://api.alternative.me/fng/?limit=1");
+  const v = Number(j.data?.[0]?.value);
+  if (!Number.isFinite(v)) throw new Error("Fear&Greed: bad response");
+  return v;
+}
+
+// ---------- 非币安品种（Yahoo Finance，如原油 CL=F） ----------
+// Yahoo 在国内直连会被挡，需要 PROXY_URL；失败时由上层缓存兜底，不影响其他币种。
+interface YahooChart {
+  chart: {
+    result?: {
+      meta: { regularMarketPrice: number };
+      timestamp?: number[];
+      indicators: { quote: { open: (number | null)[]; high: (number | null)[]; low: (number | null)[]; close: (number | null)[]; volume: (number | null)[] }[] };
+    }[];
+  };
+}
+const YAHOO_HEADERS = { "User-Agent": "Mozilla/5.0" };
+const yahooUrl = (sym: string, interval: string, range: string) =>
+  `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=${interval}&range=${range}`;
+
+/** 周线 K 线（约 10 年）。Yahoo 偶尔返回 null 的未完成行，直接丢掉。 */
+export async function fetchYahooWeekly(sym: string): Promise<Candle[]> {
+  const j = await getJson<YahooChart>(yahooUrl(sym, "1wk", "10y"), YAHOO_HEADERS);
+  const r = j.chart.result?.[0];
+  const q = r?.indicators.quote[0];
+  if (!r?.timestamp || !q) throw new Error(`Yahoo ${sym}: no data`);
+  const out: Candle[] = [];
+  r.timestamp.forEach((ts, i) => {
+    const o = q.open[i], h = q.high[i], l = q.low[i], c = q.close[i];
+    if (o == null || h == null || l == null || c == null) return;
+    out.push({ t: ts * 1000, o, h, l, c, v: q.volume[i] ?? 0 });
+  });
+  if (out.length < 2) throw new Error(`Yahoo ${sym}: too few candles`);
+  return out;
+}
+
+/** 现价和相对上一交易日收盘的涨跌幅。 */
+export async function fetchYahooQuote(sym: string): Promise<Ticker> {
+  const j = await getJson<YahooChart>(yahooUrl(sym, "1d", "5d"), YAHOO_HEADERS);
+  const r = j.chart.result?.[0];
+  const closes = (r?.indicators.quote[0].close ?? []).filter((x): x is number => x != null);
+  if (!r || closes.length < 2) throw new Error(`Yahoo ${sym}: no quote`);
+  const price = r.meta.regularMarketPrice;
+  return { price, change24h: price / closes[closes.length - 2] - 1 };
 }
 
 // ---------- 账户（只读） ----------

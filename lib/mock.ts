@@ -6,11 +6,10 @@ import type { RawData } from "./dashboard";
  * 示例数据（纯虚构，仅用于没配置 API 时展示页面效果）。
  * 价格走势由「关键点插值 + 带均值回归的噪声」生成，随机种子固定，每次打开形状一致，日期随当前时间平移。
  *
- * 场景（?scenario=xxx）：none 不宜操作 / accumulate 适合加仓 / strong 强烈买入 /
- *         risk 风险暂停 / sell 达到卖出条件
+ * 场景（?scenario=xxx）：none 不宜操作 / accumulate 适合买入 / strong 强烈买入 / sell 建议卖出
  */
-export type Scenario = "none" | "accumulate" | "strong" | "risk" | "sell";
-export const SCENARIOS: Scenario[] = ["none", "accumulate", "strong", "risk", "sell"];
+export type Scenario = "none" | "accumulate" | "strong" | "sell";
+export const SCENARIOS: Scenario[] = ["none", "accumulate", "strong", "sell"];
 export const DEFAULT_SCENARIO: Scenario = "accumulate";
 
 const WEEK = 7 * 864e5;
@@ -65,23 +64,6 @@ function makeWeekly(kf: KF, scale: number, seed: number, vol: number, end: numbe
   return out;
 }
 
-function toMonthly(weekly: Candle[]): Candle[] {
-  const groups = new Map<string, Candle[]>();
-  for (const c of weekly) {
-    const d = new Date(c.t);
-    const k = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
-    (groups.get(k) ?? groups.set(k, []).get(k)!).push(c);
-  }
-  return [...groups.values()].map((g) => ({
-    t: g[0].t,
-    o: g[0].o,
-    h: Math.max(...g.map((x) => x.h)),
-    l: Math.min(...g.map((x) => x.l)),
-    c: g[g.length - 1].c,
-    v: g.reduce((s, x) => s + x.v, 0),
-  }));
-}
-
 // 前 208 周的共同形态（归一化：100 ≈ 起步价）
 const HISTORY: KF = [
   [0, 60],
@@ -96,48 +78,46 @@ const HISTORY: KF = [
 const CALM: Record<string, KF> = {
   BTC: [[208, 150], [226, 172], [245, 160], [259, 166]],
   ETH: [[208, 150], [225, 160], [244, 168], [259, 163]],
-  SOL: [[208, 150], [228, 175], [246, 164], [259, 170]],
   BNB: [[208, 150], [224, 162], [246, 158], [259, 165]],
   UNI: [[208, 150], [226, 158], [246, 150], [259, 154]],
-  LINK: [[208, 150], [227, 165], [245, 158], [259, 162]],
   PAXG: [[208, 150], [230, 160], [248, 168], [259, 172]],
 };
+
+// BTC 先跌到 MA200 下方，再在最后一周反弹：RSI 低、价格位置得分高、企稳三项基本满足
+const BTC_BOTTOM: KF = [[208, 150], [222, 172], [236, 150], [246, 118], [252, 96], [258, 101], [259, 110]];
+
+// strong：跌得更深，RSI 压到 30 以下，价格位置拿满 45 分
+const BTC_DEEP: KF = [[208, 150], [222, 172], [236, 150], [246, 100], [252, 72], [258, 78], [259, 90]];
 
 // 场景里被「点名」的币种走势
 const FOCUS: Record<Scenario, Record<string, KF>> = {
   none: {},
-  accumulate: { ETH: [[208, 150], [222, 160], [245, 108], [259, 106]] },
-  strong: {
-    SOL: [[208, 150], [222, 200], [240, 130], [259, 78]],
-    ETH: [[208, 150], [222, 160], [245, 108], [259, 106]],
-  },
-  risk: { BTC: [[208, 150], [240, 150], [259, 190]] },
-  sell: {
-    BNB: [[208, 150], [235, 175], [259, 235]],
-    SOL: [[208, 150], [222, 200], [245, 125], [259, 110]],
-  },
+  accumulate: { BTC: BTC_BOTTOM },
+  strong: { BTC: BTC_DEEP },
+  sell: { BNB: [[208, 150], [235, 175], [259, 235]] },
 };
 
-const SCALE: Record<string, number> = { BTC: 400, ETH: 26, SOL: 1, BNB: 3.2, UNI: 0.05, LINK: 0.09, PAXG: 14 };
-const SEED: Record<string, number> = { BTC: 11, ETH: 22, SOL: 33, BNB: 44, UNI: 55, LINK: 66, PAXG: 77 };
-const VOL: Record<string, number> = { BTC: 0.018, ETH: 0.022, SOL: 0.028, BNB: 0.02, UNI: 0.03, LINK: 0.027, PAXG: 0.008 };
+// 各场景的恐惧贪婪指数（示例值）：accumulate 情绪中性偏恐惧，strong 极度恐惧，sell 极度贪婪
+const FEAR_GREED: Record<Scenario, number> = { none: 55, accumulate: 38, strong: 20, sell: 85 };
 
-// 买入周序号（相对 0..259）与每笔金额（USDT）
+const SCALE: Record<string, number> = { BTC: 400, ETH: 26, BNB: 3.2, UNI: 0.05, PAXG: 14, CL: 0.5 };
+const SEED: Record<string, number> = { BTC: 11, ETH: 22, BNB: 44, UNI: 55, PAXG: 77, CL: 88 };
+const VOL: Record<string, number> = { BTC: 0.018, ETH: 0.022, BNB: 0.02, UNI: 0.03, PAXG: 0.008, CL: 0.03 };
+
+// 买入周序号（相对 0..259）与每笔金额（USDT）。都放在最近几周：均价接近当前价，平静场景不会误触发止盈
 const BUY_WEEKS: Record<string, number[]> = {
-  BTC: [70, 95, 130, 175, 205, 235],
-  ETH: [75, 100, 138, 170, 210, 240],
-  SOL: [92, 120, 150, 185, 215, 245],
-  BNB: [80, 105, 145, 178, 200, 230],
-  UNI: [100, 150, 190, 225],
-  LINK: [90, 140, 180, 220],
-  PAXG: [85, 130, 170, 210, 240],
+  BTC: [235],
+  ETH: [240, 250],
+  BNB: [238, 248],
+  UNI: [242],
+  PAXG: [236, 246],
 };
-const BUY_AMOUNT: Record<string, number> = { BTC: 220, ETH: 180, SOL: 130, BNB: 100, UNI: 60, LINK: 70, PAXG: 120 };
+const BUY_AMOUNT: Record<string, number> = { BTC: 220, ETH: 180, BNB: 100, UNI: 60, PAXG: 120 };
 
 export function buildMock(scenarioInput?: string, now = Date.now()): { raw: RawData; scenario: Scenario } {
   const scenario = (SCENARIOS as string[]).includes(scenarioInput ?? "") ? (scenarioInput as Scenario) : DEFAULT_SCENARIO;
   const end = Math.floor(now / WEEK) * WEEK; // 本周周一 00:00 UTC（周线开盘）
-  const raw: RawData = { tickers: {}, weekly: {}, monthly: {}, trades: [], extraAssets: [{ asset: "USDT", qty: 1200, usdt: 1200 }] };
+  const raw: RawData = { tickers: {}, weekly: {}, trades: [], extraAssets: [{ asset: "USDT", qty: 1200, usdt: 1200 }], fearGreed: FEAR_GREED[scenario], accountKnown: true };
   const r = rng(99);
 
   for (const w of watchlist) {
@@ -145,7 +125,6 @@ export function buildMock(scenarioInput?: string, now = Date.now()): { raw: RawD
     const kf: KF = [...HISTORY.slice(0, -1), [207, 150], ...tail.slice(1)];
     const weekly = makeWeekly(kf, SCALE[w.symbol] ?? 1, SEED[w.symbol] ?? 7, VOL[w.symbol] ?? 0.02, end);
     raw.weekly[w.symbol] = weekly;
-    raw.monthly[w.symbol] = toMonthly(weekly);
 
     const last = weekly[weekly.length - 1].c;
     const prevDay = last * (1 + (r() - 0.5) * 0.05);

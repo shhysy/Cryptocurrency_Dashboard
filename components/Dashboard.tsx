@@ -15,10 +15,9 @@ import { dateTime } from "@/lib/format";
 
 const SCENARIOS: [string, string][] = [
   ["none", "😴 不宜操作"],
-  ["accumulate", "🟢 适合加仓"],
+  ["accumulate", "🟢 适合买入"],
   ["strong", "🔥 强烈买入"],
-  ["risk", "🟡 风险暂停"],
-  ["sell", "🔴 卖出条件"],
+  ["sell", "🔴 建议卖出"],
 ];
 
 type Tab = "trades" | "balance" | "strategy";

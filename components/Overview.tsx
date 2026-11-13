@@ -186,7 +186,6 @@ function ReturnBar({ ret }: { ret: number }) {
 
 export default function Overview({ data }: { data: DashboardData }) {
   const s = data.summary;
-  const capPct = Math.min(1, s.investedCny / s.capitalLimitCny);
   return (
     <section className="grid gap-4 lg:grid-cols-3" aria-label="资产总览">
       <div className="glass fade-in p-6 sm:p-8 lg:col-span-3">
@@ -204,7 +203,7 @@ export default function Overview({ data }: { data: DashboardData }) {
        <CountUp value={s.totalInvested} format={(n) => usd(n, 0)} />
      </p>
      <p className="num mt-1 text-xs text-mute">
-       ¥{num(s.investedCny)} / 上限 ¥{num(s.capitalLimitCny)}（{(capPct * 100).toFixed(0)}%）
+       ≈ ¥{num(s.investedCny)}
      </p>
    </div>
           <div>
@@ -244,7 +243,6 @@ export default function Overview({ data }: { data: DashboardData }) {
 /** 一屏模式用的紧凑汇总条：三个核心数字 + 收益进度条，一行放下。 */
 export function SummaryStrip({ data }: { data: DashboardData }) {
   const s = data.summary;
-  const capPct = Math.min(1, s.investedCny / s.capitalLimitCny);
   return (
     <section className="glass fade-in shrink-0 px-5 py-3" aria-label="资产总览">
       <div className="grid grid-cols-[1fr_1fr_1fr_1.5fr] items-center gap-5">
@@ -256,7 +254,7 @@ export function SummaryStrip({ data }: { data: DashboardData }) {
         <div>
           <p className="text-[10px] tracking-widest text-mute">总投入本金</p>
           <p className="text-2xl font-bold text-sub xl:text-3xl"><CountUp value={s.totalInvested} format={(n) => usd(n, 0)} /></p>
-          <p className="num text-[10px] text-mute">¥{num(s.investedCny)} / 上限 ¥{num(s.capitalLimitCny)}（{(capPct * 100).toFixed(0)}%）</p>
+          <p className="num text-[10px] text-mute">≈ ¥{num(s.investedCny)}</p>
         </div>
  <div>
    <p className="text-[10px] tracking-widest text-mute">总浮盈亏</p>

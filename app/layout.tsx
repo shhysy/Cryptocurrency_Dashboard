@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "长期投资信号看板",
-  description: "周线 / 月线级别的长期投资信号，只读看板",
+  description: "周线级别的长期投资信号，只读看板",
   robots: { index: false, follow: false },
 };
 

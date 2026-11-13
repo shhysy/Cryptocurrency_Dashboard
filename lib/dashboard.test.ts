@@ -11,7 +11,6 @@ function raw(balances: Record<string, number>, extra: RawData["extraAssets"]): R
   return {
     tickers: Object.fromEntries(symbols.map((s) => [s, { price: 10, change24h: 0 }])),
     weekly: Object.fromEntries(symbols.map((s) => [s, wk(10)])),
-    monthly: Object.fromEntries(symbols.map((s) => [s, wk(10)])),
     trades: [],
     balances,
     extraAssets: extra,
@@ -21,9 +20,9 @@ const meta = { source: "binance" as const, updatedAt: 0 };
 
 describe("小额余额过滤（< 0.5 USDT 不计入）", () => {
   it("持仓折合 0.49 USDT 不计入，0.5 USDT 起计入", () => {
-    const d = buildDashboard(raw({ UNI: 0.049, LINK: 0.05 }, []), meta);
+    const d = buildDashboard(raw({ UNI: 0.049, BNB: 0.05 }, []), meta);
     const uni = d.coins.find((c) => c.symbol === "UNI")!;
-    const link = d.coins.find((c) => c.symbol === "LINK")!;
+    const link = d.coins.find((c) => c.symbol === "BNB")!;
     expect(uni.qty).toBe(0);
     expect(link.qty).toBe(0.05);
     expect(d.summary.totalValue).toBeCloseTo(0.5, 9);
