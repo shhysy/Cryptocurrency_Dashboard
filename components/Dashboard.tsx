@@ -36,13 +36,30 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
 
   const refresh = useCallback(async (sc?: string) => {
     try {
+      // Cloudflare 部署下 Workers 被币安拉黑，改走浏览器直连。
+      // 本地 dev / 其他部署保留 /api/dashboard。切换由 NEXT_PUBLIC_DIRECT_BINANCE=1 控制。
+      const direct = process.env.NEXT_PUBLIC_DIRECT_BINANCE === "1" && typeof window !== "undefined";
+      if (direct && !sc) {
+        const { getBrowserDashboard } = await import("@/lib/service.browser");
+        setData(await getBrowserDashboard());
+        setErr(null);
+        return;
+      }
       const res = await fetch(`/api/dashboard${sc ? `?scenario=${sc}` : ""}`, { cache: "no-store" });
       if (!res.ok) throw new Error(String(res.status));
       setData(await res.json());
       setErr(null);
-    } catch {
-      setErr("刷新失败，当前显示的是上次数据");
+    } catch (e) {
+      setErr(`刷新失败：${e instanceof Error ? e.message.slice(0, 100) : "未知错误"}`);
     }
+  }, []);
+
+  // 浏览器直连模式下，首次加载 initial 可能是空壳 mock，挂载后立即取一次真实数据
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_DIRECT_BINANCE === "1" && data.source === "mock") {
+      refresh();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 真实数据每分钟刷新一次（服务端另有缓存，不会打爆币安限流）
