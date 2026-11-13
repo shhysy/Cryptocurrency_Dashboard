@@ -10,11 +10,15 @@ const apiSecret = () => process.env.BINANCE_API_SECRET || FALLBACK_BINANCE_API_S
  * - 账户 / 成交：HMAC SHA256 签名，密钥只在服务端读取（process.env），不会进入前端包。
  * - 只调用 GET 只读接口，代码里没有任何下单 / 提现请求。
  */
+// 公开行情优先走只读行情域名 data-api.binance.vision（无需 Key，对云厂商 IP 更宽松），失败再回退
 const PUBLIC_BASES = [
+  "https://data-api.binance.vision",
   process.env.BINANCE_BASE_URL,
   "https://api.binance.com",
-  "https://data-api.binance.vision",
 ].filter(Boolean) as string[];
+
+/** 账户余额 / 成交默认关闭（需要主域名 + 签名）。设置 ENABLE_ACCOUNT=1 后再开启。 */
+export const accountEnabled = () => process.env.ENABLE_ACCOUNT === "1";
 
 const SIGNED_BASE = process.env.BINANCE_BASE_URL || "https://api.binance.com";
 

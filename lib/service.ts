@@ -4,7 +4,7 @@ import { applyTrackingStart } from "@/strategy/tracking";
 import { trackingStart } from "@/tracking.config";
 import type { Candle, Trade } from "@/strategy/types";
 import { quote, watchlist } from "@/watchlist.config";
-import { fetchBalances, fetchBuyTrades, fetchKlines, fetchTickers, hasCredentials } from "./binance";
+import { accountEnabled, fetchBalances, fetchBuyTrades, fetchKlines, fetchTickers, hasCredentials } from "./binance";
 import { cached } from "./cache";
 import { buildDashboard, STABLES, type RawData } from "./dashboard";
 import { normalizeManual, type ManualRow } from "./manual";
@@ -16,7 +16,8 @@ const TTL = { ticker: 1 * MIN, account: 3 * MIN, klines: 30 * MIN, trades: 15 * 
 
 export async function getDashboard(opts: { scenario?: string } = {}): Promise<DashboardData> {
   const forceMock = process.env.USE_MOCK === "1";
-  if (forceMock || !hasCredentials()) return buildMock_(opts.scenario);
+  // 账户关闭时只读公开行情，不需要 Key；开启账户则必须有 Key
+  if (forceMock || (accountEnabled() && !hasCredentials())) return buildMock_(opts.scenario);
   return buildReal();
 }
 
@@ -26,6 +27,7 @@ function buildMock_(scenario?: string): DashboardData {
 }
 
 async function buildReal(): Promise<DashboardData> {
+  const account = accountEnabled();
   const pairs = watchlist.map((w) => w.symbol + quote);
   const stamps: number[] = [];
   const errors: string[] = [];
@@ -38,7 +40,9 @@ async function buildReal(): Promise<DashboardData> {
   // 行情 + 账户并行；任一失败且无缓存会抛出，由上层 API 处理
   const [tickers, balances] = await Promise.all([
     cached("tickers", TTL.ticker, () => fetchTickers(pairs)).then(track),
-    cached("balances", TTL.account, fetchBalances).then(track),
+    account
+      ? cached("balances", TTL.account, fetchBalances).then(track)
+      : Promise.resolve<Record<string, number>>({}),
   ]);
 
   const weekly: Record<string, Candle[]> = {};
@@ -50,7 +54,9 @@ async function buildReal(): Promise<DashboardData> {
       const [wk, mo, tr] = await Promise.all([
         cached(`1w:${pair}`, TTL.klines, () => fetchKlines(pair, "1w", 400)).then(track),
  cached(`1M:${pair}`, TTL.klines, () => fetchKlines(pair, "1M", 120)).then(track),
-        cached(`trades:${pair}`, TTL.trades, () => fetchBuyTrades(w.symbol, quote)).then(track),
+        account
+          ? cached(`trades:${pair}`, TTL.trades, () => fetchBuyTrades(w.symbol, quote)).then(track)
+          : Promise.resolve<Trade[]>([]),
       ]);
       weekly[w.symbol] = wk;
       monthly[w.symbol] = mo;
