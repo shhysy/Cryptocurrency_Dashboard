@@ -269,7 +269,7 @@ function planBuy(c: Ctx): Action {
       const trigger = basePrice * (1 - profile.reserve.drop);
       kind = "reserve"; label = "备用金"; planned = profile.reserve.usdt;
       if (input.price > trigger) return none({ blocked, notes: [`4 档补仓已用完；备用金触发价 ${usd(trigger)}（下跌 ${pct(profile.reserve.drop)}），当前 ${usd(input.price)} 未到`] });
-      if (ctx.fearGreed === null || ctx.fearGreed > cfg.fearGreed.tiers[0].max) blocked.push(`备用金需极度恐惧（恐惧贪婪 ≤ ${cfg.fearGreed.tiers[0].max}）`);
+      if (ctx.fearGreed === null || ctx.fearGreed > cfg.fearGreed.extremeFear) blocked.push(`备用金需极度恐惧（恐惧贪婪 ≤ ${cfg.fearGreed.extremeFear}）`);
       if ((stableCount ?? 0) < cfg.reserveStableMin) blocked.push(`备用金需企稳 ≥ ${cfg.reserveStableMin} 项`);
     }
   }

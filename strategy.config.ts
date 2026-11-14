@@ -46,18 +46,27 @@ export const strategyConfig = {
   ma: {
     weeklyPeriod: 200, // 周线 MA200（约 4 年线）
     directionWeeks: 4, // BTC 判断 MA200 方向：与 4 周前比
-    // 价格 / MA200 ≤ max 得 points 分
+    // 价格 / MA200 ≤ max 得 points 分；从严到宽匹配，命中第一档即停。
+    // V3.3 细化：原来两档粗粒度（≤1.00/≤1.05），现分六档拉开梯度，越低于 MA200 分数越高。
     tiers: [
-      { max: 1, points: 30 },
-      { max: 1.05, points: 20 },
+      { max: 0.7, points: 30 },
+      { max: 0.8, points: 24 },
+      { max: 0.9, points: 18 },
+      { max: 1.0, points: 12 },
+      { max: 1.05, points: 6 },
     ],
   },
   fearGreed: {
-    // 恐惧贪婪指数 ≤ max 得 points 分；第一档同时是「极度恐惧线」（备用金的条件）
+    // 恐惧贪婪指数 ≤ max 得 points 分；从严到宽匹配，命中第一档即停。
+    // V3.3 细化：原来两档粗粒度（≤25/≤40），现分六档拉开梯度，低贪婪高分更鼓励抄底。
     tiers: [
-      { max: 25, points: 30 },
-      { max: 40, points: 15 },
+      { max: 10, points: 30 },
+      { max: 15, points: 25 },
+      { max: 25, points: 20 },
+      { max: 35, points: 10 },
+      { max: 40, points: 5 },
     ],
+    extremeFear: 25, // 备用金的「极度恐惧」门槛（与打分最严档解耦，保持 V3.2 的触发条件不过松）
     overheat: 80, // ≥ 80：过热，进入止盈检查
   },
   score: {
