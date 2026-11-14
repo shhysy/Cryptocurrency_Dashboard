@@ -25,7 +25,7 @@ export default function StrategyInfo({ bare = false }: { bare?: boolean }) {
         `头仓：积极型 $${core.headNormal}（≥ ${core.highScore} 分且 BTC 非熊市 $${core.headHigh}）；保守型 $${alt.headNormal}（≥ ${alt.highScore} 分 $${alt.headHigh}）`,
         `头仓认定：单笔买入 > $${c.headMinUsdt}，或持有余额折合 > $${c.headMinUsdt}；之前的小额买入不算。补仓档位 = 头仓之后又买了几笔`,
         `补仓 4 档（较头仓价下跌）：积极型 ${core.adds.map((a) => p(a.drop)).join(" / ")} 各 $${core.adds[0].usdt}；保守型 ${alt.adds.map((a) => p(a.drop)).join(" / ")} 各 $${alt.adds[0].usdt}`,
-        `备用金：积极型 $${core.reserve.usdt}（跌 ${p(core.reserve.drop)}）；保守型 $${alt.reserve.usdt}（跌 ${p(alt.reserve.drop)}）。另需恐惧贪婪 ≤ ${c.fearGreed.tiers[0].max} 且企稳 ≥ ${c.reserveStableMin} 项`,
+        `备用金：积极型 $${core.reserve.usdt}（跌 ${p(core.reserve.drop)}）；保守型 $${alt.reserve.usdt}（跌 ${p(alt.reserve.drop)}）。另需恐惧贪婪 ≤ ${c.fearGreed.extremeFear} 且企稳 ≥ ${c.reserveStableMin} 项`,
         `BTC 过渡市金额 × ${core.transitionFactor}（保守型 × ${alt.transitionFactor}），熊市 × ${core.bearFactor}（保守型 × ${alt.bearFactor}，且禁止新增）。冷却：积极型 ${core.cooldownWeeks} 周，保守型 ${alt.cooldownWeeks} 周`,
       ],
     },
