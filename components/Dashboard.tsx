@@ -27,6 +27,22 @@ const TABS: [Tab, string][] = [
   ["strategy", "策略说明"],
 ];
 
+/** 抄底优先：可买 > 可卖 > 暂缓 > 观望；同档按机会指数降序。 */
+function sortCoinsForSignal<T extends { signal: { score: number; tag: string; action: { side: string } } }>(coins: T[]): T[] {
+  const rank = (c: T) => {
+    const side = c.signal.action.side;
+    if (side === "buy") return 0;
+    if (side === "sell") return 1;
+    if (c.signal.tag === "暂缓") return 2;
+    return 3;
+  };
+  return [...coins].sort((a, b) => {
+    const d = rank(a) - rank(b);
+    if (d !== 0) return d;
+    return b.signal.score - a.signal.score;
+  });
+}
+
 export default function Dashboard({ initial }: { initial: DashboardData }) {
   const [data, setData] = useState(initial);
   const [err, setErr] = useState<string | null>(null);
@@ -71,6 +87,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
 
   const stale = data.stale || err;
   const symbols = data.coins.map((c) => c.symbol);
+  const coinsSorted = sortCoinsForSignal(data.coins);
 
   const header = (
     <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 text-xs text-mute">
@@ -80,19 +97,19 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
       <span className="num flex flex-wrap items-center gap-2">
         {data.source === "mock" && (
           <span className="flex flex-wrap items-center gap-1">
-     {SCENARIOS.map(([k, label]) => (
-       <button
-         key={k}
-  onClick={() => refresh(k)}
-         className={`rounded-full border px-2 py-0.5 text-[11px] transition ${
-    scenario === k ? "border-gold/60 bg-gold/10 text-gold" : "border-line hover:text-fg"
-         }`}
-       >
-         {label}
-       </button>
-     ))}
+            {SCENARIOS.map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => refresh(k)}
+                className={`rounded-full border px-2 py-0.5 text-[11px] transition ${
+                  scenario === k ? "border-gold/60 bg-gold/10 text-gold" : "border-line hover:text-fg"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </span>
- )}
+        )}
         <i className={`inline-block h-1.5 w-1.5 rounded-full ${stale ? "bg-warn" : "bg-up"}`} />
         数据更新时间 {dateTime(data.updatedAt)}
         {data.source === "mock" && <span className="rounded border border-gold/40 px-1.5 text-gold">示例数据</span>}
@@ -101,22 +118,25 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
     </header>
   );
 
-  const banner = stale && (
-    <div className="shrink-0 rounded-xl border border-warn/30 bg-warn/10 px-4 py-1.5 text-xs text-warn" role="status">
-      {err ?? "接口暂时不可用，显示的是上次缓存数据"}（更新于 {dateTime(data.updatedAt)}）
+  const banner = err ? (
+    <div className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn">{err}</div>
+  ) : data.stale ? (
+    <div className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn">
+      部分数据过期，显示的是上次成功缓存。{data.staleReasons.join("；")}
     </div>
-  );
+  ) : null;
 
-  const notes = data.notes.length > 0 && (
-    <div className="space-y-0.5 rounded-xl border border-line px-3 py-1.5 text-[11px] leading-snug text-mute">
-      {data.notes.map((n) => (
-        <p key={n}>⚠ {n}</p>
-      ))}
-    </div>
-  );
+  const notes =
+    data.notes.length > 0 ? (
+      <ul className="space-y-1 text-xs text-mute">
+        {data.notes.map((n) => (
+          <li key={n}>· {n}</li>
+        ))}
+      </ul>
+    ) : null;
 
   const footer = (
-    <footer className="shrink-0 px-2 text-center text-[11px] leading-relaxed text-mute">
+    <footer className="text-center text-[11px] leading-relaxed text-mute">
       信号仅供参考，不构成投资建议。加密货币波动剧烈，请控制仓位，只投入可以长期放着的资金。
     </footer>
   );
@@ -125,7 +145,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
   if (fit) {
     return (
       <main className="mx-auto flex h-dvh w-full max-w-[1800px] flex-col gap-2 overflow-hidden px-4 py-2.5 lg:px-6">
- {header}
+        {header}
         {banner}
         <Hero data={data} />
         <SummaryStrip data={data} />
@@ -133,51 +153,51 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(320px,26%)] gap-2">
           {/* 左：持仓卡片，自动按币种数量排列 */}
           <section
-     aria-label="持仓卡片"
-     className="grid min-h-0 gap-2"
-     style={{
-       gridTemplateColumns: `repeat(${data.coins.length > 6 ? 4 : data.coins.length > 4 ? 3 : 2}, minmax(0, 1fr))`,
-       gridAutoRows: "minmax(0, 1fr)",
-     }}
-   >
-     {data.coins.map((c) => (
-<CoinCardCompact key={c.symbol} coin={c} />
-     ))}
-   </section>
+            aria-label="持仓卡片"
+            className="grid min-h-0 gap-2"
+            style={{
+              gridTemplateColumns: `repeat(${data.coins.length > 6 ? 4 : data.coins.length > 4 ? 3 : 2}, minmax(0, 1fr))`,
+              gridAutoRows: "minmax(0, 1fr)",
+            }}
+          >
+            {coinsSorted.map((c) => (
+              <CoinCardCompact key={c.symbol} coin={c} />
+            ))}
+          </section>
 
           {/* 右：曲线、占比、以及可切换的面板 */}
           <aside className="flex min-h-0 flex-col gap-2">
             <div className="glass shrink-0 p-3">
-       <p className="mb-1 text-[11px] text-sub">资产增长曲线 · 按周</p>
-       <EquityChart data={data.equityCurve} height={110} />
-     </div>
-     <div className="glass shrink-0 p-3">
-       <p className="mb-1.5 text-[11px] text-sub">持仓占比</p>
-<Donut items={data.allocation} compact />
+              <p className="mb-1 text-[11px] text-sub">资产增长曲线 · 按周</p>
+              <EquityChart data={data.equityCurve} height={110} />
             </div>
-     <div className="glass flex min-h-0 flex-1 flex-col p-3">
-       <div className="mb-2 flex shrink-0 gap-1" role="tablist">
-         {TABS.map(([k, label]) => (
-    <button
-      key={k}
-      role="tab"
-      aria-selected={tab === k}
-      onClick={() => setTab(k)}
-      className={`rounded-full border px-3 py-0.5 text-xs transition ${
-        tab === k ? "border-gold/60 bg-gold/10 text-gold" : "border-line text-mute hover:text-fg"
-      }`}
-    >
-      {label}
-    </button>
-  ))}
-</div>
-       {/* 内容放不下时，这里出现滚动条 */}
-       <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-  {tab === "trades" && <Timeline trades={data.trades} symbols={symbols} bare />}
-  {tab === "balance" && <Balances data={data} bare />}
-  {tab === "strategy" && <StrategyInfo bare />}
-       </div>
-     </div>
+            <div className="glass shrink-0 p-3">
+              <p className="mb-1.5 text-[11px] text-sub">持仓占比</p>
+              <Donut items={data.allocation} compact />
+            </div>
+            <div className="glass flex min-h-0 flex-1 flex-col p-3">
+              <div className="mb-2 flex shrink-0 gap-1" role="tablist">
+                {TABS.map(([k, label]) => (
+                  <button
+                    key={k}
+                    role="tab"
+                    aria-selected={tab === k}
+                    onClick={() => setTab(k)}
+                    className={`rounded-full border px-3 py-0.5 text-xs transition ${
+                      tab === k ? "border-gold/60 bg-gold/10 text-gold" : "border-line text-mute hover:text-fg"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {/* 内容放不下时，这里出现滚动条 */}
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                {tab === "trades" && <Timeline trades={data.trades} symbols={symbols} bare />}
+                {tab === "balance" && <Balances data={data} bare />}
+                {tab === "strategy" && <StrategyInfo bare />}
+              </div>
+            </div>
           </aside>
         </div>
 
@@ -199,10 +219,10 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
       <section aria-label="持仓卡片">
         <h2 className="mb-3 px-1 text-sm font-medium tracking-wide text-sub">我的持仓</h2>
         <div className="grid gap-4 md:grid-cols-2 min-[1280px]:grid-cols-3">
-   {data.coins.map((c) => (
-     <CoinCardView key={c.symbol} coin={c} />
-   ))}
- </div>
+          {coinsSorted.map((c) => (
+            <CoinCardView key={c.symbol} coin={c} />
+          ))}
+        </div>
       </section>
 
       <Timeline trades={data.trades} symbols={symbols} />
