@@ -5,7 +5,6 @@ import type { DashboardData } from "@/lib/types";
 import { num, pct } from "@/lib/format";
 import { watchlist } from "@/watchlist.config";
 
-
 const META: Record<VerdictKind, { icon: string; title: string; sub: string }> = {
   none: { icon: "😴", title: "今日不宜操作", sub: "市场无明显机会，耐心持有" },
   accumulate: { icon: "🟢", title: "适合买入", sub: "出现温和的低位信号" },
@@ -30,13 +29,6 @@ const BTC_STATE: Record<MarketState, { label: string; tone: string; hint: string
     tone: "border-up/40 bg-up/10 text-up",
     hint: "收盘 ≥ MA200 且 MA200 不下行 · 正常参数",
   },
-};
-
-const chipTone: Record<VerdictKind, string> = {
-  none: "border-line text-mute",
-  accumulate: "border-up/40 text-up",
-  strong: "border-gold/50 text-gold",
-  sell: "border-down/40 text-down",
 };
 
 const chipText = (s: CoinSignal) => (s.tag === "观望" ? "观望" : s.tag);
@@ -70,39 +62,57 @@ function Detail({ sig, kind }: { sig: CoinSignal | null; kind: VerdictKind }) {
         <b className="text-fg">{sig.symbol}</b> · {a.label} · 建议卖出{" "}
         <b className="text-fg">{a.sellPct !== null ? `${Math.round(a.sellPct * 100)}%` : ""}</b>
         {a.usdt !== null ? <span className="text-mute">（约 ${num(a.usdt)}）</span> : null}
-        {sig.metrics.returnPct !== null ? <span className="text-mute"> · 当前收益 {pct(sig.metrics.returnPct, 0)}</span> : null}
+        {sig.metrics.returnPct !== null ? (
+          <span className="text-mute"> · 浮盈 {pct(sig.metrics.returnPct, 1)}</span>
+        ) : null}
       </p>
     );
   }
-  return <p className={DETAIL}>长期投资，大多数日子都不需要动作</p>;
-}
-
-/** 恐惧贪婪指数等级和色调。越恐惧越接近买点（绿），越贪婪越接近卖点（红），分档同 alternative.me。 */
-function fearGreedLevel(v: number): { label: string; tone: string } {
-  if (v <= 24) return { label: "极度恐惧", tone: "border-up/50 bg-up/10 text-up" };
-  if (v <= 49) return { label: "恐惧", tone: "border-up/30 text-up" };
-  if (v === 50) return { label: "中性", tone: "border-line text-sub" };
-  if (v <= 74) return { label: "贪婪", tone: "border-warn/40 text-warn" };
-  return { label: "极度贪婪", tone: "border-down/50 bg-down/10 text-down" };
+  if (a.blocked.length) {
+    return (
+      <p className={DETAIL}>
+        <b className="text-fg">{sig.symbol}</b> · {a.label || "买入"}暂缓
+        <span className="text-mute"> · {a.blocked[0]}</span>
+        <span className="text-mute"> · 机会 {sig.score}/90</span>
+      </p>
+    );
+  }
+  return (
+    <p className={DETAIL}>
+      <b className="text-fg">{sig.symbol}</b> · {sig.tag}
+      <span className="text-mute"> · 机会 {sig.score}/90</span>
+      {kind === "none" ? <span className="text-mute"> · 未达行动条件</span> : null}
+    </p>
+  );
 }
 
 function FearGreedBadge({ value }: { value: number | null }) {
   if (value === null) {
     return (
-      <div className="shrink-0 rounded-xl border border-line bg-soft px-3 py-2 text-center text-mute fit:px-2 fit:py-1.5">
-        <p className="text-[10px] tracking-widest">恐慌指数</p>
-        <p className="text-sm">暂无</p>
+      <div className="shrink-0 rounded-xl border border-line bg-soft px-5 py-3 text-center text-mute fit:px-3 fit:py-2">
+        <p className="text-xs tracking-widest fit:text-[10px]">今日恐慌指数</p>
+        <p className="num my-1 text-3xl font-semibold fit:text-2xl">—</p>
+        <p className="text-sm fit:text-xs">暂无数据</p>
       </div>
     );
   }
-  const lvl = fearGreedLevel(value);
+  const lvl =
+    value <= 25
+      ? { label: "极度恐惧", tone: "border-up/50 bg-up/10 text-up" }
+      : value <= 45
+        ? { label: "恐惧", tone: "border-calm/40 bg-calm/10 text-calm" }
+        : value <= 55
+          ? { label: "中性", tone: "border-line bg-soft text-sub" }
+          : value <= 75
+            ? { label: "贪婪", tone: "border-warn/40 bg-warn/10 text-warn" }
+            : { label: "极度贪婪", tone: "border-down/40 bg-down/10 text-down" };
   return (
     <div
       className={`shrink-0 rounded-xl border px-5 py-3 text-center ${lvl.tone} fit:px-3 fit:py-2`}
       title="恐惧贪婪指数（alternative.me）：≤25 极度恐惧，≥80 过热"
     >
       <p className="text-xs tracking-widest opacity-80 fit:text-[10px]">今日恐慌指数</p>
-      <p className="num my-1 text-5xl font-extrabold leading-none sm:text-7xl fit:my-0.5 fit:text-4xl!">{value}</p>
+      <p className={`num my-1 text-5xl font-extrabold leading-none sm:text-7xl fit:my-0.5 fit:text-4xl!`}>{value}</p>
       <p className="text-sm font-medium fit:text-xs">{lvl.label}</p>
     </div>
   );
@@ -126,6 +136,74 @@ function BtcStateBadge({ state }: { state: MarketState | null }) {
       <p className="text-[10px] tracking-widest opacity-80 fit:text-[9px]">BTC 市场</p>
       <p className="mt-1 text-xl font-extrabold leading-none sm:text-2xl fit:text-lg">{s.label}</p>
       <p className="mt-1 text-[10px] opacity-70 fit:text-[9px]">周线 · MA200</p>
+    </div>
+  );
+}
+
+/** 右侧机会一览：按得分排序，显示距观察线(30) / 门槛的距离与迷你条。 */
+function OpportunityBoard({
+  signals,
+  names,
+}: {
+  signals: CoinSignal[];
+  names: Record<string, string>;
+}) {
+  const WATCH_LINE = 30; // 与 engine 里「低分汇总」观察线一致
+  const sorted = [...signals].sort((a, b) => b.score - a.score);
+  if (!sorted.length) return null;
+
+  return (
+    <div className="mt-4 fit:mt-2.5">
+      <div className="mb-2 flex items-center justify-between text-[11px] text-mute fit:mb-1.5 fit:text-[10px]">
+        <span>机会一览</span>
+        <span>观察线 {WATCH_LINE} · 满分 90</span>
+      </div>
+      <ul className="space-y-2 fit:space-y-1.5">
+        {sorted.map((s) => {
+          const pctVal = Math.min(100, (s.score / 90) * 100);
+          const gap = Math.max(0, WATCH_LINE - s.score);
+          const near = s.score >= WATCH_LINE;
+          return (
+            <li key={s.symbol}>
+              <a
+                href={`#coin-${s.symbol}`}
+                className="group block rounded-lg border border-line bg-soft/60 px-2.5 py-1.5 transition hover:border-gold/40 hover:bg-soft fit:px-2 fit:py-1"
+                title={`${names[s.symbol] ?? s.symbol} · ${s.tag} · ${s.score}/90`}
+              >
+                <div className="flex items-center justify-between gap-2 text-xs fit:text-[11px]">
+                  <span className="font-medium text-fg">
+                    {s.symbol}
+                    <span className="ml-1.5 font-normal text-mute">{chipText(s)}</span>
+                  </span>
+                  <span className={`num tabular-nums ${near ? "text-up" : "text-sub"}`}>
+                    {s.score}
+                    <span className="text-mute">/90</span>
+                    {!near && gap > 0 ? (
+                      <span className="ml-1.5 text-[10px] text-mute">差 {gap}</span>
+                    ) : null}
+                  </span>
+                </div>
+                <div className="relative mt-1 h-1 overflow-hidden rounded-full bg-track fit:mt-0.5 fit:h-0.5">
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{
+                      width: `${pctVal}%`,
+                      background: near
+                        ? "linear-gradient(90deg, var(--c-up), var(--c-gold))"
+                        : "linear-gradient(90deg, var(--c-calm), var(--c-sub))",
+                    }}
+                  />
+                  <i
+                    className="absolute top-0 h-full w-px bg-gold/70"
+                    style={{ left: `${(WATCH_LINE / 90) * 100}%` }}
+                    aria-hidden
+                  />
+                </div>
+              </a>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -172,21 +250,13 @@ export default function Hero({ data }: { data: DashboardData }) {
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-mute fit:text-[13px]">依据：所有币种的周线 RSI、周线 MA200、恐惧贪婪指数，得分均未达到 30 分。</p>
+          <p className="text-sm text-mute fit:text-[13px]">
+            依据：各币机会指数均未达到观察线（30 分）。下方按得分从高到低排列，方便盯最接近机会的品种。
+          </p>
         )}
 
-        <div className="mt-5 flex flex-wrap gap-2 fit:mt-2.5 fit:gap-1.5">
-          {[...(sig ? [sig] : []), ...verdict.others].map((s) => (
-            <a
-              key={s.symbol}
-              href={`#coin-${s.symbol}`}
-              title={`${names[s.symbol] ?? s.symbol} · 机会指数 ${s.score} / 90`}
-              className={`rounded-full border bg-soft px-3 py-1 text-xs transition hover:bg-soft-2 fit:px-2 fit:py-0.5 fit:text-[11px] ${chipTone[s.kind]}`}
-            >
-              {s.symbol} · {chipText(s)}
-            </a>
-          ))}
-        </div>
+        {/* 机会一览：比「一排观望标签」更有信息量，填满右侧留白 */}
+        <OpportunityBoard signals={[...(sig ? [sig] : []), ...verdict.others]} names={names} />
       </div>
     </section>
   );
