@@ -11,17 +11,18 @@
 ```bash
 npm install
 cp .env.example .env.local     # Windows: copy .env.example .env.local
-# 编辑 .env.local，填 DASHBOARD_PASSWORD；有 Key 再填 BINANCE_API_KEY / SECRET
+# 编辑 .env.local：DASHBOARD_PASSWORD、BINANCE_API_KEY / SECRET
+# 国内本机建议设置 PROXY_URL（见下方「环境变量速查」）
 npm run dev      # http://localhost:3000
 npm test         # 策略引擎单元测试
 ```
 
-`DASHBOARD_PASSWORD` 留空则直接打开；设置后浏览器会弹出登录框，用户名随意，密码就是该值。
+`DASHBOARD_PASSWORD` 留空则直接打开；设置后浏览器会弹出登录框，用户名随意，密码就是该值。部署相关变量说明见下文 **环境变量速查**。
 
 ## 目录结构
 
 ```
-strategy.config.ts      策略阈值（RSI、MA200、恐惧贪婪、得分档位、汇率…）
+strategy.config.ts      策略参数（RSI、MA200、恐惧贪婪、得分档位、汇率…）
 watchlist.config.ts     关注币种，加币只需加一行
 strategy/        策略引擎（纯函数，不依赖框架）+ 单元测试
   indicators.ts           RSI / 均线 / 回撤
@@ -115,15 +116,50 @@ DASHBOARD_PASSWORD=xxx BINANCE_API_KEY=xxx BINANCE_API_SECRET=xxx npm start   # 
 
 导入仓库，在 Project Settings → Environment Variables 填三个变量。出口 IP 不固定，不能做白名单。
 
-### 方案 C：Cloudflare Workers
+### 方案 C：Cloudflare Workers（本仓库已按此部署）
 
-需要 `@opennextjs/cloudflare` 适配器，按官方文档配置 `wrangler` 后部署，密钥用 `wrangler secret put` 设置，不要写进 `wrangler.toml`。
+需要 `@opennextjs/cloudflare` 适配器，按官方文档配置 `wrangler` 后部署。密钥在 Cloudflare 控制台 **Settings → Variables and Secrets** 里添加（类型选 Secret），不要写进 `wrangler.toml` / `wrangler.jsonc`。
 
-**本项目没有在 Cloudflare 上验证过。** 另外两个限制：出口 IP 不固定，不能做白名单；币安会对部分机房 IP 返回 451，遇到就改用方案 A。
+Cloudflare 出口 IP 不固定，**不能**做币安 IP 白名单；部分机房 IP 会被币安拦截。本项目已支持 **浏览器直连**（见下方环境变量），用用户本机宽带访问币安公开/签名接口，绕过 Workers 出口限制。
+
+### 环境变量速查（稳定性相关）
+
+| 变量 | 本机开发 | Cloudflare 生产 | 作用 |
+|------|----------|-----------------|------|
+| `PROXY_URL` | 国内常需要，填本地代理如 `http://127.0.0.1:7897` | **不要设**（Workers 用不了你电脑的代理） | Node 服务端经代理访问币安；不设则直连 |
+| `NEXT_PUBLIC_DIRECT_BINANCE` | 一般 `0`（本机 Node 直连或走 `PROXY_URL`） | **建议 `1`**（见 `.env.production`） | `1` = 服务端不调币安，由**浏览器**直发请求（需本机可访问币安；部分环境要配合浏览器 CORS 扩展） |
+| `ENABLE_ACCOUNT` | 有 Key 且要金额建议时保持默认（开启） | 若只看信号、或账户接口易超时，可设 **`0`** | `0` = 不读余额/成交，**只出方向**，请求更少、更快；`1`/未设 = 读账户并尽量给出买入金额 |
+| `BINANCE_API_KEY` / `SECRET` | 填只读 Key | 用 Secret 配置 | 账户与成交需要；仅行情信号可不配（或 `USE_MOCK=1`） |
+| `BINANCE_BASE_URL` | 可选，自建现货反代 | 可选 | 转发现货 `/api/v3/*` |
+| `BINANCE_FAPI_URL` | 可选，自建合约反代 | 可选 | 原油 CL 等 U 本位行情默认 `https://fapi.binance.com` |
+
+**本机（国内）推荐：**
+
+```bash
+# .env.local
+PROXY_URL=http://127.0.0.1:7897   # 改成你的代理端口；能直连币安则可留空
+ENABLE_ACCOUNT=1                  # 要买入金额就开；经常超时可先改 0 只看方向
+# NEXT_PUBLIC_DIRECT_BINANCE 不要开（本机走 Node + 代理即可）
+```
+
+**Cloudflare 生产推荐：**
+
+```bash
+# 在 CF Secrets / .env.production
+NEXT_PUBLIC_DIRECT_BINANCE=1      # 浏览器直连，避开 Workers 出口被拦
+ENABLE_ACCOUNT=0                  # 可选：只要信号、少打账户接口时更快更稳
+# 不要设置 PROXY_URL
+```
+
+说明：
+
+- 浏览器直连模式下，Key 会进入前端 bundle（见 `lib/credentials.ts` / `binance.browser.ts`），**务必**在币安给 Key 绑你自己的家宽 IP，且只开只读权限。
+- `ENABLE_ACCOUNT=0` 时策略仍打分、仍给出「买/卖/暂缓」方向，但不会根据真实余额算建议金额。
+- 原油 CL 走币安 U 本位永续公开行情（`fapi`），与现货直连同一套部署思路；**无需改接口代码**，只配环境变量即可。
 
 ### 国内网络
 
-本机或国内服务器可能连不上 `api.binance.com`。可以走系统代理，或用海外服务器，或自建反向代理并设置 `BINANCE_BASE_URL`。
+本机或国内服务器可能连不上 `api.binance.com` / `fapi.binance.com`。本机用 `PROXY_URL`；或用海外 VPS；或自建反向代理并设置 `BINANCE_BASE_URL`（现货）/ `BINANCE_FAPI_URL`（合约）。
 
 ## 免责声明
 
