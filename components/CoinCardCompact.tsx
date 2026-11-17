@@ -1,6 +1,7 @@
 "use client";
 
-import { ActionBox, PriceChart, ScoreBar, TAG_STYLE, indicatorItems } from "./CoinCard";
+import { ActionBox, PriceChart, TAG_STYLE, indicatorItems } from "./CoinCard";
+import { ScoreBar } from "./ScoreBar";
 import { useFlash, useSize } from "./hooks";
 import type { CoinCard } from "@/lib/types";
 import { pct, price as fmtPrice, qty as fmtQty, tone, usd } from "@/lib/format";
@@ -14,10 +15,6 @@ const shorten = (s: string) => SHORT.reduce((acc, [a, b]) => acc.replace(a, b), 
 
 /**
  * 紧凑版持仓卡片（一屏模式用）。
- * 内容和完整卡片一致：价格、24h、收益、周线图（买入点/成本线/翻倍线）、
- * 持仓数量与市值、距翻倍进度、信号标签、各项指标是否触发。
- * 图表占满剩余高度。卡片高度小于 250px（小屏幕）时进入 dense：
- * 持仓/市值/成本合成一行，距翻倍进度条并成一行，把空间让给图表。
  */
 export default function CoinCardCompact({ coin }: { coin: CoinCard }) {
   const [ref, , h] = useSize<HTMLElement>();
