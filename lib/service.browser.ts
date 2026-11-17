@@ -2,7 +2,7 @@
  * 浏览器端 Dashboard 装配。与 lib/service.ts 对应，但：
  * - 所有币安请求由浏览器直发，走用户宽带 IP（绕开 Cloudflare 被拉黑的问题）。
  * - 缓存改为 sessionStorage（页面关闭即失效，刷新保留，避免打爆币安限流）。
- * - Yahoo 数据浏览器大概率跨域+被挡，这里直接跳过（watchlist.yahoo 的币没有周线/现价）。
+ * - 合约品种走 fapi 公开行情；Yahoo 仍会跨域被挡，直接跳过。
  */
 import manualJson from "@/data/manual-trades.json";
 import { mergeTrades } from "@/strategy/cost";
@@ -14,6 +14,8 @@ import {
   fetchBalances,
   fetchBuyTrades,
   fetchFearGreed,
+  fetchFuturesKlines,
+  fetchFuturesTicker,
   fetchKlines,
   fetchTickers,
   hasCredentials,
@@ -73,9 +75,10 @@ async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Prom
 export async function getBrowserDashboard(): Promise<DashboardData> {
   if (!hasCredentials()) throw new Error("浏览器端未配置币安 Key");
 
-  // 浏览器端不支持 Yahoo（CORS+地区），这里只处理币安现货品种
-  const spot = watchlist.filter((w) => !w.yahoo);
-  const skippedOutside = watchlist.filter((w) => w.yahoo);
+  // 浏览器端：现货 + 合约公开行情；Yahoo 跨域不可用则跳过
+  const spot = watchlist.filter((w) => !w.futures && !w.yahoo);
+  const futures = watchlist.filter((w) => w.futures);
+  const skippedOutside = watchlist.filter((w) => w.yahoo && !w.futures);
   const pairs = spot.map((w) => w.symbol + quote);
 
   const stamps: number[] = [];
@@ -100,6 +103,24 @@ export async function getBrowserDashboard(): Promise<DashboardData> {
 
   // Yahoo 品种：浏览器端跳过，仅给一个空数组避免 UI 崩
   for (const w of skippedOutside) weekly[w.symbol] = [];
+
+  // 合约公开行情（fapi，需与现货一样处理 CORS）
+  await Promise.all(
+    futures.map(async (w) => {
+      const pair = w.symbol + quote;
+      try {
+        const [wk, tk] = await Promise.all([
+          cached(`f1w:${pair}`, TTL.klines, () => fetchFuturesKlines(pair, "1w", 400)).then(track),
+          cached(`ftk:${pair}`, TTL.ticker, () => fetchFuturesTicker(pair)).then(track),
+        ]);
+        weekly[w.symbol] = wk;
+        tickers[pair] = tk;
+      } catch (e) {
+        weekly[w.symbol] ??= [];
+        errors.push(`${w.name}：${e instanceof Error ? e.message.slice(0, 80) : "合约行情失败"}`);
+      }
+    }),
+  );
 
   await Promise.all(
     spot.map(async (w) => {
@@ -146,6 +167,9 @@ export async function getBrowserDashboard(): Promise<DashboardData> {
     .sort((a, b) => (b.usdt ?? -1) - (a.usdt ?? -1));
 
   const notes: string[] = [
+    ...(futures.length
+      ? [`${futures.map((w) => w.name).join("、")} 行情来自币安 U 本位永续，只出信号。`]
+      : []),
     ...(skippedOutside.length
       ? [`${skippedOutside.map((w) => w.name).join("、")} 浏览器直连模式下跳过（Yahoo 跨域不可用）。`]
       : []),
