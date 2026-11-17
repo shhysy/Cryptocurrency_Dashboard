@@ -6,8 +6,8 @@
 /* ============ 主题变量：柔和深色为默认，html[data-theme="light"] 为柔和浅色 ============ */
 :root {
   color-scheme: dark;
-  --c-bg: #151922;
-  --c-bg-2: #1b2130;
+  --c-bg: #1a2030;
+  --c-bg-2: #222938;
   --c-fg: #e6e9f0;
   --c-sub: #aab3c8;
   --c-mute: #7c869e;
@@ -19,19 +19,19 @@
   --c-calm: #8fa3c7;
   --c-line: rgba(255, 255, 255, 0.1);
   --c-track: rgba(255, 255, 255, 0.06);
-  --c-soft: rgba(255, 255, 255, 0.025);
-  --c-soft-2: rgba(255, 255, 255, 0.05);
+  --c-soft: rgba(255, 255, 255, 0.04);
+  --c-soft-2: rgba(255, 255, 255, 0.07);
   --c-tick: rgba(255, 255, 255, 0.25);
   --c-grid: rgba(255, 255, 255, 0.05);
-  --c-pop: rgba(11, 18, 36, 0.96);
-  --c-halo: #151922;
+  --c-pop: rgba(28, 34, 48, 0.97);
+  --c-halo: #1a2030;
   --c-glow: rgba(46, 229, 157, 0.35);
-  --glass-top: rgba(255, 255, 255, 0.055);
-  --glass-bot: rgba(255, 255, 255, 0.02);
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --glass-shadow: 0 10px 40px -20px rgba(0, 0, 0, 0.8);
-  --page-glow-1: rgba(232, 184, 74, 0.07);
-  --page-glow-2: rgba(80, 110, 255, 0.06);
+  --glass-top: rgba(255, 255, 255, 0.06);
+  --glass-bot: rgba(255, 255, 255, 0.03);
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --glass-shadow: 0 10px 40px -20px rgba(0, 0, 0, 0.65);
+  --page-glow-1: rgba(232, 184, 74, 0.08);
+  --page-glow-2: rgba(80, 110, 255, 0.07);
   --hero-sheen: rgba(255, 255, 255, 0.04);
 }
 
