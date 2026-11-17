@@ -57,6 +57,53 @@ async function publicGet<T>(path: string): Promise<T> {
   throw lastErr;
 }
 
+export interface Ticker {
+  price: number;
+  change24h: number; // 小数
+}
+
+// ---------- U 本位合约公开行情（原油 CLUSDT 等）----------
+// 合约与现货域名不同；只读 klines / ticker，不签名、不下单。
+const FAPI_BASES = [
+  process.env.BINANCE_FAPI_URL,
+  "https://fapi.binance.com",
+].filter(Boolean) as string[];
+
+async function futuresGet<T>(path: string): Promise<T> {
+  let lastErr: unknown;
+  for (const base of FAPI_BASES) {
+    try {
+      return await getJson<T>(base + path);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr;
+}
+
+/** 合约 24h ticker（单个交易对）。 */
+export async function fetchFuturesTicker(pair: string): Promise<Ticker> {
+  const r = await futuresGet<{ lastPrice: string; priceChangePercent: string }>(
+    `/fapi/v1/ticker/24hr?symbol=${pair}`,
+  );
+  return { price: Number(r.lastPrice), change24h: Number(r.priceChangePercent) / 100 };
+}
+
+/** 合约 K 线（周线等）。上市较晚的品种根数可能少于现货。 */
+export async function fetchFuturesKlines(pair: string, interval: "1w", limit: number): Promise<Candle[]> {
+  const rows = await futuresGet<(string | number)[][]>(
+    `/fapi/v1/klines?symbol=${pair}&interval=${interval}&limit=${limit}`,
+  );
+  return rows.map((r) => ({
+    t: Number(r[0]),
+    o: Number(r[1]),
+    h: Number(r[2]),
+    l: Number(r[3]),
+    c: Number(r[4]),
+    v: Number(r[5]),
+  }));
+}
+
 export function hasCredentials() {
   return Boolean(apiKey() && apiSecret());
 }
@@ -95,11 +142,6 @@ async function signedGet<T>(path: string, params: Record<string, string | number
 }
 
 // ---------- 公开行情 ----------
-export interface Ticker {
-  price: number;
-  change24h: number; // 小数
-}
-
 export async function fetchTickers(pairs: string[]): Promise<Record<string, Ticker>> {
   const symbols = encodeURIComponent(JSON.stringify(pairs));
   const rows = await publicGet<{ symbol: string; lastPrice: string; priceChangePercent: string }[]>(
@@ -135,8 +177,7 @@ export async function fetchFearGreed(): Promise<number> {
   return v;
 }
 
-// ---------- 非币安品种（Yahoo Finance，如原油 CL=F） ----------
-// Yahoo 在国内直连会被挡，需要 PROXY_URL；失败时由上层缓存兜底，不影响其他币种。
+// ---------- Yahoo Finance（备用） ----------
 interface YahooChart {
   chart: {
     result?: {
