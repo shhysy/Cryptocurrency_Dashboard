@@ -1,6 +1,6 @@
 "use client";
 
-import type { CoinSignal, VerdictKind } from "@/strategy/types";
+import type { CoinSignal, MarketState, VerdictKind } from "@/strategy/types";
 import type { DashboardData } from "@/lib/types";
 import { num, pct } from "@/lib/format";
 import { watchlist } from "@/watchlist.config";
@@ -11,6 +11,25 @@ const META: Record<VerdictKind, { icon: string; title: string; sub: string }> = 
   accumulate: { icon: "🟢", title: "适合买入", sub: "出现温和的低位信号" },
   strong: { icon: "🔥", title: "强烈买入区间", sub: "多项长期指标同时处于低位" },
   sell: { icon: "🔴", title: "建议卖出", sub: "触发止盈 / 止损条件" },
+};
+
+/** BTC 市场状态：直接影响买入金额与是否允许新增山寨。 */
+const BTC_STATE: Record<MarketState, { label: string; tone: string; hint: string }> = {
+  bear: {
+    label: "熊市",
+    tone: "border-down/50 bg-down/10 text-down",
+    hint: "收盘 < MA200 且 MA200 下行 · 山寨禁止新增，核心金额 ×0.7",
+  },
+  transition: {
+    label: "过渡",
+    tone: "border-warn/40 bg-warn/10 text-warn",
+    hint: "MA200 方向与价格位置不一致 · 核心 ×0.85，山寨 ×0.5",
+  },
+  bull: {
+    label: "牛市",
+    tone: "border-up/40 bg-up/10 text-up",
+    hint: "收盘 ≥ MA200 且 MA200 不下行 · 正常参数",
+  },
 };
 
 const chipTone: Record<VerdictKind, string> = {
@@ -89,6 +108,28 @@ function FearGreedBadge({ value }: { value: number | null }) {
   );
 }
 
+function BtcStateBadge({ state }: { state: MarketState | null }) {
+  if (!state) {
+    return (
+      <div className="shrink-0 rounded-xl border border-line bg-soft px-3 py-2 text-center text-mute fit:px-2 fit:py-1.5">
+        <p className="text-[10px] tracking-widest">BTC 状态</p>
+        <p className="text-sm">暂无</p>
+      </div>
+    );
+  }
+  const s = BTC_STATE[state];
+  return (
+    <div
+      className={`shrink-0 rounded-xl border px-4 py-3 text-center ${s.tone} fit:px-2.5 fit:py-2`}
+      title={s.hint}
+    >
+      <p className="text-[10px] tracking-widest opacity-80 fit:text-[9px]">BTC 市场</p>
+      <p className="mt-1 text-xl font-extrabold leading-none sm:text-2xl fit:text-lg">{s.label}</p>
+      <p className="mt-1 text-[10px] opacity-70 fit:text-[9px]">周线 · MA200</p>
+    </div>
+  );
+}
+
 export default function Hero({ data }: { data: DashboardData }) {
   const { verdict } = data;
   const m = META[verdict.kind];
@@ -101,18 +142,21 @@ export default function Hero({ data }: { data: DashboardData }) {
       aria-live="polite"
     >
       <div className="flex flex-col items-start gap-6 sm:flex-row sm:items-center sm:gap-10 fit:gap-5!">
-        <FearGreedBadge value={data.market.fearGreed} />
-        <div className="hero-icon select-none text-[72px] leading-none sm:text-[112px] fit:text-[56px]!" aria-hidden>
-   {m.icon}
+        <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-stretch fit:flex-col fit:gap-1.5">
+          <FearGreedBadge value={data.market.fearGreed} />
+          <BtcStateBadge state={data.market.btcState} />
         </div>
- <div className="min-w-0 flex-1">
+        <div className="hero-icon select-none text-[72px] leading-none sm:text-[112px] fit:text-[56px]!" aria-hidden>
+          {m.icon}
+        </div>
+        <div className="min-w-0 flex-1">
           <p className="text-xs tracking-[0.3em] text-mute fit:text-[10px]">今日结论 · 周线</p>
           <h1
-     className={`hero-title-${verdict.kind} mt-2 text-[44px] font-extrabold leading-[1.08] sm:text-7xl lg:text-[84px] fit:mt-0.5! fit:text-[clamp(32px,3.3vw,60px)]!`}
+            className={`hero-title-${verdict.kind} mt-2 text-[44px] font-extrabold leading-[1.08] sm:text-7xl lg:text-[84px] fit:mt-0.5! fit:text-[clamp(32px,3.3vw,60px)]!`}
           >
-     {m.title}
-   </h1>
-   <Detail sig={sig} kind={verdict.kind} />
+            {m.title}
+          </h1>
+          <Detail sig={sig} kind={verdict.kind} />
           {!sig && <p className="mt-1 text-sm text-mute fit:text-xs">{m.sub}</p>}
         </div>
       </div>
@@ -121,27 +165,27 @@ export default function Hero({ data }: { data: DashboardData }) {
         {verdict.reasons.length > 0 ? (
           <ul className="space-y-1.5 text-sm text-sub fit:space-y-0.5 fit:text-[13px]">
             {verdict.reasons.map((r) => (
-       <li key={r.key} className="flex gap-2">
-         <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-gold" />
-         <span>{r.text}</span>
-</li>
-     ))}
+              <li key={r.key} className="flex gap-2">
+                <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-gold" />
+                <span>{r.text}</span>
+              </li>
+            ))}
           </ul>
- ) : (
-   <p className="text-sm text-mute fit:text-[13px]">依据：所有币种的周线 RSI、周线 MA200、恐惧贪婪指数，得分均未达到 30 分。</p>
+        ) : (
+          <p className="text-sm text-mute fit:text-[13px]">依据：所有币种的周线 RSI、周线 MA200、恐惧贪婪指数，得分均未达到 30 分。</p>
         )}
 
         <div className="mt-5 flex flex-wrap gap-2 fit:mt-2.5 fit:gap-1.5">
-   {[...(sig ? [sig] : []), ...verdict.others].map((s) => (
-     <a
-       key={s.symbol}
-       href={`#coin-${s.symbol}`}
-       title={`${names[s.symbol] ?? s.symbol} · 机会指数 ${s.score} / 90`}
-       className={`rounded-full border bg-soft px-3 py-1 text-xs transition hover:bg-soft-2 fit:px-2 fit:py-0.5 fit:text-[11px] ${chipTone[s.kind]}`}
-     >
-       {s.symbol} · {chipText(s)}
-     </a>
-   ))}
+          {[...(sig ? [sig] : []), ...verdict.others].map((s) => (
+            <a
+              key={s.symbol}
+              href={`#coin-${s.symbol}`}
+              title={`${names[s.symbol] ?? s.symbol} · 机会指数 ${s.score} / 90`}
+              className={`rounded-full border bg-soft px-3 py-1 text-xs transition hover:bg-soft-2 fit:px-2 fit:py-0.5 fit:text-[11px] ${chipTone[s.kind]}`}
+            >
+              {s.symbol} · {chipText(s)}
+            </a>
+          ))}
         </div>
       </div>
     </section>
