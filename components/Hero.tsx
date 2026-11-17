@@ -112,7 +112,7 @@ function FearGreedBadge({ value }: { value: number | null }) {
       title="恐惧贪婪指数（alternative.me）：≤25 极度恐惧，≥80 过热"
     >
       <p className="text-xs tracking-widest opacity-80 fit:text-[10px]">今日恐慌指数</p>
-      <p className={`num my-1 text-5xl font-extrabold leading-none sm:text-7xl fit:my-0.5 fit:text-4xl!`}>{value}</p>
+      <p className="num my-1 text-5xl font-extrabold leading-none sm:text-7xl fit:my-0.5 fit:text-4xl!">{value}</p>
       <p className="text-sm font-medium fit:text-xs">{lvl.label}</p>
     </div>
   );
@@ -140,7 +140,7 @@ function BtcStateBadge({ state }: { state: MarketState | null }) {
   );
 }
 
-/** 右侧机会一览：按得分排序，显示距观察线(30) / 门槛的距离与迷你条。 */
+/** 机会一览：按得分排序，显示距观察线(30) 与迷你条。 */
 function OpportunityBoard({
   signals,
   names,
@@ -148,12 +148,12 @@ function OpportunityBoard({
   signals: CoinSignal[];
   names: Record<string, string>;
 }) {
-  const WATCH_LINE = 30; // 与 engine 里「低分汇总」观察线一致
+  const WATCH_LINE = 30;
   const sorted = [...signals].sort((a, b) => b.score - a.score);
   if (!sorted.length) return null;
 
   return (
-    <div className="mt-4 fit:mt-2.5">
+    <div>
       <div className="mb-2 flex items-center justify-between text-[11px] text-mute fit:mb-1.5 fit:text-[10px]">
         <span>机会一览</span>
         <span>观察线 {WATCH_LINE} · 满分 90</span>
@@ -213,13 +213,33 @@ export default function Hero({ data }: { data: DashboardData }) {
   const m = META[verdict.kind];
   const sig = verdict.primary;
   const names = Object.fromEntries(watchlist.map((w) => [w.symbol, w.name]));
+  const signals = [...(sig ? [sig] : []), ...verdict.others];
 
   return (
     <section
-      className={`hero hero-${verdict.kind} fade-in px-6 py-10 sm:px-12 sm:py-16 fit:grid fit:shrink-0 fit:grid-cols-[1.15fr_1fr] fit:items-center fit:gap-6 fit:px-7! fit:py-4!`}
+      className={`hero hero-${verdict.kind} fade-in px-6 py-10 sm:px-12 sm:py-16 fit:grid fit:shrink-0 fit:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] fit:items-center fit:gap-6 fit:px-7! fit:py-4!`}
       aria-live="polite"
     >
-      <div className="flex flex-col items-start gap-6 sm:flex-row sm:items-center sm:gap-10 fit:gap-5!">
+      {/* 手机：结论在上；桌面 fit：机会一览在左、结论在右 */}
+      <div className="order-2 mt-8 border-t border-line pt-5 fit:order-1 fit:mt-0 fit:border-l-0 fit:border-r fit:border-t-0 fit:pr-6 fit:pt-0">
+        {verdict.reasons.length > 0 ? (
+          <ul className="mb-4 space-y-1.5 text-sm text-sub fit:mb-3 fit:space-y-0.5 fit:text-[13px]">
+            {verdict.reasons.map((r) => (
+              <li key={r.key} className="flex gap-2">
+                <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-gold" />
+                <span>{r.text}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mb-4 text-sm text-mute fit:mb-3 fit:text-[13px]">
+            依据：各币机会指数均未达到观察线（30 分）。按得分从高到低排列，方便盯最接近机会的品种。
+          </p>
+        )}
+        <OpportunityBoard signals={signals} names={names} />
+      </div>
+
+      <div className="order-1 flex flex-col items-start gap-6 sm:flex-row sm:items-center sm:gap-10 fit:order-2 fit:gap-5!">
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-stretch fit:flex-col fit:gap-1.5">
           <FearGreedBadge value={data.market.fearGreed} />
           <BtcStateBadge state={data.market.btcState} />
@@ -237,26 +257,6 @@ export default function Hero({ data }: { data: DashboardData }) {
           <Detail sig={sig} kind={verdict.kind} />
           {!sig && <p className="mt-1 text-sm text-mute fit:text-xs">{m.sub}</p>}
         </div>
-      </div>
-
-      <div className="mt-8 border-t border-line pt-5 fit:mt-0 fit:border-l fit:border-t-0 fit:pl-6 fit:pt-0">
-        {verdict.reasons.length > 0 ? (
-          <ul className="space-y-1.5 text-sm text-sub fit:space-y-0.5 fit:text-[13px]">
-            {verdict.reasons.map((r) => (
-              <li key={r.key} className="flex gap-2">
-                <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-gold" />
-                <span>{r.text}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-mute fit:text-[13px]">
-            依据：各币机会指数均未达到观察线（30 分）。下方按得分从高到低排列，方便盯最接近机会的品种。
-          </p>
-        )}
-
-        {/* 机会一览：比「一排观望标签」更有信息量，填满右侧留白 */}
-        <OpportunityBoard signals={[...(sig ? [sig] : []), ...verdict.others]} names={names} />
       </div>
     </section>
   );
