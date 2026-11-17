@@ -11,6 +11,8 @@ import {
   fetchFearGreed,
   fetchKlines,
   fetchTickers,
+  fetchFuturesKlines,
+  fetchFuturesTicker,
   fetchYahooQuote,
   fetchYahooWeekly,
   hasCredentials,
@@ -38,8 +40,9 @@ function buildMock_(scenario?: string): DashboardData {
 
 async function buildReal(): Promise<DashboardData> {
   const account = accountEnabled();
-  const spot = watchlist.filter((w) => !w.yahoo); // 币安现货品种
-  const outside = watchlist.filter((w) => w.yahoo); // 币安没有的品种（如原油），走 Yahoo，只出信号
+  const spot = watchlist.filter((w) => !w.futures && !w.yahoo); // 币安现货
+  const futures = watchlist.filter((w) => w.futures); // U 本位永续（如 CLUSDT），只出信号
+  const outside = watchlist.filter((w) => w.yahoo && !w.futures); // Yahoo 备用
   const pairs = spot.map((w) => w.symbol + quote);
   const stamps: number[] = [];
   const errors: string[] = [];
@@ -76,6 +79,24 @@ async function buildReal(): Promise<DashboardData> {
       } catch (e) {
         weekly[w.symbol] ??= [];
         outsideErrors.push(`${w.name}：${e instanceof Error ? e.message.slice(0, 80) : "取数失败"}`);
+      }
+    }),
+  );
+
+  // 合约品种：公开行情，失败只影响该品种
+  await Promise.all(
+    futures.map(async (w) => {
+      const pair = w.symbol + quote;
+      try {
+        const [wk, tk] = await Promise.all([
+          cached(`f1w:${pair}`, TTL.klines, () => fetchFuturesKlines(pair, "1w", 400)).then(track),
+          cached(`ftk:${pair}`, TTL.ticker, () => fetchFuturesTicker(pair)).then(track),
+        ]);
+        weekly[w.symbol] = wk;
+        tickers[pair] = tk;
+      } catch (e) {
+        weekly[w.symbol] ??= [];
+        outsideErrors.push(`${w.name}：${e instanceof Error ? e.message.slice(0, 80) : "合约行情失败"}`);
       }
     }),
   );
@@ -128,6 +149,9 @@ async function buildReal(): Promise<DashboardData> {
     .sort((a, b) => (b.usdt ?? -1) - (a.usdt ?? -1));
 
   const notes: string[] = [
+    ...(futures.length
+      ? [`${futures.map((w) => w.name).join("、")} 行情来自币安 U 本位永续（公开接口），只出信号，不读现货余额和成交。`]
+      : []),
     ...(outside.length ? [`${outside.map((w) => w.name).join("、")} 的行情来自 Yahoo Finance，只出信号，不读余额和成交；币安现货没有该品种。`] : []),
     ...outsideErrors,
     `收益从 ${trackingStart} 起算，更早的买卖不计入（见 tracking.config.ts）。` +
