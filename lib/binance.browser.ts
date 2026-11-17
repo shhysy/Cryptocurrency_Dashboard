@@ -93,6 +93,30 @@ export async function fetchFearGreed(): Promise<number> {
   return v;
 }
 
+// ---------- U 本位合约公开行情 ----------
+const FAPI = "https://fapi.binance.com";
+
+export async function fetchFuturesTicker(pair: string): Promise<Ticker> {
+  const r = await getJson<{ lastPrice: string; priceChangePercent: string }>(
+    `${FAPI}/fapi/v1/ticker/24hr?symbol=${pair}`,
+  );
+  return { price: Number(r.lastPrice), change24h: Number(r.priceChangePercent) / 100 };
+}
+
+export async function fetchFuturesKlines(pair: string, interval: "1w", limit: number): Promise<Candle[]> {
+  const rows = await getJson<(string | number)[][]>(
+    `${FAPI}/fapi/v1/klines?symbol=${pair}&interval=${interval}&limit=${limit}`,
+  );
+  return rows.map((r) => ({
+    t: Number(r[0]),
+    o: Number(r[1]),
+    h: Number(r[2]),
+    l: Number(r[3]),
+    c: Number(r[4]),
+    v: Number(r[5]),
+  }));
+}
+
 // Yahoo 在国内直连大概率也被挡，这里保留接口但默认不调用（由 service.browser.ts 决定是否启用）。
 interface YahooChart {
   chart: {
