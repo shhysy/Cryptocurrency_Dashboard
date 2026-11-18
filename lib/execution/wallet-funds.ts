@@ -1,64 +1,89 @@
 /**
- * Wallet separation model.
- *
- * Only Spot free USDT is executable for a Spot market buy. Earn and Funding
- * balances are displayed separately and must never be silently added to it.
+ * Binance Spot + Simple Earn USDT wallet model.
+ * Flexible Earn may be used for Spot trading in Binance's supported Spot UI
+ * flow; API execution still needs a separately verified redemption/order path.
+ * Locked Earn is tracked but is not treated as immediately tradable.
  */
 export interface UsdtWalletBuckets {
   spotFreeUsdt: number;
   spotLockedUsdt: number;
   flexibleEarnUsdt: number;
+  flexibleEarnRedeemingUsdt: number;
   lockedEarnUsdt: number;
-  fundingUsdt: number;
-  otherWalletUsdt: number;
+  lockedEarnRedeemingUsdt: number;
   activeBuyReservationsUsdt: number;
 }
 
 export interface UsdtWalletSummary extends UsdtWalletBuckets {
   totalTrackedUsdt: number;
-  spotExecutableBeforeReservationsUsdt: number;
-  spotExecutableAfterReservationsUsdt: number;
-  nonSpotUsdt: number;
+  spotFreeAfterReservationsUsdt: number;
+  flexibleEarnAvailableUsdt: number;
+  flexibleEarnPlanningUsdt: number;
+  totalPlanningUsdt: number;
+}
+
+function amount(value: number, label: string): number {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${label} 必须是非负有限数值`);
+  }
+  return value;
 }
 
 export function summarizeUsdtWallets(input: UsdtWalletBuckets): UsdtWalletSummary {
-  const values = Object.values(input);
-  if (!values.every(Number.isFinite) || values.some((value) => value < 0)) {
-    throw new Error("USDT 账户分层余额必须是非负有限数值");
-  }
-  const spotExecutableBeforeReservationsUsdt = input.spotFreeUsdt;
-  const spotExecutableAfterReservationsUsdt = Math.max(
-    0,
-    input.spotFreeUsdt - input.activeBuyReservationsUsdt,
+  for (const [key, value] of Object.entries(input)) amount(value, key);
+  const spotFreeAfterReservationsUsdt = Math.max(
+    0, input.spotFreeUsdt - input.activeBuyReservationsUsdt,
   );
-  const nonSpotUsdt = input.flexibleEarnUsdt + input.lockedEarnUsdt +
-    input.fundingUsdt + input.otherWalletUsdt;
+  const flexibleEarnAvailableUsdt = Math.max(
+    0, input.flexibleEarnUsdt - input.flexibleEarnRedeemingUsdt,
+  );
+  // Planning visibility includes flexible Earn because Binance supports using
+  // eligible flexible positions for Spot orders; locked products are excluded.
+  const flexibleEarnPlanningUsdt = flexibleEarnAvailableUsdt;
+  const totalTrackedUsdt = input.spotFreeUsdt + input.spotLockedUsdt +
+    input.flexibleEarnUsdt + input.lockedEarnUsdt;
   return {
     ...input,
-    totalTrackedUsdt: input.spotFreeUsdt + input.spotLockedUsdt + nonSpotUsdt,
-    spotExecutableBeforeReservationsUsdt,
-    spotExecutableAfterReservationsUsdt,
-    nonSpotUsdt,
+    totalTrackedUsdt,
+    spotFreeAfterReservationsUsdt,
+    flexibleEarnAvailableUsdt,
+    flexibleEarnPlanningUsdt,
+    totalPlanningUsdt: spotFreeAfterReservationsUsdt + flexibleEarnPlanningUsdt,
   };
 }
 
-/**
- * Convert a Spot account response into explicitly separated Spot USDT and
- * legacy LDUSDT flexible-Earn voucher amounts. LDUSDT is not Spot free USDT.
- */
-export function splitSpotAccountUsdtBalances(
-  balances: Array<{ asset: string; free: string; locked: string }>,
-): Pick<UsdtWalletBuckets, "spotFreeUsdt" | "spotLockedUsdt" | "flexibleEarnUsdt"> {
-  const parse = (value: string, label: string) => {
-    const amount = Number(value);
-    if (!Number.isFinite(amount) || amount < 0) throw new Error(`Binance ${label} 余额无效`);
-    return amount;
-  };
-  const spot = balances.find((item) => item.asset === "USDT");
-  const earn = balances.find((item) => item.asset === "LDUSDT");
-  return {
-    spotFreeUsdt: parse(spot?.free ?? "0", "Spot USDT free"),
-    spotLockedUsdt: parse(spot?.locked ?? "0", "Spot USDT locked"),
-    flexibleEarnUsdt: parse(earn?.free ?? "0", "LDUSDT flexible Earn free") +\n      parse(earn?.locked ?? "0", "LDUSDT flexible Earn locked"),
-  };
+export interface SimpleEarnPositionRow {
+  asset: string;
+  amount: string;
+  redeemingAmt?: string;
+  freezeAmount?: string;
+  [key: string]: unknown;
+}
+
+export interface SimpleEarnPositionPage {
+  total: number;
+  rows: SimpleEarnPositionRow[];
+}
+
+/** Aggregate USDT from a paged Simple Earn position response. */
+export function sumSimpleEarnUsdtPositions(rows: SimpleEarnPositionRow[]): {
+  totalUsdt: number;
+  redeemingUsdt: number;
+  frozenUsdt: number;
+} {
+  return rows.filter((row) => row.asset === "USDT").reduce((sum, row) => {
+    const total = Number(row.amount);
+    const redeeming = Number(row.redeemingAmt ?? "0");
+    const frozen = Number(row.freezeAmount ?? "0");
+    amount(total, "Simple Earn USDT amount");
+    amount(redeeming, "Simple Earn USDT redeeming amount");
+    amount(frozen, "Simple Earn USDT frozen amount");
+    if (redeeming + frozen > total + 1e-10) {
+      throw new Error("Simple Earn USDT 冻结/赎回中数量超过持仓总量");
+    }
+    sum.totalUsdt += total;
+    sum.redeemingUsdt += redeeming;
+    sum.frozenUsdt += frozen;
+    return sum;
+  }, { totalUsdt: 0, redeemingUsdt: 0, frozenUsdt: 0 });
 }
