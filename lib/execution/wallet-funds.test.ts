@@ -1,13 +1,45 @@
 import { describe, expect, it } from "vitest";
-import { sumSimpleEarnUsdtPositions, summarizeUsdtWallets } from "./wallet-funds";
+import {
+  planSpotFirstBuyFunding,
+  sumSimpleEarnUsdtPositions,
+  summarizeUsdtWallets,
+} from "./wallet-funds";
 
-describe("Spot and Simple Earn USDT separation", () => {
-  it("counts Flexible Earn as a separate planning source, excluding redeeming funds", () => {
+describe("Spot-first USDT funding", () => {
+  it("uses Spot first and plans redemption for only the shortfall", () => {
+    expect(planSpotFirstBuyFunding(100, 30, 500)).toEqual({
+      requestedUsdt: 100,
+      spotToUseUsdt: 30,
+      flexibleEarnToRedeemUsdt: 70,
+      unfundedUsdt: 0,
+    });
+  });
+
+  it("does not redeem Earn when Spot has enough USDT", () => {
+    expect(planSpotFirstBuyFunding(80, 100, 500)).toEqual({
+      requestedUsdt: 80,
+      spotToUseUsdt: 80,
+      flexibleEarnToRedeemUsdt: 0,
+      unfundedUsdt: 0,
+    });
+  });
+
+  it("keeps the remaining amount queued when Spot plus Flexible Earn are insufficient", () => {
+    expect(planSpotFirstBuyFunding(100, 20, 30)).toEqual({
+      requestedUsdt: 100,
+      spotToUseUsdt: 20,
+      flexibleEarnToRedeemUsdt: 30,
+      unfundedUsdt: 50,
+    });
+  });
+
+  it("excludes redeeming and frozen Flexible Earn amounts from availability", () => {
     const summary = summarizeUsdtWallets({
       spotFreeUsdt: 12.5,
       spotLockedUsdt: 1,
       flexibleEarnUsdt: 80,
       flexibleEarnRedeemingUsdt: 5,
+      flexibleEarnFrozenUsdt: 10,
       lockedEarnUsdt: 25,
       lockedEarnRedeemingUsdt: 0,
       activeBuyReservationsUsdt: 5,
@@ -15,16 +47,17 @@ describe("Spot and Simple Earn USDT separation", () => {
     expect(summary).toMatchObject({
       totalTrackedUsdt: 118.5,
       spotFreeAfterReservationsUsdt: 7.5,
-      flexibleEarnAvailableUsdt: 75,
-      flexibleEarnPlanningUsdt: 75,
-      totalPlanningUsdt: 82.5,
+      flexibleEarnAvailableUsdt: 65,
+      flexibleEarnPlanningUsdt: 65,
+      totalPlanningUsdt: 72.5,
     });
   });
 
-  it("does not treat locked Earn as immediately available planning funds", () => {
+  it("does not treat Locked Earn as immediately available", () => {
     const summary = summarizeUsdtWallets({
       spotFreeUsdt: 2, spotLockedUsdt: 0,
       flexibleEarnUsdt: 0, flexibleEarnRedeemingUsdt: 0,
+      flexibleEarnFrozenUsdt: 0,
       lockedEarnUsdt: 500, lockedEarnRedeemingUsdt: 0,
       activeBuyReservationsUsdt: 0,
     });
@@ -49,12 +82,8 @@ describe("Spot and Simple Earn USDT separation", () => {
     ])).toThrow("超过持仓总量");
   });
 
-  it("rejects negative, NaN, and infinite wallet amounts", () => {
-    expect(() => summarizeUsdtWallets({
-      spotFreeUsdt: -1, spotLockedUsdt: 0,
-      flexibleEarnUsdt: 0, flexibleEarnRedeemingUsdt: 0,
-      lockedEarnUsdt: 0, lockedEarnRedeemingUsdt: 0,
-      activeBuyReservationsUsdt: 0,
-    })).toThrow("非负有限数值");
+  it("rejects invalid planning amounts", () => {
+    expect(() => planSpotFirstBuyFunding(-1, 0, 0)).toThrow("非负有限数值");
+    expect(() => planSpotFirstBuyFunding(10, Number.NaN, 0)).toThrow("非负有限数值");
   });
 });
