@@ -86,7 +86,7 @@ export async function redeemFlexibleEarnUsdt(input: {
   }
   const params = {
     productId: input.productId,
-    amount: input.amountUsdt.toFixed(8).replace(/0+$/, "").replace(/\\.$/, ""),
+    amount: input.amountUsdt.toFixed(8).replace(/\\.?0+$/, ""),
     destAccount: "SPOT",
     recvWindow: 10000,
     timestamp: Math.round(await serverNow()),
