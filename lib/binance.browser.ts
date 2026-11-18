@@ -284,6 +284,7 @@ export interface FlexibleEarnRedemptionRecord {
   asset?: string;
   time?: number;
   projectId?: string;
+  productId?: string;
   redeemId?: number | string;
   destAccount?: string;
   status?: string;
@@ -345,6 +346,7 @@ export async function fetchFlexibleEarnUsdtPositions(): Promise<SimpleEarnPositi
  */
 export async function fetchFlexibleEarnRedemptionRecords(input: {
   redeemId?: string;
+  productId?: string;
   startTime: number;
   endTime?: number;
 }): Promise<FlexibleEarnRedemptionRecord[]> {
@@ -365,6 +367,7 @@ export async function fetchFlexibleEarnRedemptionRecords(input: {
     };
     if (input.endTime !== undefined) params.endTime = input.endTime;
     if (input.redeemId) params.redeemId = input.redeemId;
+    if (input.productId) params.productId = input.productId;
     const page = await signedGet<{ total: number; rows: FlexibleEarnRedemptionRecord[] }>(
       "/sapi/v1/simple-earn/flexible/history/redemptionRecord",
       params,
