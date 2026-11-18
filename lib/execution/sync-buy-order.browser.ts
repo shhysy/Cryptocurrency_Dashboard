@@ -4,10 +4,9 @@ import {
 } from "../binance.browser";
 import type { BinanceSpotOrderSnapshot, BinanceSpotTrade } from "../binance.browser";
 import { clientOrderIdForEvent } from "./client-order-id";
-import { markOrderReconcileRequired } from "./queue";
 import { decideOrderReconciliation } from "./order-reconcile";
 import { reconcileConfirmedBuyFills } from "./fill-reconcile";
-import { listBuyOrders, recordConfirmedBuyFill, saveBuyOrder } from "./store.browser";
+import { listBuyOrders, markBuyOrderReconcileRequired, markBuyOrderReconciled, recordConfirmedBuyFill } from "./store.browser";
 
 export interface BuyOrderSyncResult {
   action: "wait" | "complete" | "partial" | "safe_to_retry" | "manual_review";
@@ -37,8 +36,7 @@ export async function syncBuyOrderFromBinance(
     snapshot = await fetchSpotOrderByClientId(pair, clientOrderId);
   } catch (error) {
     const reason = error instanceof Error ? error.message : "查询 Binance 订单失败";
-    const blocked = markOrderReconcileRequired(initial, reason);
-    await saveBuyOrder(blocked);
+    const blocked = await markBuyOrderReconcileRequired(initial.id, reason);
     return {
       action: "manual_review",
       newlyRecordedFills: 0,
@@ -72,8 +70,7 @@ export async function syncBuyOrderFromBinance(
     };
   }
   if (decision.action === "manual_review") {
-    const blocked = markOrderReconcileRequired(initial, decision.reason);
-    await saveBuyOrder(blocked);
+    const blocked = await markBuyOrderReconcileRequired(initial.id, decision.reason);
     return {
       action: "manual_review", newlyRecordedFills: 0, orderStatus: snapshot.status,
       remainingUsdt: blocked.remainingUsdt, reason: decision.reason,
@@ -137,14 +134,14 @@ export async function syncBuyOrderFromBinance(
     }
   } catch (error) {
     const reason = error instanceof Error ? error.message : "成交台账写入失败";
-    const blocked = markOrderReconcileRequired(current, reason);
-    await saveBuyOrder(blocked);
+    const blocked = await markBuyOrderReconcileRequired(current.id, reason);
     return {
       action: "manual_review", newlyRecordedFills, orderStatus: snapshot.status,
       remainingUsdt: blocked.remainingUsdt, reason,
     };
   }
 
+  current = await markBuyOrderReconciled(current.id);
   return {
     action: snapshot.status === "FILLED" ? "complete" : "partial",
     newlyRecordedFills,
