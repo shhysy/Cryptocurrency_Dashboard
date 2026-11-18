@@ -14,7 +14,9 @@ export interface TradeNotificationOutboxEvent {
   commissionAsset: string;
   commissionUsdt: number;
   filledAt: number;
-  status: "pending" | "sent" | "failed";
+  status: "pending" | "sending" | "sent" | "failed";
+  /** Lease prevents two browser tabs from delivering the same event concurrently. */
+  leaseUntil: number | null;
   attemptCount: number;
   createdAt: number;
   updatedAt: number;
@@ -66,6 +68,7 @@ export function buildTradeFillNotificationEvent(
     commissionUsdt: fill.commissionUsdt,
     filledAt: fill.time,
     status: "pending",
+    leaseUntil: null,
     attemptCount: 0,
     createdAt: now,
     updatedAt: now,
