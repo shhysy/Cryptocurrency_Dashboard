@@ -60,7 +60,7 @@ export function buildDashboard(
   const btcState = btcMarketState(btcWeekly, btcPrice, cfg);
   const fearGreed = raw.fearGreed ?? null;
   const held = base.filter((b) => b.qty > 0);
-  const cashUsdt = raw.balances?.USDT ?? 0;
+  const cashUsdt = raw.balances?.USDT ?? raw.extraAssets?.find((asset) => asset.asset === "USDT")?.usdt ?? 0;
   const now = Date.now();
   const account = {
     known: Boolean(raw.accountKnown),
