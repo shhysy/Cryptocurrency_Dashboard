@@ -52,13 +52,19 @@ export function parseMarketRules(info: SpotSymbolFilters): MarketRules {
 /** Floor to exchange step using decimal arithmetic rather than floating-point remainder. */
 export function floorToStep(value: number, step: number): number {
   if (!Number.isFinite(value) || value <= 0 || !Number.isFinite(step) || step <= 0) return 0;
-  const decimals = Math.min(12, Math.max(
-    (String(value).split(".")[1] ?? "").length,
-    (String(step).split(".")[1] ?? "").length,
-  ));
+  const places = (n: number): number => {
+    const s = Math.abs(n).toString().toLowerCase();
+    const [mantissa, exponentText] = s.split("e");
+    const fractionLength = (mantissa.split(".")[1] ?? "").length;
+    const exponent = exponentText == null ? 0 : Number(exponentText);
+    return Math.max(0, fractionLength - exponent);
+  };
+  const decimals = Math.min(12, Math.max(places(value), places(step)));
   const scale = 10 ** decimals;
-  const v = Math.floor((value * scale + 1e-8) / (step * scale)) * step;
-  return Number(v.toFixed(decimals));
+  const valueUnits = Math.floor(value * scale + 1e-7);
+  const stepUnits = Math.max(1, Math.round(step * scale));
+  const resultUnits = Math.floor(valueUnits / stepUnits) * stepUnits;
+  return Number((resultUnits / scale).toFixed(decimals));
 }
 
 export interface BuyPreflight {
@@ -113,6 +119,7 @@ export function preflightMarketSell(input: {
 }): SellPreflight {
   const { rules } = input;
   if (rules.status !== "TRADING") return { ok: false, quantity: 0, reason: "交易对当前不可交易" };
+  if (rules.quoteAsset !== "USDT") return { ok: false, quantity: 0, reason: "报价资产不是 USDT" };
   if (![input.desiredQty, input.freeBaseQty, input.totalPositionQty, input.protectedBaseQty, input.price].every(Number.isFinite)
     || input.desiredQty <= 0 || input.freeBaseQty <= 0 || input.totalPositionQty <= 0 || input.price <= 0) {
     return { ok: false, quantity: 0, reason: "卖出数量、持仓或价格无效" };
