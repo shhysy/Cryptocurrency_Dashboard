@@ -116,7 +116,7 @@ export async function recordConfirmedBuyFill(
           tx.abort();
           return;
         }
-        const ledger: TradeLedgerEntry = { ...fill, id, realizedPnlUsdt: null };
+        let ledger: TradeLedgerEntry = { ...fill, id, realizedPnlUsdt: null };
         if (existingFill) {
           result = { recorded: false, ledger, order: currentOrder };
           return;
@@ -126,6 +126,7 @@ export async function recordConfirmedBuyFill(
           if (!Number.isFinite(baseRatioAtBuy) || baseRatioAtBuy < 0 || baseRatioAtBuy > 1) {
             throw new Error("待买订单缺少有效的历史底仓比例，旧订单必须人工核对后才能入账");
           }
+          ledger = { ...ledger, baseRatioAtBuy };
           const confirmedSpendUsdt = fill.quoteQty + fill.commissionUsdt;
           const updatedOrder = applyConfirmedBuyFill(currentOrder, confirmedSpendUsdt);
 
@@ -146,7 +147,7 @@ export async function recordConfirmedBuyFill(
           }
 
           fills.add({ id, fill });
-          ledgerStore.add({ ...ledger, baseRatioAtBuy });
+          ledgerStore.add(ledger);
           orders.put(updatedOrder);
           // The notification is created in the same transaction as the
           // exchange-confirmed fill. Duplicate fill IDs never create a second
