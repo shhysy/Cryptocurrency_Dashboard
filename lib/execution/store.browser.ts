@@ -1,11 +1,13 @@
 import type { ExecutionFill, QueuedBuyOrder, TradeLedgerEntry } from "./types";
 import { applyConfirmedBuyFill } from "./queue";
+import { planBuyFundsReservation, remainingReservationAfterFill, type BuyFundsReservation } from "./fund-reservation";
 
 const DB_NAME = "long-term-investment-execution";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const ORDERS = "buy-orders";
 const FILLS = "fills";
 const LEDGER = "trade-ledger";
+const RESERVATIONS = "buy-funds-reservations";
 
 function openDb(): Promise<IDBDatabase> {
   if (typeof indexedDB === "undefined") return Promise.reject(new Error("当前环境不支持 IndexedDB"));
@@ -16,6 +18,7 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(ORDERS)) db.createObjectStore(ORDERS, { keyPath: "id" });
       if (!db.objectStoreNames.contains(FILLS)) db.createObjectStore(FILLS, { keyPath: "id" });
       if (!db.objectStoreNames.contains(LEDGER)) db.createObjectStore(LEDGER, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(RESERVATIONS)) db.createObjectStore(RESERVATIONS, { keyPath: "orderId" });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error("打开执行数据库失败"));
@@ -226,4 +229,185 @@ export async function listTradeLedger(): Promise<TradeLedgerEntry[]> {
       request.onerror = () => reject(request.error);
     });
   } finally { db.close(); }
+}
+
+
+/**
+ * Atomically reserve part of the currently observed USDT free balance.
+ * IndexedDB serializes readwrite transactions on this store across tabs,
+ * preventing two tabs from allocating the same local free-balance snapshot.
+ * This is a local coordination guard, not an exchange-side balance lock.
+ */
+export async function reserveBuyFunds(input: {
+  orderId: string;
+  symbol: string;
+  requestedUsdt: number;
+  observedFreeUsdt: number;
+  minNotionalUsdt: number;
+  now?: number;
+}): Promise<{ reservation: BuyFundsReservation | null; plan: ReturnType<typeof planBuyFundsReservation> }> {
+  if (!input.orderId || !input.symbol) throw new Error("资金预留缺少订单或交易对标识");
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(RESERVATIONS, "readwrite");
+      const store = tx.objectStore(RESERVATIONS);
+      const getAll = store.getAll();
+      let result: { reservation: BuyFundsReservation | null; plan: ReturnType<typeof planBuyFundsReservation> } | undefined;
+      let fatal: Error | null = null;
+      getAll.onsuccess = () => {
+        const all = getAll.result as BuyFundsReservation[];
+        const existing = all.find((item) => item.orderId === input.orderId);
+        if (existing?.status === "active") {
+          const plan = {
+            ok: true,
+            reserveUsdt: existing.reservedUsdt,
+            availableUsdt: existing.reservedUsdt,
+            totalReservedUsdt: all
+              .filter((item) => item.status === "active" && item.orderId !== input.orderId)
+              .reduce((sum, item) => sum + item.reservedUsdt, 0),
+            reason: null,
+          };
+          result = { reservation: existing, plan };
+          return;
+        }
+        const plan = planBuyFundsReservation({
+          orderId: input.orderId,
+          requestedUsdt: input.requestedUsdt,
+          observedFreeUsdt: input.observedFreeUsdt,
+          activeReservations: all,
+          minNotionalUsdt: input.minNotionalUsdt,
+        });
+        if (!plan.ok) {
+          result = { reservation: null, plan };
+          return;
+        }
+        const now = input.now ?? Date.now();
+        const reservation: BuyFundsReservation = {
+          orderId: input.orderId,
+          symbol: input.symbol,
+          reservedUsdt: plan.reserveUsdt,
+          status: "active",
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+          releaseReason: null,
+        };
+        store.put(reservation);
+        result = { reservation, plan };
+      };
+      getAll.onerror = () => { fatal = getAll.error ?? new Error("读取资金预留失败"); tx.abort(); };
+      tx.oncomplete = () => result ? resolve(result) : reject(fatal ?? new Error("资金预留事务未生成结果"));
+      tx.onerror = () => reject(fatal ?? tx.error ?? new Error("资金预留事务失败"));
+      tx.onabort = () => reject(fatal ?? tx.error ?? new Error("资金预留事务中止"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Consume reservation only from exchange-confirmed fill spend.
+ * Keep unfilled funds reserved while the exchange order remains open;
+ * release the remainder only after caller confirms a terminal order state.
+ */
+export async function applyConfirmedBuyReservationSpend(
+  orderId: string,
+  confirmedSpendUsdt: number,
+  exchangeOrderTerminal: boolean,
+  now = Date.now(),
+): Promise<BuyFundsReservation> {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(RESERVATIONS, "readwrite");
+      const store = tx.objectStore(RESERVATIONS);
+      const request = store.get(orderId);
+      let updated: BuyFundsReservation | undefined;
+      let fatal: Error | null = null;
+      request.onsuccess = () => {
+        const current = request.result as BuyFundsReservation | undefined;
+        if (!current) {
+          fatal = new Error("找不到该订单的 USDT 资金预留");
+          tx.abort();
+          return;
+        }
+        try {
+          const remaining = remainingReservationAfterFill(current, confirmedSpendUsdt);
+          updated = {
+            ...current,
+            reservedUsdt: exchangeOrderTerminal ? 0 : remaining,
+            status: exchangeOrderTerminal || remaining <= 1e-8 ? "released" : "active",
+            updatedAt: now,
+            releaseReason: exchangeOrderTerminal ? "Binance 已确认订单进入终态" : null,
+          };
+          store.put(updated);
+        } catch (error) {
+          fatal = error instanceof Error ? error : new Error("更新资金预留失败");
+          tx.abort();
+        }
+      };
+      request.onerror = () => { fatal = request.error ?? new Error("读取资金预留失败"); tx.abort(); };
+      tx.oncomplete = () => updated ? resolve(updated) : reject(fatal ?? new Error("资金预留更新未完成"));
+      tx.onerror = () => reject(fatal ?? tx.error ?? new Error("资金预留更新失败"));
+      tx.onabort = () => reject(fatal ?? tx.error ?? new Error("资金预留更新事务中止"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** Release a reservation only when the caller has positively confirmed a terminal exchange order. */
+export async function releaseBuyFundsReservation(
+  orderId: string,
+  exchangeTerminalConfirmed: boolean,
+  reason: string,
+  now = Date.now(),
+): Promise<BuyFundsReservation> {
+  if (!exchangeTerminalConfirmed) {
+    throw new Error("未确认 Binance 订单终态，不允许释放资金预留");
+  }
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(RESERVATIONS, "readwrite");
+      const store = tx.objectStore(RESERVATIONS);
+      const request = store.get(orderId);
+      let updated: BuyFundsReservation | undefined;
+      request.onsuccess = () => {
+        const current = request.result as BuyFundsReservation | undefined;
+        if (!current) {
+          tx.abort();
+          return;
+        }
+        updated = {
+          ...current,
+          reservedUsdt: 0,
+          status: "released",
+          updatedAt: now,
+          releaseReason: reason,
+        };
+        store.put(updated);
+      };
+      tx.oncomplete = () => updated ? resolve(updated) : reject(new Error("资金预留记录不存在"));
+      tx.onerror = () => reject(tx.error ?? new Error("释放资金预留失败"));
+      tx.onabort = () => reject(tx.error ?? new Error("释放资金预留事务中止"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export async function listBuyFundsReservations(): Promise<BuyFundsReservation[]> {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(RESERVATIONS, "readonly");
+      const request = tx.objectStore(RESERVATIONS).getAll();
+      request.onsuccess = () => resolve((request.result as BuyFundsReservation[])
+        .sort((a, b) => a.createdAt - b.createdAt));
+      request.onerror = () => reject(request.error ?? new Error("读取资金预留列表失败"));
+    });
+  } finally {
+    db.close();
+  }
 }
