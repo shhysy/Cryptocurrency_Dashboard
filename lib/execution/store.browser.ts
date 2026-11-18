@@ -578,6 +578,56 @@ export async function listTradeNotificationOutbox(): Promise<TradeNotificationOu
   }
 }
 
+/**
+ * Atomically lease pending/failed notification events for one dispatcher.
+ * IndexedDB readwrite serialization prevents concurrent tabs from claiming
+ * the same event. Expired leases are recoverable after a crashed tab.
+ */
+export async function claimTradeNotificationOutboxBatch(
+  limit = 20,
+  now = Date.now(),
+  leaseMs = 120_000,
+): Promise<TradeNotificationOutboxEvent[]> {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 20 ||
+      !Number.isSafeInteger(now) || now <= 0 ||
+      !Number.isSafeInteger(leaseMs) || leaseMs < 10_000 || leaseMs > 10 * 60_000) {
+    throw new Error("成交通知领取参数无效");
+  }
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(NOTIFICATION_OUTBOX, "readwrite");
+      const store = tx.objectStore(NOTIFICATION_OUTBOX);
+      const request = store.getAll();
+      let claimed: TradeNotificationOutboxEvent[] = [];
+      request.onsuccess = () => {
+        const rows = (request.result as TradeNotificationOutboxEvent[])
+          .filter((event) =>
+            event.status === "pending" ||
+            event.status === "failed" ||
+            (event.status === "sending" && (event.leaseUntil ?? 0) <= now)
+          )
+          .sort((a, b) => a.createdAt - b.createdAt)
+          .slice(0, limit);
+        claimed = rows.map((event) => ({
+          ...event,
+          status: "sending",
+          leaseUntil: now + leaseMs,
+          updatedAt: now,
+          lastError: null,
+        }));
+        for (const event of claimed) store.put(event);
+      };
+      request.onerror = () => { reject(request.error ?? new Error("读取待投递成交通知失败")); tx.abort(); };
+      tx.oncomplete = () => resolve(claimed);
+      tx.onerror = () => reject(tx.error ?? new Error("领取成交通知失败"));
+      tx.onabort = () => reject(tx.error ?? new Error("成交通知领取事务中止"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
 /** Mark an outbox event sent only after the notification endpoint confirms acceptance. */
 export async function markTradeNotificationSent(id: string, now = Date.now()): Promise<void> {
   const db = await openDb();
@@ -590,7 +640,7 @@ export async function markTradeNotificationSent(id: string, now = Date.now()): P
         const current = request.result as TradeNotificationOutboxEvent | undefined;
         if (!current) { tx.abort(); return; }
         if (current.status === "sent") return;
-        store.put({ ...current, status: "sent", sentAt: now, updatedAt: now, lastError: null });
+        store.put({ ...current, status: "sent", leaseUntil: null, sentAt: now, updatedAt: now, lastError: null });
       };
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error ?? new Error("更新成交通知状态失败"));
@@ -620,6 +670,7 @@ export async function markTradeNotificationFailed(
         store.put({
           ...current,
           status: "failed",
+          leaseUntil: null,
           attemptCount: current.attemptCount + 1,
           updatedAt: now,
           lastError: reason.slice(0, 500),
