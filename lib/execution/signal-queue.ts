@@ -1,4 +1,5 @@
 import type { DashboardData } from "../types";
+import { strategyConfig } from "@/strategy.config";
 import type { BuyOrderIntent, QueuedBuyOrder } from "./types";
 import { createQueuedBuy } from "./queue";
 import { enqueueBuyOrder } from "./store.browser";
@@ -34,6 +35,7 @@ export function buildBuyOrderIntents(data: DashboardData): BuyOrderIntent[] {
       strategyLabel: action.label || action.kind,
       plannedUsdt: action.usdt as number,
       referencePrice: coin.price,
+      baseRatioAtSignal: strategyConfig.profiles[strategyConfig.coreSymbols.includes(coin.symbol) ? "core" : "alt"].baseRatio,
       createdAt: data.updatedAt,
       strategyVersion: "V3.3",
     });
