@@ -1,10 +1,14 @@
 import {
+  fetchFlexibleEarnRedemptionRecords,
   fetchFlexibleEarnUsdtPositions,
   fetchSpotAndEarnUsdtBalances,
+  fetchSpotAssetBalance,
 } from "../binance.browser";
 import {
   allocateFlexibleEarnRedemption,
   availableFlexibleEarnUsdt,
+  isEarnRedemptionCredited,
+  matchEarnRedemptionRecord,
   createEarnRedemptionIntents,
   type EarnRedemptionIntent,
 } from "./earn-redemption";
@@ -12,6 +16,7 @@ import {
   enqueueEarnRedemptionIntents,
   listBuyFundsReservations,
   listEarnRedemptionIntents,
+  updateEarnRedemptionIntent,
 } from "./store.browser";
 import { planSpotFirstBuyFunding } from "./wallet-funds";
 
@@ -89,4 +94,61 @@ export async function prepareQueuedBuyEarnRedemption(input: {
   });
   const persisted = await enqueueEarnRedemptionIntents(intents);
   return { plan, intents, ...persisted };
+}
+
+
+/**
+ * Read-only recovery for a redemption that already has a Binance redemptionId.
+ * It never resubmits a redeem request. The intent becomes credited only when
+ * both the exact exchange history record and the Spot free-balance increase
+ * are observed.
+ */
+export async function reconcileEarnRedemptionIntent(
+  intent: EarnRedemptionIntent,
+): Promise<{ outcome: "waiting" | "credited" | "manual_review"; reason: string }> {
+  if (!intent.redemptionId) {
+    return {
+      outcome: "manual_review",
+      reason: "本地没有 Binance redemptionId；不能安全地自动匹配或重发赎回请求",
+    };
+  }
+  const records = await fetchFlexibleEarnRedemptionRecords({
+    redeemId: intent.redemptionId,
+    startTime: Math.max(1, intent.createdAt - 60_000),
+    endTime: Date.now(),
+  });
+  const record = matchEarnRedemptionRecord(intent, records);
+  if (!record) {
+    return {
+      outcome: "waiting",
+      reason: "尚未找到与 redemptionId、USDT 金额和 Spot 目的账户完全匹配的赎回记录",
+    };
+  }
+
+  const spot = await fetchSpotAssetBalance("USDT");
+  if (isEarnRedemptionCredited(intent, spot.free)) {
+    if (intent.status !== "credited") {
+      await updateEarnRedemptionIntent(intent.id, "credited", { lastError: null });
+    }
+    return { outcome: "credited", reason: "赎回记录与现货 USDT 到账余额均已核实" };
+  }
+
+  const exchangeStatus = String(record.status ?? "").toUpperCase();
+  if (exchangeStatus === "PENDING" || exchangeStatus === "PROCESSING") {
+    if (intent.status === "submitted") {
+      await updateEarnRedemptionIntent(intent.id, "redeeming", { lastError: null });
+    }
+    return { outcome: "waiting", reason: "Binance 赎回仍在处理中，等待现货到账" };
+  }
+  if (intent.status !== "reconcile_required") {
+    await updateEarnRedemptionIntent(
+      intent.id,
+      "reconcile_required",
+      { lastError: "赎回记录存在，但现货 free 尚未确认足额到账" },
+    );
+  }
+  return {
+    outcome: "manual_review",
+    reason: `赎回记录状态为 ${record.status ?? "未知"}，但现货 free 未体现完整到账，暂停自动买入`,
+  };
 }
