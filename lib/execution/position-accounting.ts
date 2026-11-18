@@ -60,7 +60,6 @@ export function replayPositionLedger(
       : "";
     if (!baseAsset) throw new Error("成交交易对与报价资产不匹配");
     const feeInBase = fill.commissionAsset === baseAsset;
-    const feeInQuote = fill.commissionAsset === quoteAsset;
 
     if (fill.side === "BUY") {
       const netQty = fill.qty - (feeInBase ? fill.commission : 0);
