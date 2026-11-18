@@ -387,7 +387,7 @@ export async function releaseBuyFundsReservation(
   exchangeTerminalConfirmed: boolean,
   reason: string,
   now = Date.now(),
-): Promise<BuyFundsReservation> {
+): Promise<BuyFundsReservation | null> {
   if (!exchangeTerminalConfirmed) {
     throw new Error("未确认 Binance 订单终态，不允许释放资金预留");
   }
@@ -397,13 +397,10 @@ export async function releaseBuyFundsReservation(
       const tx = db.transaction(RESERVATIONS, "readwrite");
       const store = tx.objectStore(RESERVATIONS);
       const request = store.get(orderId);
-      let updated: BuyFundsReservation | undefined;
+      let updated: BuyFundsReservation | null = null;
       request.onsuccess = () => {
         const current = request.result as BuyFundsReservation | undefined;
-        if (!current) {
-          tx.abort();
-          return;
-        }
+        if (!current) return;
         updated = {
           ...current,
           reservedUsdt: 0,
@@ -413,7 +410,7 @@ export async function releaseBuyFundsReservation(
         };
         store.put(updated);
       };
-      tx.oncomplete = () => updated ? resolve(updated) : reject(new Error("资金预留记录不存在"));
+      tx.oncomplete = () => resolve(updated);
       tx.onerror = () => reject(tx.error ?? new Error("释放资金预留失败"));
       tx.onabort = () => reject(tx.error ?? new Error("释放资金预留事务中止"));
     });
