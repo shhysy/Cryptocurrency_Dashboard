@@ -125,3 +125,47 @@ describe("V3.3 position ledger replay", () => {
       freeQty: 0.7, lockedQty: 0.2, totalQty: 0.9,
     })).toThrow("不一致，暂停卖出预检");
   });
+
+
+describe("position reconciliation diagnostics", () => {
+  it("classifies an exchange-side surplus without modifying either quantity", async () => {
+    const { buildPositionReconciliationReport } = await import("./position-accounting");
+    const position = replayPositionLedger([buy()]);
+    const report = buildPositionReconciliationReport(position, {
+      freeQty: 1.1, lockedQty: 0, totalQty: 1.1,
+    });
+    expect(report).toMatchObject({
+      status: "exchange_higher", ledgerQty: 1, exchangeTotalQty: 1.1,
+      deltaQty: 0.1, canSell: false,
+    });
+  });
+
+  it("classifies a ledger-side surplus and preserves free/locked detail", async () => {
+    const { buildPositionReconciliationReport } = await import("./position-accounting");
+    const report = buildPositionReconciliationReport(replayPositionLedger([buy()]), {
+      freeQty: 0.5, lockedQty: 0.2, totalQty: 0.7,
+    });
+    expect(report).toMatchObject({
+      status: "ledger_higher", ledgerQty: 1, exchangeFreeQty: 0.5,
+      exchangeLockedQty: 0.2, deltaQty: -0.3, canSell: false,
+    });
+  });
+
+  it("marks inconsistent Binance components as unsafe even if ledger total matches", async () => {
+    const { buildPositionReconciliationReport } = await import("./position-accounting");
+    const report = buildPositionReconciliationReport(replayPositionLedger([buy()]), {
+      freeQty: 0.8, lockedQty: 0.3, totalQty: 1,
+    });
+    expect(report).toMatchObject({
+      status: "exchange_components_invalid", canSell: false,
+    });
+  });
+
+  it("marks a matched position as eligible for the separate strict preflight", async () => {
+    const { buildPositionReconciliationReport } = await import("./position-accounting");
+    const report = buildPositionReconciliationReport(replayPositionLedger([buy()]), {
+      freeQty: 0.7, lockedQty: 0.3, totalQty: 1,
+    });
+    expect(report).toMatchObject({ status: "matched", canSell: true, deltaQty: 0 });
+  });
+});
