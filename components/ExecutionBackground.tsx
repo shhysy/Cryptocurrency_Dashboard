@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { DashboardData } from "@/lib/types";
 import { strategyConfig } from "@/strategy.config";
 import { listBuyOrders } from "@/lib/execution/store.browser";
@@ -27,11 +27,10 @@ import { submitQueuedSellEvent } from "@/lib/execution/sell-order-submit.browser
  * queue tab is not selected. It is read-only and never submits/cancels orders.
  */
 export default function ExecutionBackground({ onChange, data }: { onChange: () => void; data: DashboardData }) {
+  const inFlight = useRef(new Set<string>());
   useEffect(() => {
     let active = true;
     let running = false;
-    const inFlight = new Set<string>();
-
     const tick = async () => {
       if (running || document.visibilityState === "hidden") return;
       running = true;
@@ -42,15 +41,15 @@ export default function ExecutionBackground({ onChange, data }: { onChange: () =
           if (!active) return;
           if (order.status !== "reconcile_required" || order.attemptCount <= 0) continue;
           const key = "BUY:" + order.id;
-          if (inFlight.has(key)) continue;
-          inFlight.add(key);
+          if (inFlight.current.has(key)) continue;
+          inFlight.current.add(key);
           try {
             const result = await syncBuyOrderFromBinance(order.id, order.attemptCount - 1);
             if (result.action !== "wait" || result.newlyRecordedFills > 0) changed = true;
           } catch (error) {
             console.warn("[execution-reconcile] BUY", order.id, error);
           } finally {
-            inFlight.delete(key);
+            inFlight.current.delete(key);
           }
         }
 
