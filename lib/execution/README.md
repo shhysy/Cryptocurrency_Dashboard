@@ -109,3 +109,14 @@
 - 新增 SELL 成交核对测试和 SELL Outbox 事件测试。
 
 **当前边界：** 这一步只建立 SELL 成交核对与入账基础函数；尚未建立卖单提交、按订单 ID 的卖出同步调度、卖出事件自动完成状态联动，也没有持仓成本/实现盈亏计算。不能将 SELL fill 入账函数视为自动卖出已经完成。
+
+## 第十阶段：卖出订单只读对账
+
+- `lib/binance.browser.ts` 新增 `fetchSpotOrderById`，通过 Binance 只读签名 GET 按交易所订单 ID 查询，不发送订单请求。
+- `sell-store.browser.ts` 新增 `bindSellEventToExchangeOrder`，只允许给待处理/复核中的事件绑定数字订单 ID；已绑定 ID 不允许被替换。
+- 新增 `sync-sell-order.browser.ts`：读取已绑定的卖出事件，查询 Binance 订单与逐笔成交，核对方向、交易对、订单 ID、成交数量和成交金额，再把确认成交写入统一成交台账及 Outbox。
+- 订单仍处于部分成交状态时保留 `reconcile_required`，避免重复创建卖单意图；终态部分成交使用 `partially_filled`，终态全量成交使用 `executed`。
+- 事件记录实际累计成交数量 `filledQty`；指标止盈累计量对终态部分成交使用真实成交量，而不是最初请求量。
+- 新增测试覆盖终态部分成交的指标止盈额度核算，以及同一止盈档位不重复创建事件。
+
+**重要限制：** 目前仍没有卖单提交器，`bindSellEventToExchangeOrder` 仅供未来在收到 Binance 正常下单响应后绑定订单 ID；当前没有任何调用路径会提交卖单。若订单 ID 未绑定，对账模块会停止并提示复核。该模块不撤单、不重试、不提交 POST。卖出事件库和成交账本仍是两个 IndexedDB 数据库；成交写入成功但事件状态更新失败时，重跑对账会依靠成交 ID 去重，不重复入账或重复创建邮件 Outbox。
