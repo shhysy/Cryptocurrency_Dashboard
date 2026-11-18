@@ -110,6 +110,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
   const [data, setData] = useState(initial);
   const [err, setErr] = useState<string | null>(null);
   const [directReady, setDirectReady] = useState(false);
+  const [queueVersion, setQueueVersion] = useState(0);
   const [tab, setTab] = useState<Tab>("trades");
   const fit = useFit();
   const scenario = data.source === "mock" ? data.scenario : undefined;
@@ -155,6 +156,9 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
       })
       .catch((error) => {
         if (!cancelled) console.warn("[strategy-queue]", error);
+      })
+      .finally(() => {
+        if (!cancelled) setQueueVersion((version) => version + 1);
       });
     return () => { cancelled = true; };
   }, [data, directReady]);
@@ -356,7 +360,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
                 {tab === "trades" && <Timeline trades={data.trades} symbols={symbols} bare />}
                 {tab === "balance" && <Balances data={data} bare />}
                 {tab === "strategy" && <StrategyInfo bare />}
-                {tab === "queue" && <><BuyQueue data={data} /><SellQueue refreshKey={data.updatedAt} /></>}
+                {tab === "queue" && <><BuyQueue data={data} refreshKey={queueVersion} /><SellQueue refreshKey={queueVersion} /></>}
               </div>
             </div>
           </aside>
@@ -387,8 +391,8 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
       </section>
 
       <Timeline trades={data.trades} symbols={symbols} />
-      <BuyQueue data={data} />
-      <SellQueue refreshKey={data.updatedAt} />
+      <BuyQueue data={data} refreshKey={queueVersion} />
+      <SellQueue refreshKey={queueVersion} />
       <StrategyInfo />
       {notes}
       <div className="pt-6">{footer}</div>
