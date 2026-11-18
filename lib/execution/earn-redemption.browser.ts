@@ -93,7 +93,12 @@ export async function prepareQueuedBuyEarnRedemption(input: {
     spotFreeBeforeUsdt: wallet.spotFreeUsdt,
   });
   const persisted = await enqueueEarnRedemptionIntents(intents);
-  return { plan, intents, ...persisted };
+  return {
+    plan,
+    intents,
+    createdIntents: persisted.created,
+    existingIntents: persisted.existing,
+  };
 }
 
 
