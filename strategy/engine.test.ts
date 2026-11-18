@@ -62,9 +62,9 @@ describe("企稳三项", () => {
 
 describe("打分", () => {
   it("满分 90：价格位置 45（RSI 与 MA 折减合并）+ 情绪 30 + 企稳 15", () => {
-    const s = evaluateCoin(coin(bottoming()), ctx());
+    const s = evaluateCoin(coin(bottoming()), ctx({ fearGreed: 10 }));
     expect(s.breakdown).toMatchObject({ rsi: 30, ma: 30, pricePosition: 45, sentiment: 30, trend: 15 });
-    expect(s.score).toBe(90);
+    expect(s.score).toBe(100);
   });
   it("RSI 与 MA 同为 30 分时不会加到 60，而是 30 + 30×0.5 = 45", () => {
     expect(evaluateCoin(coin(falling()), ctx()).breakdown.pricePosition).toBe(45);
@@ -72,7 +72,7 @@ describe("打分", () => {
   it("取不到恐惧贪婪：情绪项为 0，不崩溃", () => {
     const s = evaluateCoin(coin(bottoming()), ctx({ fearGreed: null }));
     expect(s.breakdown.sentiment).toBe(0);
-    expect(s.score).toBe(60);
+    expect(s.score).toBe(67);
   });
   it("评分不受账户影响", () => {
     const a = evaluateCoin(coin(bottoming()), ctx());
@@ -92,8 +92,8 @@ describe("头仓", () => {
     expect(s.kind).toBe("strong");
     expect(s.action.usdt).toBe(200);
   });
-  it("保守型 90 分才是高分头仓：UNI $100", () => {
-    const s = evaluateCoin(coin(bottoming(), { symbol: "UNI" }), ctx());
+  it("保守型 100 分才是高分头仓：UNI $100", () => {
+    const s = evaluateCoin(coin(bottoming(), { symbol: "UNI" }), ctx({ fearGreed: 10 }));
     expect(s.action.usdt).toBe(100);
   });
   it("BTC 过渡市：金额 × 0.85", () => {
@@ -108,8 +108,8 @@ describe("头仓", () => {
     expect(s.action.blocked.join()).toContain("禁止新增");
   });
   it("分数够但未企稳 -> 暂缓", () => {
-    const s = evaluateCoin(coin(falling()), ctx());
-    expect(s.score).toBe(75);
+    const s = evaluateCoin(coin(falling()), ctx({ fearGreed: 10 }));
+    expect(s.score).toBe(83);
     expect(s.tag).toBe("暂缓");
     expect(s.action.blocked.join()).toContain("未企稳");
   });
@@ -142,7 +142,7 @@ describe("固定额度（不依赖账户规模）", () => {
   it("BTC/PAXG 使用 1000 USDT 上限；ETH/其他币使用 500 USDT 上限", () => {
     expect(evaluateCoin(coin(bottoming(), { symbol: "BTC" }), ctx()).action.usdt).toBe(200);
     expect(evaluateCoin(coin(bottoming(), { symbol: "PAXG" }), ctx()).action.usdt).toBe(200);
-    expect(evaluateCoin(coin(bottoming(), { symbol: "ETH" }), ctx()).action.usdt).toBe(100);
+    expect(evaluateCoin(coin(bottoming(), { symbol: "ETH" }), ctx({ fearGreed: 10 })).action.usdt).toBe(100);
   });
   it("单币累计成本上限：已投入 950 USDT 时核心币最多计划 50 USDT", () => {
     const s = evaluateCoin(coin(bottoming(), { invested: 950 }), ctx());
