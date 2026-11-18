@@ -157,3 +157,38 @@ describe("V3.3 sell signal reservation", () => {
     expect(plan.records[0].requestedQty).toBeCloseTo(0.1, 12);
   });
 });
+
+  it("uses actual filled quantity for a terminal partial indicator-profit event", () => {
+    const indicator = data({
+      coins: [{
+        ...data().coins[0],
+        signal: { ...sellSignal, action: { ...sellSignal.action, kind: "indicatorProfit", label: "指标止盈", qty: 0.2 } },
+      }],
+    });
+    const existing: SellEventRecord = {
+      eventKey: "sell:BTC:indicator_profit:1:指标止盈",
+      symbol: "BTC", kind: "indicator_profit", status: "partially_filled",
+      requestedQty: 0.25, filledQty: 0.1,
+      createdAt: 1, updatedAt: indicator.updatedAt - 15 * 864e5,
+      exchangeOrderId: "102", fillIds: ["BTC-3"], lastError: null,
+    };
+    const plan = buildSellEventReservations(indicator, [existing]);
+    expect(plan.records[0].requestedQty).toBeCloseTo(0.2, 12);
+  });
+
+  it("does not recreate a take-profit tier after a terminal partial fill", () => {
+    const later = data({
+      coins: [{
+        ...data().coins[0],
+        series: [{ t: 2, c: 50000 }, { t: 3, c: 51000 }, { t: 4, c: 52000 }],
+      }],
+    });
+    const partial: SellEventRecord = {
+      eventKey: "sell:BTC:take_profit:2:止盈1",
+      symbol: "BTC", kind: "take_profit", status: "partially_filled",
+      requestedQty: 0.15, filledQty: 0.05,
+      createdAt: 1, updatedAt: 1, exchangeOrderId: "103",
+      fillIds: ["BTC-4"], lastError: null,
+    };
+    expect(buildSellEventReservations(later, [partial]).records).toHaveLength(0);
+  });
