@@ -12,6 +12,7 @@ import {
   availableFlexibleEarnUsdt,
   isEarnRedemptionCredited,
   matchEarnRedemptionRecord,
+  findUniqueEarnRedemptionRecord,
   createEarnRedemptionIntents,
   type EarnRedemptionIntent,
 } from "./earn-redemption";
@@ -132,18 +133,27 @@ export async function prepareQueuedBuyEarnRedemption(input: {
 export async function reconcileEarnRedemptionIntent(
   intent: EarnRedemptionIntent,
 ): Promise<{ outcome: "waiting" | "credited" | "manual_review"; reason: string }> {
-  if (!intent.redemptionId) {
-    return {
-      outcome: "manual_review",
-      reason: "本地没有 Binance redemptionId；不能安全地自动匹配或重发赎回请求",
-    };
-  }
+  let currentIntent = intent;
   const records = await fetchFlexibleEarnRedemptionRecords({
-    redeemId: intent.redemptionId,
+    ...(intent.redemptionId ? { redeemId: intent.redemptionId } : { productId: intent.productId }),
     startTime: Math.max(1, intent.createdAt - 60_000),
     endTime: Date.now(),
   });
-  const record = matchEarnRedemptionRecord(intent, records);
+  if (!currentIntent.redemptionId) {
+    const recovered = findUniqueEarnRedemptionRecord(currentIntent, records);
+    if (!recovered || recovered.redeemId === undefined) {
+      return {
+        outcome: "manual_review",
+        reason: "本地缺少 redemptionId，历史记录未能唯一匹配；禁止自动重发，请人工核对",
+      };
+    }
+    currentIntent = await updateEarnRedemptionIntent(
+      currentIntent.id,
+      "submitted",
+      { redemptionId: String(recovered.redeemId), lastError: null },
+    );
+  }
+  const record = matchEarnRedemptionRecord(currentIntent, records);
   if (!record) {
     return {
       outcome: "waiting",
@@ -152,9 +162,9 @@ export async function reconcileEarnRedemptionIntent(
   }
 
   const spot = await fetchSpotAssetBalance("USDT");
-  if (isEarnRedemptionCredited(intent, spot.free)) {
-    if (intent.status !== "credited") {
-      await updateEarnRedemptionIntent(intent.id, "credited", { lastError: null });
+  if (isEarnRedemptionCredited(currentIntent, spot.free)) {
+    if (currentIntent.status !== "credited") {
+      await updateEarnRedemptionIntent(currentIntent.id, "credited", { lastError: null });
     }
     const orders = await listBuyOrders();
     const order = orders.find((item) => item.id === intent.orderId);
@@ -176,14 +186,14 @@ export async function reconcileEarnRedemptionIntent(
 
   const exchangeStatus = String(record.status ?? "").toUpperCase();
   if (exchangeStatus === "PENDING" || exchangeStatus === "PROCESSING") {
-    if (intent.status === "submitted") {
-      await updateEarnRedemptionIntent(intent.id, "redeeming", { lastError: null });
+    if (currentIntent.status === "submitted") {
+      await updateEarnRedemptionIntent(currentIntent.id, "redeeming", { lastError: null });
     }
     return { outcome: "waiting", reason: "Binance 赎回仍在处理中，等待现货到账" };
   }
-  if (intent.status !== "reconcile_required") {
+  if (currentIntent.status !== "reconcile_required") {
     await updateEarnRedemptionIntent(
-      intent.id,
+      currentIntent.id,
       "reconcile_required",
       { lastError: "赎回记录存在，但现货 free 尚未确认足额到账" },
     );
