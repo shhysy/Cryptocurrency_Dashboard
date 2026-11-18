@@ -14,8 +14,10 @@ import {
 } from "./earn-redemption";
 import {
   enqueueEarnRedemptionIntents,
-  listBuyFundsReservations,
   listEarnRedemptionIntents,
+  reserveBuyFunds,
+  listBuyOrders,
+  topUpBuyFundsReservationAfterEarnCredit,
   updateEarnRedemptionIntent,
 } from "./store.browser";
 import { planSpotFirstBuyFunding } from "./wallet-funds";
@@ -32,6 +34,8 @@ const ACTIVE_REDEMPTION_STATUSES = new Set([
 export async function prepareQueuedBuyEarnRedemption(input: {
   orderId: string;
   requestedUsdt: number;
+  symbol: string;
+  quoteAsset?: string;
 }): Promise<{
   plan: ReturnType<typeof planSpotFirstBuyFunding> | null;
   intents: EarnRedemptionIntent[];
@@ -54,17 +58,30 @@ export async function prepareQueuedBuyEarnRedemption(input: {
     };
   }
 
-  const [wallet, flexiblePositions, reservations, allEarnIntents] = await Promise.all([
+  if (!input.symbol.trim()) throw new Error("资金规划缺少交易对");
+  const [wallet, flexiblePositions, allEarnIntents] = await Promise.all([
     fetchSpotAndEarnUsdtBalances(),
     fetchFlexibleEarnUsdtPositions(),
-    listBuyFundsReservations(),
     listEarnRedemptionIntents(),
   ]);
 
-  const otherActiveSpotReservations = reservations
-    .filter((item) => item.orderId !== input.orderId && item.status === "active")
-    .reduce((sum, item) => sum + item.reservedUsdt, 0);
-  const spotFreeAfterReservations = Math.max(0, wallet.spotFreeUsdt - otherActiveSpotReservations);
+  const quoteAsset = input.quoteAsset ?? "USDT";
+  const pair = input.symbol.endsWith(quoteAsset) ? input.symbol : input.symbol + quoteAsset;
+  // Atomically reserve this order's Spot share first. A tiny positive minimum
+  // allows a partial Spot reserve even when it is below the exchange order minimum.
+  const spotReservation = wallet.spotFreeUsdt > 1e-8
+    ? await reserveBuyFunds({
+        orderId: input.orderId,
+        symbol: pair,
+        requestedUsdt: input.requestedUsdt,
+        observedFreeUsdt: wallet.spotFreeUsdt,
+        minNotionalUsdt: 1e-8,
+      })
+    : null;
+  const spotToUseUsdt = Math.min(
+    input.requestedUsdt,
+    spotReservation?.reservation?.reservedUsdt ?? 0,
+  );
 
   const reservedByProduct: Record<string, number> = {};
   for (const intent of allEarnIntents) {
@@ -74,7 +91,7 @@ export async function prepareQueuedBuyEarnRedemption(input: {
   const flexibleAvailable = availableFlexibleEarnUsdt(flexiblePositions, reservedByProduct);
   const plan = planSpotFirstBuyFunding(
     input.requestedUsdt,
-    spotFreeAfterReservations,
+    spotToUseUsdt,
     flexibleAvailable,
   );
 
@@ -135,7 +152,22 @@ export async function reconcileEarnRedemptionIntent(
     if (intent.status !== "credited") {
       await updateEarnRedemptionIntent(intent.id, "credited", { lastError: null });
     }
-    return { outcome: "credited", reason: "赎回记录与现货 USDT 到账余额均已核实" };
+    const orders = await listBuyOrders();
+    const order = orders.find((item) => item.id === intent.orderId);
+    if (order && order.remainingUsdt > 1e-8) {
+      const pair = order.symbol.endsWith(order.quoteAsset)
+        ? order.symbol : order.symbol + order.quoteAsset;
+      await topUpBuyFundsReservationAfterEarnCredit({
+        orderId: order.id,
+        symbol: pair,
+        requestedRemainingUsdt: order.remainingUsdt,
+        observedFreeUsdt: spot.free,
+      });
+    }
+    return {
+      outcome: "credited",
+      reason: "赎回记录与现货 USDT 到账余额均已核实，已更新该订单的本地现货资金预留",
+    };
   }
 
   const exchangeStatus = String(record.status ?? "").toUpperCase();
