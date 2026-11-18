@@ -42,3 +42,13 @@
 - 本地 `npm test`、`npm run typecheck` 和 Binance Spot Testnet 端到端验证。
 
 `signal-queue.ts` 与 `sell-signal-queue.ts` 已由浏览器直连 Dashboard 在数据新鲜且账户读取成功后自动调用；重复刷新通过稳定事件键避免重复入队。`sync-buy-order.browser.ts` 目前必须由上层显式调用；它不自动重试，也不发送邮件。实盘保持关闭。`lib/trading/` 是早期通用原型，暂不接入页面；不要同时启用两套交易存储。
+
+## 第四阶段：Binance 买入执行适配器（DRY_RUN）
+
+- `binance-order.browser.ts`：新增买入执行前置适配器，重新读取现货 USDT `free`、交易对过滤器，并结合待买订单剩余金额、单币剩余成本上限进行预检。
+- 生成确定性 `clientOrderId`，便于未来真实订单提交后通过 `origClientOrderId` 对账。
+- 余额不足时按余额缩小本次可执行金额；不足交易所最小名义金额时返回阻止原因并保留待买金额。
+- 适配器结果明确标记 `mode=DRY_RUN`、`submitted=false`；`assertLiveOrderSubmissionDisabled` 对任何真实下单尝试 fail-closed。
+- 新增 `binance-order.browser.test.ts` 覆盖部分余额、单币剩余额度、低于最小名义金额、复核状态阻断和实盘关闭。
+
+**本阶段没有 Binance `POST /api/v3/order`，没有自动重试、撤单或余额预留。** 由于当前账户 API Key 仍是只读，且浏览器端 Secret 无法保密，本阶段不加入签名下单代码。后续必须先解决受保护的签名执行边界，并为多个并发待买订单增加原子 USDT 资金预留，才可进入真实订单提交阶段。
