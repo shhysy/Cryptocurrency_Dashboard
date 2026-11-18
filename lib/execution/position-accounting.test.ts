@@ -97,3 +97,14 @@ describe("V3.3 position ledger replay", () => {
     expect(() => replayPositionLedger([buy({ symbol: "BTCUSDC" })], 0.4)).toThrow("交易对");
   });
 });
+
+  it("requires local ledger quantity to match Binance free plus locked holdings", async () => {
+    const { assertPositionMatchesExchange } = await import("./position-accounting");
+    const position = replayPositionLedger([buy()], 0.4);
+    expect(assertPositionMatchesExchange(position, {
+      freeQty: 0.7, lockedQty: 0.3, totalQty: 1,
+    })).toEqual({ freeBaseQty: 0.7, totalPositionQty: 1, protectedBaseQty: 0.4 });
+    expect(() => assertPositionMatchesExchange(position, {
+      freeQty: 0.7, lockedQty: 0.2, totalQty: 0.9,
+    })).toThrow("不一致，暂停卖出预检");
+  });
