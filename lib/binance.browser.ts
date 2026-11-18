@@ -91,7 +91,7 @@ export async function submitSpotMarketBuy(input: {
   }
   if (!API_KEY || !API_SECRET) throw new Error("缺少 Binance API Key/Secret");
   if (!/^[A-Z0-9]{5,24}$/.test(input.symbol) ||
-      !/^(?:0|[1-9]\\d*)(?:\\.\\d{1,8})?$/.test(input.quoteOrderQty) ||
+      !/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(input.quoteOrderQty) ||
       Number(input.quoteOrderQty) <= 0 ||
       !/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) {
     throw new Error("现货市价买单参数无效");
