@@ -28,7 +28,6 @@ const TABS: [Tab, string][] = [
   ["strategy", "策略说明"],
 ];
 
-/** 抄底优先：可买 > 可卖 > 暂缓 > 观望；同档按机会指数降序。 */
 function sortCoinsForSignal<T extends { signal: { score: number; tag: string; action: { side: string } } }>(coins: T[]): T[] {
   const rank = (c: T) => {
     const side = c.signal.action.side;
@@ -44,7 +43,6 @@ function sortCoinsForSignal<T extends { signal: { score: number; tag: string; ac
   });
 }
 
-/** 无持仓时右侧用机会条填空，避免最右侧大片空白。 */
 function ScoreRadar({ coins }: { coins: DashboardData["coins"] }) {
   const sorted = [...coins].sort((a, b) => b.signal.score - a.signal.score);
   const line = 30;
@@ -142,6 +140,28 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
     const id = setInterval(() => refresh(), 60_000);
     return () => clearInterval(id);
   }, [data.source, refresh]);
+
+  // 页面加载完成后自动检测分数并发邮件（服务端冷却，不会每次刷新都发）
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (sessionStorage.getItem("mail-notify-fired") === "1") return;
+    const t = window.setTimeout(() => {
+      sessionStorage.setItem("mail-notify-fired", "1");
+      fetch("/api/notify", { method: "POST", cache: "no-store" })
+        .then((r) => r.json())
+        .then((j) => {
+          if (j?.sent)
+            console.info(
+              "[mail-notify] 已发送",
+              j.hits?.map((h: { symbol: string; score: number }) => `${h.symbol}=${h.score}`).join(", "),
+            );
+          else if (j?.reason) console.info("[mail-notify]", j.reason);
+          else if (j?.error) console.warn("[mail-notify]", j.error);
+        })
+        .catch((e) => console.warn("[mail-notify]", e));
+    }, 1500);
+    return () => window.clearTimeout(t);
+  }, []);
 
   const stale = data.stale || err;
   const symbols = data.coins.map((c) => c.symbol);
