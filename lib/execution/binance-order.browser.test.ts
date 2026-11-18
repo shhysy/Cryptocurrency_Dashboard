@@ -17,6 +17,7 @@ const order: QueuedBuyOrder = {
   strategyLabel: "头仓",
   plannedUsdt: 100,
   referencePrice: 50000,
+  baseRatioAtSignal: 0.4,
   createdAt: 1,
   strategyVersion: "V3.3",
   status: "pending",
