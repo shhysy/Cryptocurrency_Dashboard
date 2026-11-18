@@ -23,22 +23,28 @@ export function decideOrderReconciliation(snapshot: ExchangeOrderSnapshot | null
   }
   switch (snapshot.status) {
     case "NEW":
-      return { action: "wait", reason: "订单仍在交易所挂起" };
+      return snapshot.executedQty === 0 && snapshot.cummulativeQuoteQty === 0
+        ? { action: "wait", reason: "订单仍在交易所挂起" }
+        : { action: "manual_review", reason: "NEW 订单却包含成交累计值，状态数据冲突" };
     case "PARTIALLY_FILLED":
-      return { action: "apply_partial_then_wait", executedQty: snapshot.executedQty, quoteQty: snapshot.cummulativeQuoteQty };
+      return snapshot.executedQty > 0 && snapshot.cummulativeQuoteQty > 0
+        ? { action: "apply_partial_then_wait", executedQty: snapshot.executedQty, quoteQty: snapshot.cummulativeQuoteQty }
+        : { action: "manual_review", reason: "PARTIALLY_FILLED 订单缺少有效成交累计值" };
     case "FILLED":
       return snapshot.executedQty > 0 && snapshot.orderId !== null
         ? { action: "complete", executedQty: snapshot.executedQty, quoteQty: snapshot.cummulativeQuoteQty }
         : { action: "manual_review", reason: "FILLED 订单缺少有效成交数量或订单 ID" };
     case "CANCELED":
     case "EXPIRED":
-      return snapshot.executedQty > 0
+      return snapshot.executedQty > 0 && snapshot.cummulativeQuoteQty > 0
         ? { action: "apply_partial_then_wait", executedQty: snapshot.executedQty, quoteQty: snapshot.cummulativeQuoteQty }
-        : { action: "safe_to_retry", reason: `订单已${snapshot.status}且零成交；使用新的 attempt ID 才可重试` };
+        : snapshot.executedQty === 0 && snapshot.cummulativeQuoteQty === 0
+          ? { action: "safe_to_retry", reason: `订单已${snapshot.status}且零成交；使用新的 attempt ID 才可重试` }
+          : { action: "manual_review", reason: "已取消订单的成交累计值互相矛盾" };
     case "REJECTED":
-      return snapshot.executedQty > 0
+      return snapshot.executedQty > 0 && snapshot.cummulativeQuoteQty > 0
         ? { action: "apply_partial_then_wait", executedQty: snapshot.executedQty, quoteQty: snapshot.cummulativeQuoteQty }
-        : { action: "manual_review", reason: "订单被拒绝；先处理拒绝原因，不自动重试" };
+        : { action: "manual_review", reason: "订单被拒绝或成交累计值无效；先处理拒绝原因，不自动重试" };
     default:
       return { action: "manual_review", reason: "未知订单状态" };
   }
