@@ -13,7 +13,6 @@ import {
   markBuyOrderReconciled,
   recordConfirmedBuyFill,
   releaseBuyFundsReservation,
-  releaseBuyFundsReservation,
 } from "./store.browser";
 
 export interface BuyOrderSyncResult {
@@ -171,9 +170,6 @@ export async function syncBuyOrderFromBinance(
   }
 
   current = await markBuyOrderReconciled(current.id);
-  if (snapshot.status === "FILLED" || snapshot.status === "CANCELED" || snapshot.status === "EXPIRED") {
-    await releaseBuyFundsReservation(initial.id, true, `Binance order terminal: ${snapshot.status}`);
-  }
   return {
     action: snapshot.status === "FILLED" ? "complete" : "partial",
     newlyRecordedFills,
