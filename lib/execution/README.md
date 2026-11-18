@@ -12,7 +12,8 @@
 - `fill-reconcile.ts`：核对订单累计成交量/金额与逐笔成交；USDT 或基础币手续费可确定性换算，BNB 等第三资产手续费不猜值，转人工复核。
 - `sync-buy-order.browser.ts`：按待买订单 ID + attempt 只读查询指定订单及成交，只将已确认成交写入买入队列与台账，不会下单、撤单或重试。
 - `signal-queue.ts`：将新鲜 Binance 看板中未被阻止的 V3.3 头仓/补仓/备用金信号，按最后一根已完成周线生成稳定事件键并写入待买队列。
-- `components/BuyQueue.tsx`：展示待买金额、成交金额、剩余金额和对账状态，并支持 CSV 备份。
+- `sell-signal-queue.ts`：将新鲜 Binance 卖出信号转换为稳定事件键，并通过 `sell-guard.ts` 保护周期仓、底仓、指标止盈累计比例与冷却时间；只预留事件，不提交卖单。
+- `components/BuyQueue.tsx` / `components/SellQueue.tsx`：展示待买金额、成交金额、剩余金额、待卖事件和对账状态；买入队列支持 CSV 备份。
 - `binance.browser.ts`：USDT free、交易对过滤器、按客户端订单 ID 查询订单，以及读取 BUY/SELL 成交（只读）。
 
 ## 不可绕过的执行规则
@@ -35,9 +36,9 @@
 
 - Binance `POST /api/v3/order`、撤单与自动订单轮询。
 - 买入订单自动轮询调度与卖出成交同步。
-- 将 V3.3 卖出信号接入卖出 guard；买入信号目前只完成自动入队，尚未自动提交订单。
+- 卖出信号目前只完成事件预留和 guard，尚未自动提交卖单或同步卖出成交。
 - 持仓成本、周期仓/底仓数量、实现盈亏的完整成交联动。
 - 买卖成交邮件 outbox / Worker 联动及 UI 管理面板。
 - 本地 `npm test`、`npm run typecheck` 和 Binance Spot Testnet 端到端验证。
 
-`signal-queue.ts` 已由浏览器直连 Dashboard 在数据新鲜且账户读取成功后自动调用；重复刷新通过稳定事件键避免重复入队。`sync-buy-order.browser.ts` 目前必须由上层显式调用；它不自动重试，也不发送邮件。实盘保持关闭。`lib/trading/` 是早期通用原型，暂不接入页面；不要同时启用两套交易存储。
+`signal-queue.ts` 与 `sell-signal-queue.ts` 已由浏览器直连 Dashboard 在数据新鲜且账户读取成功后自动调用；重复刷新通过稳定事件键避免重复入队。`sync-buy-order.browser.ts` 目前必须由上层显式调用；它不自动重试，也不发送邮件。实盘保持关闭。`lib/trading/` 是早期通用原型，暂不接入页面；不要同时启用两套交易存储。
