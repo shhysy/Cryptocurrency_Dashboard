@@ -13,6 +13,10 @@
 - `wallet-funds.ts`：Spot 优先资金分配纯函数。
 - `earn-redemption.ts`：按 Flexible 产品 productId 分配赎回金额、创建稳定幂等意图、限制状态迁移、处理超时复核和到账核验。
 - `earn-redemption.browser.ts`：读取 Spot、Flexible 持仓和本地预留，先原子预留本订单的 Spot 份额，再为缺口生成赎回计划；已有活动意图直接复用，不重复生成。
+- 新增 `submitPlannedEarnRedemption`：重新读取指定 productId 的可赎回余额，原子领取 planned 意图后才允许进入一次 POST；并发标签页不能重复领取。
+- 新增 `redeemFlexibleEarnUsdt`：实现 Binance Flexible redeem POST，固定 `destAccount=SPOT`、精确 productId 和金额；`LIVE_EARN_REDEMPTION_ENABLED=false`，默认 fail-closed，不会发送请求。
+- POST 返回 redeemId 后持久化；超时、响应异常或本地保存异常均转入 `reconcile_required`，禁止自动重发。
+- 若 POST 成功但浏览器未能保存 redeemId，可按 productId + USDT + 精确金额 + SPOT 目的账户查询历史；只有唯一匹配才恢复 redeemId，多条或零条匹配均人工复核。
 - 赎回到账后，只有通过 redemption history + Spot free 基线核验，才扩展该订单的本地 Spot 预留；普通预览不会扩大预留。
 - `store.browser.ts`：IndexedDB 升级到 v4，新增 `earn-redemption-intents`，以事务方式保存赎回意图和状态。
 - `binance.browser.ts`：按 Binance 实际返回字段读取 Flexible 持仓（`totalAmount`、`productId`、`canRedeem`、`collateralAmount`），归一化后保留 productId；Locked 持仓按 `amount` / `redeemingAmt` 读取；另有只读赎回历史查询。
@@ -34,14 +38,14 @@
 - 每个买单 + Flexible productId 生成稳定意图 ID；重复刷新复用已有意图。
 - 状态流转：planned → submitting → submitted → redeeming → credited。
 - 请求超时或响应不明确时转 `reconcile_required`，不允许盲目重复提交。
-- 赎回历史必须匹配确切的 Binance redemptionId、USDT、金额和 SPOT 目的账户。
+- 赎回历史优先匹配确切的 Binance redemptionId、USDT、金额和 SPOT 目的账户；丢失 redemptionId 时仅允许按 productId + 金额等字段唯一恢复。
 - 只有赎回历史核实且 Spot free 相对赎回前基线增加足额，才标记 credited。
 - 无 redemptionId、历史记录不唯一、金额不匹配或余额未到账时，转人工复核/继续等待，不允许启动买单。
 
 ## 当前执行边界（非常重要）
 
-- 本阶段没有调用 Simple Earn redeem POST，也没有 Spot order POST。
-- “资金来源规划”只发送 GET USER_DATA 请求并写入本地 IndexedDB，不会改变任何 Binance 资产。
-- Binance 官方将 Flexible redeem 定义为 `POST /sapi/v1/simple-earn/flexible/redeem`，权限分类为 `TRADE`；赎回历史是 GET USER_DATA。当前用户 API Key 为只读，不能执行赎回。参考：[Binance Simple Earn API](https://developers.binance.com/en/docs/catalog/investment-and-services-simple-earn/api/rest-api/flexible-locked)。
-- 真正自动赎回前，还必须解决浏览器端 API Secret 暴露问题，并实现受保护签名端、赎回提交器和错误恢复。需要用户更换/开启权限时会提前通知，不会要求现在开启。
+- 当前 `LIVE_EARN_REDEMPTION_ENABLED=false`，虽然已实现 POST 适配器和单次提交/失败复核流程，但所有入口仍 fail-closed，不会调用 Binance redeem POST；也没有 Spot order POST。
+- 当前用户 API Key 仍为只读，不能执行赎回。Binance 官方将 Flexible redeem 定义为 `POST /sapi/v1/simple-earn/flexible/redeem`，权限分类为 `TRADE`；赎回历史是 GET USER_DATA。参考：[Binance Simple Earn API](https://developers.binance.com/en/docs/catalog/investment-and-services-simple-earn/api/rest-api/flexible-locked)。
+- 用户选择私人自用的浏览器直连模式，并接受 API Secret 会进入前端 bundle 的风险。该方案不是安全隔离：只能使用专用 Key、绑定固定 IP、禁止提现/划转/合约权限，不可把 Key/Secret 写入源码或提交 Git；若不能绑定 IP，不应开启交易权限。
+- 启用前仍需用户明确确认、换用专用 TRADE Key，并在 Binance Testnet/小额受控环境完成验证；当前不会要求用户现在开启权限。
 - IndexedDB 是本浏览器本地状态；清除站点数据会丢失赎回意图。不能把本地意图当作 Binance 已赎回的事实。
