@@ -185,6 +185,52 @@ export async function recordConfirmedBuyFill(
   }
 }
 
+/**
+ * Atomically persist one exchange-confirmed SELL fill and its notification.
+ * SELL fills do not alter the buy queue or buy-cost reservations.
+ */
+export async function recordConfirmedSellFill(
+  fill: ExecutionFill,
+): Promise<{ recorded: boolean; ledger: TradeLedgerEntry }> {
+  if (fill.side !== "SELL") throw new Error("卖出成交记账函数只接受 SELL 成交");
+  if (!fill.fillId || !fill.symbol || !fill.orderId) throw new Error("卖出成交记录缺少交易所标识");
+  const db = await openDb();
+  const id = fillKey(fill);
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction([FILLS, LEDGER, NOTIFICATION_OUTBOX], "readwrite");
+      const fills = tx.objectStore(FILLS);
+      const ledgerStore = tx.objectStore(LEDGER);
+      const outbox = tx.objectStore(NOTIFICATION_OUTBOX);
+      const getFill = fills.get(id);
+      let result: { recorded: boolean; ledger: TradeLedgerEntry } | undefined;
+      let fatal: Error | null = null;
+      getFill.onsuccess = () => {
+        const ledger: TradeLedgerEntry = { ...fill, id, realizedPnlUsdt: null };
+        if (getFill.result) {
+          result = { recorded: false, ledger };
+          return;
+        }
+        try {
+          fills.add({ id, fill });
+          ledgerStore.add(ledger);
+          outbox.add(buildTradeFillNotificationEvent(fill));
+          result = { recorded: true, ledger };
+        } catch (error) {
+          fatal = error instanceof Error ? error : new Error("卖出成交入账失败");
+          tx.abort();
+        }
+      };
+      getFill.onerror = () => { fatal = getFill.error ?? new Error("查询卖出成交 ID 失败"); tx.abort(); };
+      tx.oncomplete = () => result ? resolve(result) : reject(fatal ?? new Error("卖出成交事务未生成结果"));
+      tx.onerror = () => reject(fatal ?? tx.error ?? new Error("写入卖出成交台账失败"));
+      tx.onabort = () => reject(fatal ?? tx.error ?? new Error("卖出成交台账事务中止"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
 /** Atomically mark the latest persisted queue row for manual reconciliation. */
 export async function markBuyOrderReconcileRequired(
   orderId: string,
