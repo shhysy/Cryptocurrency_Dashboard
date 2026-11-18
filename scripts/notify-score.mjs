@@ -2,11 +2,13 @@
  * 分数达标邮件通知（QQ 邮箱 SMTP）。
  *
  * 用法：
- *   1. 在项目根目录编辑唯一的 .env（填写 SMTP_*、币安 Key 等）
+ *   1. 在项目根目录编辑唯一的 .env（填写 SMTP_*、币安 Key、两个门槛分）
  *   2. 本机先 npm run dev
  *   3. npm run notify
  *
- * 门槛区分：核心 MAIL_MIN_SCORE_CORE（默认 55），山寨 MAIL_MIN_SCORE_ALT（默认 75）
+ * 门槛（写在 .env）：
+ *   MAIL_MIN_SCORE_CORE=55   # 核心：BTC、PAXG
+ *   MAIL_MIN_SCORE_ALT=75    # 山寨：ETH、BNB、UNI、CL 等
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { connect as tlsConnect } from "node:tls";
@@ -42,14 +44,13 @@ const MAIL_TO = env.MAIL_TO || "2157936243@qq.com";
 const MAIL_FROM = env.MAIL_FROM || SMTP_USER;
 const DASHBOARD_URL = (env.DASHBOARD_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
 const REQUIRE_STABLE = env.MAIL_REQUIRE_STABLE === "1";
-/** 核心币（BTC/PAXG 等）邮件门槛，默认 55 */
+/** 核心币（BTC/PAXG 等）邮件门槛，默认 55 — 在 .env 用 MAIL_MIN_SCORE_CORE 改 */
 const SCORE_CORE = Number(env.MAIL_MIN_SCORE_CORE ?? 55);
-/** 山寨币邮件门槛，默认 75 */
+/** 山寨币邮件门槛，默认 75 — 在 .env 用 MAIL_MIN_SCORE_ALT 改 */
 const SCORE_ALT = Number(env.MAIL_MIN_SCORE_ALT ?? 75);
 const COOLDOWN_MS = Number(env.MAIL_COOLDOWN_HOURS || 24) * 3600_000;
 const STATE_PATH = resolve(root, "data/notify-state.json");
 
-/** 邮件展示用中文名（API 里多为英文） */
 const CN_NAME = {
   BTC: "比特币",
   ETH: "以太坊",
@@ -198,58 +199,67 @@ function pickHits(data) {
   return hits;
 }
 
-/** 邮件正文模板：中文名 + 代码 + 具体分数 */
+/** 邮件正文：写清「哪个币、到了多少分、对应哪条门槛」 */
 function buildMail(hits) {
-  const subjectBits = hits.map((h) => `${h.name} ${h.score}分`);
-  const subject = `【信号看板】${subjectBits.join("、")}`;
+  const subject = `【信号看板】` + hits.map((h) => `${h.name}到${h.score}分`).join("、");
+
+  const summaryLines = hits.map((h) => {
+    const g = groupLabel(h.group);
+    return `  · ${h.name}（${h.symbol}）当前 ${h.score} 分，已达到${g}门槛 ${h.minScore} 分`;
+  });
 
   const blocks = hits.map((h, i) => {
+    const g = groupLabel(h.group);
     const stable =
       h.stabilized === true
-        ? `已企稳（${h.stableCount ?? "?"} 项）`
+        ? `已企稳（满足 ${h.stableCount ?? "?"} 项）`
         : h.stabilized === false
-          ? `未企稳（${h.stableCount ?? "?"} 项）`
+          ? `尚未企稳（目前 ${h.stableCount ?? "?"} 项）`
           : "企稳数据不足";
-    const status = h.tag || h.kind || "—";
-    const action = h.actionLabel ? `建议动作：${h.actionLabel}` : "";
-    const blocked = h.blocked.length ? `当前挡住：${h.blocked.join("；")}` : "";
-    const why = h.reasons.length ? h.reasons.map((r) => `    · ${r}`).join("\n") : "    · （无明细依据）";
+    const status = h.tag || h.kind || "观望";
+    const action = h.actionLabel ? `建议动作：${h.actionLabel}` : "建议动作：仅提醒分数，请打开看板确认";
+    const blocked = h.blocked.length ? `暂未给买入金额的原因：${h.blocked.join("；")}` : "";
+    const why =
+      h.reasons.length > 0
+        ? h.reasons.map((r) => `      · ${r}`).join("\n")
+        : "      · （暂无明细依据）";
 
     return [
-      `【${i + 1}】${h.name}（${h.symbol}）`,
-      `    机会指数：${h.score} 分 / 满分 90`,
-      `    邮件门槛：${h.minScore} 分（${groupLabel(h.group)}）`,
-      `    状态：${status} · ${stable}`,
-      action ? `    ${action}` : null,
-      blocked ? `    ${blocked}` : null,
-      `    依据：`,
+      `【${i + 1}】${h.name}（代码 ${h.symbol}）`,
+      `      当前机会指数：${h.score} 分（满分 90）`,
+      `      本次触发门槛：${h.minScore} 分（${g}组，配置项 MAIL_MIN_SCORE_${h.group === "core" ? "CORE" : "ALT"}）`,
+      `      超出门槛：${Math.max(0, h.score - h.minScore)} 分`,
+      `      信号状态：${status} · ${stable}`,
+      `      ${action}`,
+      blocked ? `      ${blocked}` : null,
+      `      评分依据：`,
       why,
     ]
       .filter(Boolean)
       .join("\n");
   });
 
-  const summaryLines = hits.map(
-    (h) => `  ${h.name}（${h.symbol}）  ${h.score} 分（门槛 ${h.minScore}）`,
-  );
-
   const text = [
-    "长期投资信号看板 · 分数提醒",
+    "长期投资信号看板 — 分数达标通知",
     "",
-    "一、达标摘要",
+    "有币种的机会指数已经达到你在 .env 里设置的邮件门槛，详情如下。",
+    "",
+    "【一句话摘要】",
     ...summaryLines,
     "",
-    `核心门槛 ${SCORE_CORE} 分 · 山寨门槛 ${SCORE_ALT} 分` + (REQUIRE_STABLE ? " · 需企稳" : ""),
+    `（当前配置：核心 MAIL_MIN_SCORE_CORE=${SCORE_CORE}，山寨 MAIL_MIN_SCORE_ALT=${SCORE_ALT}` +
+      (REQUIRE_STABLE ? "，且要求企稳" : "") +
+      "）",
     "",
-    "二、明细",
-    "————————",
-    ...blocks.flatMap((b) => [b, "————————"]),
+    "【详细说明】",
+    "────────────────",
+    ...blocks.flatMap((b) => [b, "────────────────"]),
     "",
-    `看板：${DASHBOARD_URL}`,
-    `时间：${new Date().toLocaleString("zh-CN", { hour12: false })}`,
-    `说明：同一币种约 ${env.MAIL_COOLDOWN_HOURS || 24} 小时内不重复通知`,
+    `打开看板查看：${DASHBOARD_URL}`,
+    `发送时间：${new Date().toLocaleString("zh-CN", { hour12: false })}`,
+    `同一币种约 ${env.MAIL_COOLDOWN_HOURS || 24} 小时内不会重复发送。`,
     "",
-    "（信号仅供参考，不构成投资建议）",
+    "本邮件由脚本 scripts/notify-score.mjs 自动发出，信号仅供参考，不构成投资建议。",
   ].join("\n");
 
   return { subject, text };
