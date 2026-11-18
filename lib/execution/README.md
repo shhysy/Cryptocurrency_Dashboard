@@ -9,7 +9,9 @@
 - `binance-preflight.ts`：Binance 交易对状态、数量步长、USDT 报价精度、最小/最大名义金额预检；普通卖出保护长期底仓。
 - `sell-guard.ts` / `sell-store.browser.ts`：卖出事件去重、周期仓限制、指标止盈冷却/累计上限、底仓减仓限制和 IndexedDB 事件预留。
 - `client-order-id.ts`：生成 Binance 可接受长度的确定性客户端订单 ID。
-- `order-reconcile.ts`：对订单状态作出 wait / complete / partial / safe-to-retry / manual-review 决策。
+- `order-reconcile.ts`：对订单状态作出 wait / complete / partial / safe-to-retry / manual-review 决策，并拒绝状态与成交累计字段冲突的快照。
+- `fill-reconcile.ts`：逐笔核对订单成交量/成交额；USDT 或基础币手续费可确定性换算，BNB 等第三资产手续费不猜值，转人工复核。
+- `sync-buy-order.browser.ts`：按待买订单 ID + attempt 只读查询指定订单及成交，只将已确认成交写入买入队列与台账，不会下单、撤单或重试。
 - `fill-reconcile.ts`：逐笔核对订单成交量/成交额；只对 USDT 或基础币手续费进行确定性换算，BNB 等第三资产手续费不猜值，转人工复核。
 - `sync-buy-order.browser.ts`：只读查询指定买单及成交，调用原子成交台账记录；不下单、不撤单、不重试。
 - `binance.browser.ts`：USDT free、交易对过滤器、按客户端订单 ID 查询订单，以及读取 BUY/SELL 成交（只读）。
@@ -36,4 +38,4 @@
 
 `sync-buy-order.browser.ts` 需要显式传入待买订单 ID 和 attempt；只适用于已存在 Binance 订单的只读对账，不会自动启动下单。手续费以 BNB 等第三资产扣除时，当前会暂停记账并要求人工换算，避免低估成本。
 
-`lib/trading/` 是早期通用原型，暂不接入页面；不要同时启用两套交易存储。详见 `lib/trading/README.md`。
+`recordConfirmedBuyFill`（当前实现名 `recordConfirmedBuyFill`）将成交 ID 去重、待买金额扣减和成交台账写入同一 IndexedDB 事务，防止多标签页并发重复记账或丢失金额更新。手续费以 BNB 等第三资产扣除时，当前暂停记账并要求人工换算。\n\n`lib/trading/` 是早期通用原型，暂不接入页面；不要同时启用两套交易存储。详见 `lib/trading/README.md`。
