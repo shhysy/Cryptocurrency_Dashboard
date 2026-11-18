@@ -16,24 +16,24 @@ describe("Binance 订单对账与幂等 ID", () => {
   });
 
   it("NEW 状态绝不允许重发，且累计成交字段必须为零", () => {
-    expect(decideOrderReconciliation({ status: "NEW", executedQty: 0, cummulativeQuoteQty: 0, orderId: 1 }).action).toBe("wait");
-    expect(decideOrderReconciliation({ status: "NEW", executedQty: 0.001, cummulativeQuoteQty: 50, orderId: 1 }).action).toBe("manual_review");
+    expect(decideOrderReconciliation({ status: "NEW", origQty: 0.01, executedQty: 0, cummulativeQuoteQty: 0, orderId: 1 }).action).toBe("wait");
+    expect(decideOrderReconciliation({ status: "NEW", origQty: 0.01, executedQty: 0.001, cummulativeQuoteQty: 50, orderId: 1 }).action).toBe("manual_review");
   });
 
   it("部分成交状态先入账，不能重发，且必须有正的累计成交", () => {
-    expect(decideOrderReconciliation({ status: "PARTIALLY_FILLED", executedQty: 0.001, cummulativeQuoteQty: 50, orderId: 1 }))
+    expect(decideOrderReconciliation({ status: "PARTIALLY_FILLED", origQty: 0.01, executedQty: 0.001, cummulativeQuoteQty: 50, orderId: 1 }))
       .toMatchObject({ action: "apply_partial_then_wait", executedQty: 0.001, quoteQty: 50 });
-    expect(decideOrderReconciliation({ status: "PARTIALLY_FILLED", executedQty: 0, cummulativeQuoteQty: 0, orderId: 1 }).action).toBe("manual_review");
+    expect(decideOrderReconciliation({ status: "PARTIALLY_FILLED", origQty: 0.01, executedQty: 0, cummulativeQuoteQty: 0, orderId: 1 }).action).toBe("manual_review");
   });
 
   it("FILLED 状态必须包含真实成交数量和订单 ID", () => {
-    expect(decideOrderReconciliation({ status: "FILLED", executedQty: 0.002, cummulativeQuoteQty: 100, orderId: 1 }).action).toBe("complete");
-    expect(decideOrderReconciliation({ status: "FILLED", executedQty: 0, cummulativeQuoteQty: 0, orderId: 1 }).action).toBe("manual_review");
-    expect(decideOrderReconciliation({ status: "FILLED", executedQty: 0.002, cummulativeQuoteQty: 100, orderId: null }).action).toBe("manual_review");
+    expect(decideOrderReconciliation({ status: "FILLED", origQty: 0.002, executedQty: 0.002, cummulativeQuoteQty: 100, orderId: 1 }).action).toBe("complete");
+    expect(decideOrderReconciliation({ status: "FILLED", origQty: 0.002, executedQty: 0, cummulativeQuoteQty: 0, orderId: 1 }).action).toBe("manual_review");
+    expect(decideOrderReconciliation({ status: "FILLED", origQty: 0.002, executedQty: 0.002, cummulativeQuoteQty: 100, orderId: null }).action).toBe("manual_review");
   });
 
   it("零成交取消单才允许用新 attempt 重试", () => {
-    expect(decideOrderReconciliation({ status: "CANCELED", executedQty: 0, cummulativeQuoteQty: 0, orderId: 1 }).action).toBe("safe_to_retry");
+    expect(decideOrderReconciliation({ status: "CANCELED", origQty: 0.01, executedQty: 0, cummulativeQuoteQty: 0, orderId: 1 }).action).toBe("safe_to_retry");
   });
 
   it("未查到订单不能假定失败并重发", () => {
