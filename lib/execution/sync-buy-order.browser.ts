@@ -78,10 +78,12 @@ export async function syncBuyOrderFromBinance(
     };
   }
   if (decision.action === "safe_to_retry") {
-    // The caller may later create a new attempt after explicit policy checks; this function never retries.
+    // Confirmed terminal zero-fill orders can leave the reconciliation hold,
+    // but a separate caller must still decide whether to create a new attempt.
+    const ready = await markBuyOrderReconciled(initial.id);
     return {
       action: "safe_to_retry", newlyRecordedFills: 0, orderStatus: snapshot.status,
-      remainingUsdt: initial.remainingUsdt, reason: decision.reason,
+      remainingUsdt: ready.remainingUsdt, reason: decision.reason,
     };
   }
 
