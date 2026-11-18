@@ -50,6 +50,20 @@ const SCORE_ALT = Number(env.MAIL_MIN_SCORE_ALT ?? 75);
 const COOLDOWN_MS = Number(env.MAIL_COOLDOWN_HOURS || 24) * 3600_000;
 const STATE_PATH = resolve(root, "data/notify-state.json");
 
+/** 邮件展示用中文名（API 里多为英文） */
+const CN_NAME = {
+  BTC: "比特币",
+  ETH: "以太坊",
+  BNB: "币安币",
+  UNI: "Uniswap",
+  PAXG: "黄金(PAXG)",
+  CL: "原油(WTI)",
+};
+
+function displayName(symbol, fallback) {
+  return CN_NAME[symbol] || fallback || symbol;
+}
+
 function readState() {
   try {
     return JSON.parse(readFileSync(STATE_PATH, "utf8"));
@@ -169,7 +183,7 @@ function pickHits(data) {
     if (REQUIRE_STABLE && !c.signal?.metrics?.stabilized) continue;
     hits.push({
       symbol: c.symbol,
-      name: c.name || c.symbol,
+      name: displayName(c.symbol, c.name),
       group,
       score,
       minScore,
@@ -185,11 +199,11 @@ function pickHits(data) {
   return hits;
 }
 
-/** 邮件正文模板：币种名称 + 代码 + 分数 + 门槛 + 状态 */
+/** 邮件正文模板：中文名 + 代码 + 具体分数 */
 function buildMail(hits) {
-  const names = hits.map((h) => h.name).join("、");
-  const codes = hits.map((h) => h.symbol).join("/");
-  const subject = `【信号看板】${names}（${codes}）分数达标`;
+  // 主题：比特币 62分、以太坊 58分
+  const subjectBits = hits.map((h) => `${h.name} ${h.score}分`);
+  const subject = `【信号看板】${subjectBits.join("、")}`;
 
   const blocks = hits.map((h, i) => {
     const stable =
@@ -201,33 +215,42 @@ function buildMail(hits) {
     const status = h.tag || h.kind || "—";
     const action = h.actionLabel ? `建议动作：${h.actionLabel}` : "";
     const blocked = h.blocked.length ? `当前挡住：${h.blocked.join("；")}` : "";
-    const why = h.reasons.length ? h.reasons.map((r) => `  · ${r}`).join("\n") : "  · （无明细依据）";
+    const why = h.reasons.length ? h.reasons.map((r) => `    · ${r}`).join("\n") : "    · （无明细依据）";
 
     return [
       `【${i + 1}】${h.name}（${h.symbol}）`,
-      `  分组：${groupLabel(h.group)} · 机会指数 ${h.score} / 90（邮件门槛 ${h.minScore}）`,
-      `  状态：${status} · ${stable}`,
-      action ? `  ${action}` : null,
-      blocked ? `  ${blocked}` : null,
-      `  依据：`,
+      `    机会指数：${h.score} 分 / 满分 90`,
+      `    邮件门槛：${h.minScore} 分（${groupLabel(h.group)}）`,
+      `    状态：${status} · ${stable}`,
+      action ? `    ${action}` : null,
+      blocked ? `    ${blocked}` : null,
+      `    依据：`,
       why,
     ]
       .filter(Boolean)
       .join("\n");
   });
 
+  // 摘要表：名称 | 代码 | 分数
+  const summaryLines = hits.map(
+    (h) => `  ${h.name}（${h.symbol}）  ${h.score} 分（门槛 ${h.minScore}）`,
+  );
+
   const text = [
     "长期投资信号看板 · 分数提醒",
     "",
-    `共 ${hits.length} 个币种达到对应分组门槛${REQUIRE_STABLE ? "（且已企稳）" : ""}：`,
-    `核心门槛 ${SCORE_CORE} 分 · 山寨门槛 ${SCORE_ALT} 分`,
+    "一、达标摘要",
+    ...summaryLines,
     "",
+    `核心门槛 ${SCORE_CORE} 分 · 山寨门槛 ${SCORE_ALT} 分` + (REQUIRE_STABLE ? " · 需企稳" : ""),
+    "",
+    "二、明细",
     "————————",
     ...blocks.flatMap((b) => [b, "————————"]),
     "",
-    `看板链接：${DASHBOARD_URL}`,
-    `发送时间：${new Date().toLocaleString("zh-CN", { hour12: false })}`,
-    `去重：同一币种约 ${env.MAIL_COOLDOWN_HOURS || 24} 小时内不重复通知`,
+    `看板：${DASHBOARD_URL}`,
+    `时间：${new Date().toLocaleString("zh-CN", { hour12: false })}`,
+    `说明：同一币种约 ${env.MAIL_COOLDOWN_HOURS || 24} 小时内不重复通知`,
     "",
     "（信号仅供参考，不构成投资建议）",
   ].join("\n");
