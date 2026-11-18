@@ -6,6 +6,9 @@ import type { QueuedBuyOrder } from "@/lib/execution/types";
 import { listBuyOrders, listEarnRedemptionIntents } from "@/lib/execution/store.browser";
 import { downloadQueuedOrdersCsv } from "@/lib/execution/csv";
 import { prepareQueuedBuyDryRun, type BuyDryRunResult } from "@/lib/execution/binance-order.browser";
+import { LIVE_SPOT_ORDER_SUBMISSION_ENABLED } from "@/lib/binance.browser";
+import { submitQueuedBuyOrder } from "@/lib/execution/buy-order-submit.browser";
+import { syncBuyOrderFromBinance } from "@/lib/execution/sync-buy-order.browser";
 import { prepareQueuedBuyEarnRedemption, reconcileEarnRedemptionIntent } from "@/lib/execution/earn-redemption.browser";
 import type { BuyFundingPlan } from "@/lib/execution/wallet-funds";
 import type { EarnRedemptionIntent } from "@/lib/execution/earn-redemption";
@@ -46,6 +49,10 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
   const [fundingErrors, setFundingErrors] = useState<Record<string, string>>({});
   const [reconcileLoading, setReconcileLoading] = useState<Record<string, boolean>>({});
   const [reconcileMessages, setReconcileMessages] = useState<Record<string, string>>({});
+  const [buySubmitLoading, setBuySubmitLoading] = useState<Record<string, boolean>>({});
+  const [buySubmitMessages, setBuySubmitMessages] = useState<Record<string, string>>({});
+  const [buySyncLoading, setBuySyncLoading] = useState<Record<string, boolean>>({});
+  const [buySyncMessages, setBuySyncMessages] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let active = true;
@@ -57,6 +64,10 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
     setFundingErrors({});
     setReconcileLoading({});
     setReconcileMessages({});
+    setBuySubmitLoading({});
+    setBuySubmitMessages({});
+    setBuySyncLoading({});
+    setBuySyncMessages({});
     listBuyOrders()
       .then((rows) => {
         if (active) {
@@ -131,6 +142,47 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
       }));
     } finally {
       setReconcileLoading((current) => ({ ...current, [intent.id]: false }));
+    }
+  };
+
+  const submitBuy = async (order: QueuedBuyOrder, remainingCapUsdt: number) => {
+    setBuySubmitLoading((current) => ({ ...current, [order.id]: true }));
+    setBuySubmitMessages((current) => ({ ...current, [order.id]: "" }));
+    try {
+      const result = await submitQueuedBuyOrder(order.id, remainingCapUsdt);
+      setBuySubmitMessages((current) => ({
+        ...current,
+        [order.id]: result.reason ?? (result.submitted ? "订单已提交，等待对账" : "订单未提交"),
+      }));
+      setOrders(await listBuyOrders());
+    } catch (e) {
+      setBuySubmitMessages((current) => ({
+        ...current,
+        [order.id]: e instanceof Error ? e.message : "买单提交失败",
+      }));
+    } finally {
+      setBuySubmitLoading((current) => ({ ...current, [order.id]: false }));
+    }
+  };
+
+  const syncBuy = async (order: QueuedBuyOrder) => {
+    setBuySyncLoading((current) => ({ ...current, [order.id]: true }));
+    setBuySyncMessages((current) => ({ ...current, [order.id]: "" }));
+    try {
+      const attempt = Math.max(0, order.attemptCount - 1);
+      const result = await syncBuyOrderFromBinance(order.id, attempt);
+      setBuySyncMessages((current) => ({
+        ...current,
+        [order.id]: result.reason ?? `对账结果：${result.action}；新增成交 ${result.newlyRecordedFills} 笔`,
+      }));
+      setOrders(await listBuyOrders());
+    } catch (e) {
+      setBuySyncMessages((current) => ({
+        ...current,
+        [order.id]: e instanceof Error ? e.message : "买单对账失败",
+      }));
+    } finally {
+      setBuySyncLoading((current) => ({ ...current, [order.id]: false }));
     }
   };
 
@@ -215,6 +267,15 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
                     >
                       {previewLoading[order.id] ? "预检中…" : "只读预检"}
                     </button>
+                    <button
+                      type="button"
+                      disabled={!LIVE_SPOT_ORDER_SUBMISSION_ENABLED || !canPreview || !preview?.ok || buySubmitLoading[order.id]}
+                      onClick={() => void submitBuy(order, remainingCapUsdt)}
+                      className="rounded-full border border-line px-3 py-1 text-[10px] text-sub transition hover:text-fg disabled:opacity-40"
+                      title="实盘买入开关关闭时不可用"
+                    >
+                      {buySubmitLoading[order.id] ? "提交中…" : "执行买入（关闭）"}
+                    </button>
                   </div>
                 </div>
                 {fundingPlans[order.id] ? (
@@ -271,6 +332,20 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
                   </div>
                 ) : null}
                 {previewErrors[order.id] ? <p className="mt-2 text-[10px] text-warn">{previewErrors[order.id]}</p> : null}
+                {buySubmitMessages[order.id] ? <p className="mt-2 text-[10px] text-mute">{buySubmitMessages[order.id]}</p> : null}
+                {order.status === "reconcile_required" && order.attemptCount > 0 ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={Boolean(buySyncLoading[order.id])}
+                      onClick={() => void syncBuy(order)}
+                      className="rounded-full border border-gold/40 px-3 py-1 text-[10px] text-gold hover:bg-gold/10 disabled:opacity-40"
+                    >
+                      {buySyncLoading[order.id] ? "对账中…" : "核对 Binance 买单"}
+                    </button>
+                    {buySyncMessages[order.id] ? <p className="text-[10px] text-mute">{buySyncMessages[order.id]}</p> : null}
+                  </div>
+                ) : null}
                 {order.lastError ? <p className="mt-2 text-[10px] text-warn">{order.lastError}</p> : null}
               </article>
             );
