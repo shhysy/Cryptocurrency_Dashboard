@@ -11,6 +11,8 @@ export interface SellEventRecord {
   createdAt: number;
   updatedAt: number;
   exchangeOrderId: string | null;
+  /** Stable client order ID persisted before the SELL POST for timeout recovery. */
+  clientOrderId?: string;
   fillIds: string[];
   lastError: string | null;
 }
@@ -90,6 +92,10 @@ export async function updateSellEvent(record: SellEventRecord): Promise<void> {
           tx.abort();
           return;
         }
+        if (current.clientOrderId && current.clientOrderId !== record.clientOrderId) {
+          tx.abort();
+          return;
+        }
         if ((record.status === "executed" || record.status === "partially_filled") && record.fillIds.length === 0) {
           tx.abort();
           return;
@@ -122,6 +128,57 @@ export async function listSellEvents(): Promise<SellEventRecord[]> {
     db.close();
   }
 }
+/**
+ * Persist the unique client order ID and lock a pending sell event before POST.
+ * A second tab cannot claim an already locked event.
+ */
+export async function claimSellEventForSubmission(
+  eventKey: string,
+  clientOrderId: string,
+  now = Date.now(),
+): Promise<SellEventRecord> {
+  if (!eventKey || !/^[A-Za-z0-9_-]{1,36}$/.test(clientOrderId)) {
+    throw new Error("卖出事件或客户端订单 ID 无效");
+  }
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      const store = tx.objectStore(STORE);
+      const request = store.get(eventKey);
+      let updated: SellEventRecord | undefined;
+      let fatal: Error | null = null;
+      request.onsuccess = () => {
+        const current = request.result as SellEventRecord | undefined;
+        if (!current) {
+          fatal = new Error("卖出事件不存在");
+          tx.abort();
+          return;
+        }
+        if (current.status !== "pending" || current.clientOrderId || current.exchangeOrderId) {
+          fatal = new Error("卖出事件已被领取或已有订单标识；必须先对账，禁止重复提交");
+          tx.abort();
+          return;
+        }
+        updated = {
+          ...current,
+          status: "reconcile_required",
+          clientOrderId,
+          lastError: "卖单提交状态待 Binance 对账；禁止再次提交",
+          updatedAt: now,
+        };
+        store.put(updated);
+      };
+      request.onerror = () => { fatal = request.error ?? new Error("读取卖出事件失败"); tx.abort(); };
+      tx.oncomplete = () => updated ? resolve(updated) : reject(new Error("领取卖出事件未完成"));
+      tx.onerror = () => reject(fatal ?? tx.error ?? new Error("领取卖出事件失败"));
+      tx.onabort = () => reject(fatal ?? tx.error ?? new Error("卖出事件领取事务中止"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
 /**
  * Bind an exchange order ID after an external executor has positively
  * received the Binance response. The ID is immutable once attached.
