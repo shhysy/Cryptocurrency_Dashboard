@@ -10,6 +10,7 @@ const order: QueuedBuyOrder = {
   strategyLabel: "+cmd",
   plannedUsdt: 100,
   referencePrice: 50000,
+  baseRatioAtSignal: 0.4,
   createdAt: 1,
   strategyVersion: "V3.3",
   status: "pending",
