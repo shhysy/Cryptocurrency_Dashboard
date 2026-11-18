@@ -617,6 +617,11 @@ export async function enqueueEarnRedemptionIntents(
               tx.abort();
               return;
             }
+            if (prior.status === "credited" || prior.status === "failed") {
+              fatal = new Error("该订单的理财赎回意图已进入终态；新的赎回批次必须先人工复核");
+              tx.abort();
+              return;
+            }
             existing += 1;
             persistedIntents[index] = prior;
           } else {
