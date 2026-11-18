@@ -81,6 +81,60 @@ export interface BinanceSpotOrderSubmitResponse {
   transactTime: number;
 }
 
+export const LIVE_SPOT_SELL_SUBMISSION_ENABLED = false as const;
+
+export async function submitSpotMarketSell(input: {
+  symbol: string;
+  quantity: string;
+  clientOrderId: string;
+}): Promise<BinanceSpotOrderSubmitResponse> {
+  if (!LIVE_SPOT_SELL_SUBMISSION_ENABLED) {
+    throw new Error("Binance 现货实盘卖出尚未启用；当前不会发送订单 POST");
+  }
+  if (!API_KEY || !API_SECRET) throw new Error("缺少 Binance API Key/Secret");
+  if (!/^[A-Z0-9]{5,24}$/.test(input.symbol) ||
+      !/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(input.quantity) ||
+      Number(input.quantity) <= 0 ||
+      !/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) {
+    throw new Error("现货市价卖单参数无效");
+  }
+  const params = {
+    symbol: input.symbol,
+    side: "SELL",
+    type: "MARKET",
+    quantity: input.quantity,
+    newClientOrderId: input.clientOrderId,
+    newOrderRespType: "FULL",
+    recvWindow: 10000,
+    timestamp: Math.round(await serverNow()),
+  };
+  const qs = new URLSearchParams(
+    Object.entries(params).map(([key, value]) => [key, String(value)]),
+  ).toString();
+  const signature = await hmacHex(API_SECRET, qs);
+  const res = await fetch(BASE + "/api/v3/order?" + qs + "&signature=" + signature, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": API_KEY },
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  });
+  const body = await res.text().catch(() => "");
+  if (!res.ok) throw new Error("Binance Spot SELL " + res.status + ": " + body.slice(0, 300));
+  let parsed: BinanceSpotOrderSubmitResponse;
+  try {
+    parsed = JSON.parse(body) as BinanceSpotOrderSubmitResponse;
+  } catch {
+    throw new Error("Binance 卖单响应无法解析；必须按 clientOrderId 对账，禁止重发");
+  }
+  if (parsed.symbol !== input.symbol ||
+      parsed.clientOrderId !== input.clientOrderId ||
+      !Number.isSafeInteger(parsed.orderId) || parsed.orderId <= 0 ||
+      !["NEW", "PARTIALLY_FILLED", "FILLED", "CANCELED", "REJECTED", "EXPIRED"].includes(parsed.status)) {
+    throw new Error("Binance 卖单响应字段不完整或不匹配；必须按 clientOrderId 对账，禁止重发");
+  }
+  return parsed;
+}
+
 export async function submitSpotMarketBuy(input: {
   symbol: string;
   quoteOrderQty: string;
