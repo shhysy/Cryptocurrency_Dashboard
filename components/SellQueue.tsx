@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { listSellEvents, type SellEventRecord } from "@/lib/execution/sell-store.browser";
+import { syncSellOrderFromBinance } from "@/lib/execution/sync-sell-order.browser";
 
 const STATUS: Record<SellEventRecord["status"], string> = {
   pending: "待执行",
@@ -22,6 +23,8 @@ const KIND: Record<string, string> = {
 export default function SellQueue({ refreshKey }: { refreshKey: number }) {
   const [events, setEvents] = useState<SellEventRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [syncLoading, setSyncLoading] = useState<Record<string, boolean>>({});
+  const [syncMessages, setSyncMessages] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let active = true;
@@ -37,6 +40,26 @@ export default function SellQueue({ refreshKey }: { refreshKey: number }) {
       });
     return () => { active = false; };
   }, [refreshKey]);
+
+  const reconcileSellEvent = async (event: SellEventRecord) => {
+    setSyncLoading((current) => ({ ...current, [event.eventKey]: true }));
+    setSyncMessages((current) => ({ ...current, [event.eventKey]: "" }));
+    try {
+      const result = await syncSellOrderFromBinance(event.eventKey);
+      setSyncMessages((current) => ({
+        ...current,
+        [event.eventKey]: result.reason ?? `对账结果：${result.action}；新增成交 ${result.newlyRecordedFills} 笔`,
+      }));
+      setEvents(await listSellEvents());
+    } catch (e) {
+      setSyncMessages((current) => ({
+        ...current,
+        [event.eventKey]: e instanceof Error ? e.message : "卖单对账失败",
+      }));
+    } finally {
+      setSyncLoading((current) => ({ ...current, [event.eventKey]: false }));
+    }
+  };
 
   const openCount = events.filter((event) =>
     event.status === "pending" || event.status === "reconcile_required"
@@ -74,6 +97,19 @@ export default function SellQueue({ refreshKey }: { refreshKey: number }) {
                 <div><p className="text-mute">已确认成交笔数</p><p className="num text-fg">{event.fillIds.length}</p></div>
               </div>
               {event.lastError ? <p className="mt-2 text-[10px] text-warn">{event.lastError}</p> : null}
+              {event.status === "reconcile_required" && (event.clientOrderId || event.exchangeOrderId) ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={Boolean(syncLoading[event.eventKey])}
+                    onClick={() => void reconcileSellEvent(event)}
+                    className="rounded-full border border-gold/40 px-3 py-1 text-[10px] text-gold hover:bg-gold/10 disabled:opacity-40"
+                  >
+                    {syncLoading[event.eventKey] ? "对账中…" : "核对 Binance 卖单"}
+                  </button>
+                  {syncMessages[event.eventKey] ? <p className="text-[10px] text-mute">{syncMessages[event.eventKey]}</p> : null}
+                </div>
+              ) : null}
             </article>
           ))}
         </div>
