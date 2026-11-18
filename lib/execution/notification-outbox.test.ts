@@ -74,17 +74,14 @@ describe("trade notification delivery lease", () => {
 
   it("does not claim a sending event before its lease expires", () => {
     expect(isTradeNotificationClaimable({ status: "sending", leaseUntil: 200, nextAttemptAt: null }, 199)).toBe(false);
-    expect(isTradeNotificationClaimable({ status: "sending", leaseUntil: 200 }, 200)).toBe(true);
+    expect(isTradeNotificationClaimable({ status: "sending", leaseUntil: 200, nextAttemptAt: null }, 200)).toBe(true);
     expect(isTradeNotificationClaimable({ status: "sending", leaseUntil: null, nextAttemptAt: null }, 100)).toBe(true);
   });
 
   it("never reclaims sent events or accepts invalid clocks", () => {
     expect(isTradeNotificationClaimable({ status: "sent", leaseUntil: null, nextAttemptAt: null }, 100)).toBe(false);
-    expect(isTradeNotificationClaimable({ status: "pending", leaseUntil: null }, Number.NaN)).toBe(false);
+    expect(isTradeNotificationClaimable({ status: "pending", leaseUntil: null, nextAttemptAt: null }, Number.NaN)).toBe(false);
   });
-});
-
-
   it("honors exponential retry backoff for failed events", () => {
     expect(isTradeNotificationClaimable({
       status: "failed", leaseUntil: null, nextAttemptAt: 500,
@@ -93,3 +90,4 @@ describe("trade notification delivery lease", () => {
       status: "failed", leaseUntil: null, nextAttemptAt: 500,
     }, 500)).toBe(true);
   });
+});
