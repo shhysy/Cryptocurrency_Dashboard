@@ -141,6 +141,44 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
     return () => clearInterval(id);
   }, [data.source, refresh]);
 
+  // 浏览器直连模式：将本轮看板计算出的卖出信号交给邮件 Worker。
+  // Worker 只负责发信与去重，不参与行情请求或策略计算。
+  useEffect(() => {
+    const endpoint = process.env.NEXT_PUBLIC_SELL_ALERT_URL;
+    if (!endpoint || data.source !== "binance" || data.stale) return;
+
+    const signals = data.coins
+      .filter((coin) => coin.signal.action.side === "sell" && coin.signal.action.qty !== null && coin.signal.action.qty > 0)
+      .map((coin) => ({
+        symbol: coin.symbol,
+        name: coin.name,
+        kind: coin.signal.action.kind,
+        label: coin.signal.action.label,
+        price: coin.price,
+        avgCost: coin.avgCost,
+        returnPct: coin.returnPct,
+        qty: coin.signal.action.qty,
+        sellPct: coin.signal.action.sellPct,
+        usdt: coin.signal.action.usdt,
+        notes: coin.signal.action.notes,
+      }));
+
+    fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ signals }),
+      cache: "no-store",
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((result) => {
+        if (result?.sent > 0) console.info("[sell-alert] 已发送卖出提醒", result.sent);
+      })
+      .catch((error) => console.warn("[sell-alert]", error));
+  }, [data]);
+
   // 页面打开后每 60 秒调用一次 /api/notify；是否发信、冷却多久由服务端按 .env 决定
   useEffect(() => {
     if (typeof window === "undefined") return;
