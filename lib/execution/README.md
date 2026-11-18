@@ -1,6 +1,6 @@
 # V3.3 执行层（开发中）
 
-当前统一的策略执行模块位于 `lib/execution/`。当前代码覆盖金额预检、只读成交对账、本地幂等记录，以及默认关闭的 Simple Earn 赎回 POST 适配器；**现货买卖订单 POST 尚未实现，赎回实盘开关仍关闭**。
+当前统一的策略执行模块位于 `lib/execution/`。当前代码覆盖金额预检、只读成交对账、本地幂等记录，以及默认关闭的 Simple Earn 赎回和 Spot BUY POST 适配器；**现货买卖实盘开关仍关闭，SELL POST 尚未实现**。
 
 ## 已有模块
 
@@ -17,6 +17,7 @@
 - `binance.browser.ts`：USDT free、交易对过滤器、按客户端订单 ID 查询订单，以及读取 BUY/SELL 成交（只读）。
 - `binance-order.browser.ts`：重新读取 USDT free 与交易对过滤器，结合队列剩余金额和单币剩余额度计算本次可预检金额；固定 `DRY_RUN`，绝不提交现货订单。
 - `earn-redemption.browser.ts`：已实现单次赎回提交编排、状态领取、POST 结果持久化和超时复核；`LIVE_EARN_REDEMPTION_ENABLED=false`，默认不会发送请求。
+- `buy-order-submit.browser.ts`：已实现 Spot MARKET BUY 单次提交编排、资金预留、attempt 原子领取和失败复核；`LIVE_SPOT_ORDER_SUBMISSION_ENABLED=false`，默认不会发送请求。
 - `binance.browser.ts`：Simple Earn Flexible redeem POST 适配器固定赎回到 Spot；启用前必须有 TRADE 权限。
 
 ## 不可绕过的执行规则
@@ -37,7 +38,7 @@
 
 ## 尚未完成
 
-- Binance Spot `POST /api/v3/order`、撤单与自动订单轮询；Simple Earn Flexible redeem POST 适配器已写好但默认关闭，尚未进行真实赎回。
+- Binance Spot SELL `POST /api/v3/order`、撤单与自动订单轮询；BUY POST 适配器已写好但默认关闭，尚未进行真实买入。Simple Earn Flexible redeem POST 同样默认关闭。
 - 买入订单自动轮询调度（当前需上层显式调用）；卖出订单已有只读对账函数，但尚无真实卖单提交器与自动轮询调度。
 - 卖出信号已完成事件预留、guard 和绑定订单 ID 后的只读成交同步；尚未自动提交卖单。
 - 持仓成本、周期仓/底仓数量、实现盈亏已有加权平均成本回放函数；尚未将其接入卖出预检和 UI，也未持久化逐笔已实现盈亏。
@@ -178,3 +179,7 @@
 - 新增测试覆盖多产品分配、重复意图、跨订单预留、超时复核、历史记录匹配和到账确认。
 
 **当前边界：** 资金来源规划按钮只调用 GET USER_DATA 和本地 IndexedDB，不会赎回或下单。Binance 官方把 `POST /sapi/v1/simple-earn/flexible/redeem` 标为 `TRADE` 权限；用户当前只读 Key 无法执行。尚未实现真实赎回提交器，也没有 Spot order POST。真正启用前必须先解决浏览器端 Secret 暴露问题，并经用户确认开启所需权限。参考：[Binance Simple Earn API](https://developers.binance.com/en/docs/catalog/investment-and-services-simple-earn/api/rest-api/flexible-locked)。
+
+## 第十五阶段：Spot 市价买单提交适配器
+
+详细实现和安全边界见 [PHASE_15.md](./PHASE_15.md)。当前实盘开关保持关闭，不会提交任何买单。
