@@ -1,4 +1,4 @@
-import { sumSimpleEarnUsdtPositions, type SimpleEarnPositionPage, type UsdtWalletBuckets } from "./execution/wallet-funds";
+import { normalizeFlexibleEarnPosition, sumSimpleEarnUsdtPositions, type SimpleEarnPositionPage, type UsdtWalletBuckets } from "./execution/wallet-funds";
 /**
  * 币安接口 · 浏览器直连版。
  *
@@ -277,23 +277,7 @@ export async function fetchFlexibleEarnUsdtPositions(): Promise<SimpleEarnPositi
       { asset: "USDT", current, size: 100 },
     );
     if (!Array.isArray(page.rows)) throw new Error("Binance Simple Earn 活期持仓响应格式无效");
-    rows.push(...page.rows.map((row) => {
-      const amount = Number(row.totalAmount);
-      const collateral = Number(row.collateralAmount ?? "0");
-      if (!Number.isFinite(amount) || amount < 0 ||
-          !Number.isFinite(collateral) || collateral < 0 || collateral > amount) {
-        throw new Error("Binance Simple Earn 活期持仓金额无效");
-      }
-      // Unknown canRedeem is treated as non-redeemable (fail closed).
-      const frozen = row.canRedeem === true ? collateral : amount;
-      return {
-        asset: row.asset,
-        productId: row.productId,
-        amount: row.totalAmount,
-        redeemingAmt: "0",
-        freezeAmount: String(frozen),
-      };
-    }));
+    rows.push(...page.rows.map(normalizeFlexibleEarnPosition));
     if (rows.length >= page.total || page.rows.length < 100) break;
     if (current === 20) throw new Error("Binance Simple Earn 活期持仓超过分页安全上限，拒绝使用不完整数据");
   }
