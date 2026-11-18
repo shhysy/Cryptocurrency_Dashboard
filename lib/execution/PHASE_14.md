@@ -12,7 +12,8 @@
 
 - `wallet-funds.ts`：Spot 优先资金分配纯函数。
 - `earn-redemption.ts`：按 Flexible 产品 productId 分配赎回金额、创建稳定幂等意图、限制状态迁移、处理超时复核和到账核验。
-- `earn-redemption.browser.ts`：读取 Spot、Flexible 持仓和本地预留，生成待买订单赎回计划；已有活动意图直接复用，不重复生成。
+- `earn-redemption.browser.ts`：读取 Spot、Flexible 持仓和本地预留，先原子预留本订单的 Spot 份额，再为缺口生成赎回计划；已有活动意图直接复用，不重复生成。
+- 赎回到账后，只有通过 redemption history + Spot free 基线核验，才扩展该订单的本地 Spot 预留；普通预览不会扩大预留。
 - `store.browser.ts`：IndexedDB 升级到 v4，新增 `earn-redemption-intents`，以事务方式保存赎回意图和状态。
 - `binance.browser.ts`：按 Binance 实际返回字段读取 Flexible 持仓（`totalAmount`、`productId`、`canRedeem`、`collateralAmount`），归一化后保留 productId；Locked 持仓按 `amount` / `redeemingAmt` 读取；另有只读赎回历史查询。
 - 不再把现货账户的 `LDUSDT` / `LD...` 代码猜测性地转换为基础资产；Simple Earn 持仓以专用 position API 为准。
