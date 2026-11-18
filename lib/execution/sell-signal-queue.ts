@@ -60,8 +60,13 @@ export function buildSellEventReservations(
     const boughtQty = coin.buys.reduce((sum, trade) => sum + trade.qty, 0);
     const baseQty = boughtQty * profile.baseRatio;
     const cycleInitialQty = Math.max(0, boughtQty - baseQty);
+    // Pending/reconcile-required sells reserve cycle quantity. Executed sells
+    // are already reflected in the fresh Binance balance and must not be subtracted twice.
     const cycleReservedQty = activeEvents
-      .filter((event) => event.kind !== "base_reduce")
+      .filter((event) =>
+        event.kind !== "base_reduce" &&
+        (event.status === "pending" || event.status === "reconcile_required")
+      )
       .reduce((sum, event) => sum + event.requestedQty, 0);
     const indicatorEvents = activeEvents.filter((event) => event.kind === "indicator_profit");
     const indicatorProfitSoldQty = indicatorEvents.reduce((sum, event) => sum + event.requestedQty, 0);
