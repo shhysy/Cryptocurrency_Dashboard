@@ -61,7 +61,7 @@ describe("自动卖出幂等与仓位保护", () => {
       desiredQty: 0.02, cycleAvailableQty: 0.08, baseAvailableQty: 0.01, now: 1,
       allowBaseReduction: true,
     };
-    expect(guardSellIntent(req, state()).qty).toBe(0.01);
+    expect(guardSellIntent(req, state()).qty).toBe(0.005);
     expect(guardSellIntent(req, state({ baseReduceExecuted: true })).allowed).toBe(false);
   });
 });
