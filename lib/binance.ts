@@ -229,15 +229,19 @@ export async function fetchBalances(): Promise<Record<string, number>> {
  * 合并币安「活期理财」凭证：LD 开头的资产（LDUNI = 理财里的 UNI）按原币种累加，
  * 现货和理财里的同一个币合成一笔。随时可赎回，所以按资产计入。
  */
+/** Keep Spot-account assets under their exact exchange asset code.
+ * Simple Earn holdings are read from the dedicated Simple Earn position API;
+ * LD-prefixed tickers must not be guessed back into their base asset.
+ */
 export function mergeEarnBalances(balances: { asset: string; free: string; locked: string }[]): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const b of balances) {
-    const asset = /^LD[A-Z0-9]{2,}$/.test(b.asset) ? b.asset.slice(2) : b.asset;
-    out[asset] = (out[asset] ?? 0) + Number(b.free) + Number(b.locked);
+  for (const balance of balances) {
+    const qty = Number(balance.free) + Number(balance.locked);
+    if (!Number.isFinite(qty) || qty < 0) throw new Error("Binance 现货资产余额无效");
+    out[balance.asset] = (out[balance.asset] ?? 0) + qty;
   }
   return out;
 }
-
 interface RawTrade {
   id: number;
   price: string;
