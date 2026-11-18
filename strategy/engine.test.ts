@@ -129,35 +129,30 @@ describe("头仓", () => {
   });
 });
 
-describe("金额上限（读取账户）", () => {
-  it("单周新增上限压低金额：净值 5% = $500，已买 $480 -> 只能买 $20", () => {
-    const s = evaluateCoin(coin(bottoming()), ctx(withAccount({ weeklyBuyUsdt: 480 })));
-    expect(s.action.usdt).toBeCloseTo(20, 6);
-    expect(s.action.limits.join()).toContain("单周");
+describe("固定额度（不依赖账户规模）", () => {
+  it("账户现金很少、单周买入很多，也不缩减策略计划；余额由执行队列处理", () => {
+    const s = evaluateCoin(coin(bottoming()), ctx(withAccount({ cashUsdt: 6, netWorthUsdt: 6, weeklyBuyUsdt: 9999 })));
+    expect(s.action.usdt).toBe(200);
   });
-  it("买后现金需 ≥ 净值 30%：现金 $3100 只能买 $100", () => {
-    const s = evaluateCoin(coin(bottoming()), ctx(withAccount({ cashUsdt: 3100 })));
-    expect(s.action.usdt).toBeCloseTo(100, 6);
-    expect(s.action.limits.join()).toContain("现金");
+  it("账户数据未知时仍给出固定计划金额", () => {
+    const s = evaluateCoin(coin(bottoming()), ctx(withAccount({ known: false, cashUsdt: 0 })));
+    expect(s.action.side).toBe("buy");
+    expect(s.action.usdt).toBe(200);
   });
-  it("核心资产合计上限：净值 25% = $2500，已占 $2400 -> 只能买 $100", () => {
-    const s = evaluateCoin(coin(bottoming()), ctx(withAccount({ coreCostUsdt: 2400 })));
-    expect(s.action.usdt).toBeCloseTo(100, 6);
+  it("BTC/PAXG 使用 1000 USDT 上限；ETH/其他币使用 500 USDT 上限", () => {
+    expect(evaluateCoin(coin(bottoming(), { symbol: "BTC" }), ctx()).action.usdt).toBe(200);
+    expect(evaluateCoin(coin(bottoming(), { symbol: "PAXG" }), ctx()).action.usdt).toBe(200);
+    expect(evaluateCoin(coin(bottoming(), { symbol: "ETH" }), ctx()).action.usdt).toBe(100);
   });
-  it("山寨币合计上限：净值 10% = $1000，已占 $950 -> 只能买 $50", () => {
-    const s = evaluateCoin(coin(bottoming(), { symbol: "UNI" }), ctx(withAccount({ altCostUsdt: 950 })));
+  it("单币累计成本上限：已投入 950 USDT 时核心币最多计划 50 USDT", () => {
+    const s = evaluateCoin(coin(bottoming(), { invested: 950 }), ctx());
     expect(s.action.usdt).toBeCloseTo(50, 6);
+    expect(s.action.limits.join()).toContain("单币累计成本上限");
   });
-  it("可买金额低于最小下单额 -> 暂缓", () => {
-    const s = evaluateCoin(coin(bottoming()), ctx(withAccount({ weeklyBuyUsdt: 498 })));
+  it("单币额度剩余低于最小下单额时暂缓", () => {
+    const s = evaluateCoin(coin(bottoming(), { invested: 997 }), ctx());
     expect(s.tag).toBe("暂缓");
     expect(s.action.blocked.join()).toContain("最小下单额");
-  });
-  it("没读取账户：只给方向，不给金额", () => {
-    const s = evaluateCoin(coin(bottoming()), ctx(withAccount({ known: false })));
-    expect(s.action.side).toBe("buy");
-    expect(s.action.usdt).toBeNull();
-    expect(s.action.plannedUsdt).toBe(200);
   });
 });
 
