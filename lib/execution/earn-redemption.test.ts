@@ -17,8 +17,7 @@ describe("Simple Earn redemption intent", () => {
     ];
     expect(availableFlexibleEarnUsdt(positions, { "same-product": 50 })).toBe(50);
     expect(allocateFlexibleEarnRedemption(50, positions, { "same-product": 50 })).toEqual([
-      { productId: "same-product", amountUsdt: 10 },
-      { productId: "same-product", amountUsdt: 40 },
+      { productId: "same-product", amountUsdt: 50 },
     ]);
   });
 
