@@ -30,13 +30,13 @@ export default function StrategyInfo({ bare = false }: { bare?: boolean }) {
       ],
     },
     {
-      title: "金额上限（需读取账户）",
+      title: "固定额度（不按账户规模）",
       tone: "text-sub",
       items: [
-        `单币成本上限：积极型 $${core.capUsdt}，保守型 $${alt.capUsdt}`,
-        `买后现金 ≥ 净值 ${p(pf.minCashRatio)}；近 7 天新增买入 ≤ 净值 ${p(pf.weeklyBuyCap)}`,
-        `山寨币成本合计 ≤ 净值 ${p(pf.altNetCap)}，最多同时持有 ${pf.altMaxCount} 个；核心资产合计 ≤ 净值 ${p(pf.coreNetCap)}`,
-        "建议金额 = 表格计划金额 × BTC 状态系数，再被以上上限压低；低于最小下单额则不给买入建议",
+        `单币累计真实买入成本上限：积极型 ${core.capUsdt}，保守型 ${alt.capUsdt}；卖出不会释放额度`,
+        `最多同时持有 ${pf.altMaxCount} 个山寨币；不再按账户净值、最低现金比例或每周净值比例缩减计划金额`,
+        "买入资金只使用 Binance 现货 USDT free；余额不足时允许部分买入，未买金额保留在待买队列",
+        `最小下单金额约 ${c.minOrderUsdt}，最终还需通过 Binance 数量步长、最小名义金额和交易对状态校验`,
       ],
     },
     {
