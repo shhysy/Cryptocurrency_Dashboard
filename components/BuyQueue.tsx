@@ -3,10 +3,10 @@
 import { useEffect, useState } from "react";
 import type { DashboardData } from "@/lib/types";
 import type { QueuedBuyOrder } from "@/lib/execution/types";
-import { listBuyOrders } from "@/lib/execution/store.browser";
+import { listBuyOrders, listEarnRedemptionIntents } from "@/lib/execution/store.browser";
 import { downloadQueuedOrdersCsv } from "@/lib/execution/csv";
 import { prepareQueuedBuyDryRun, type BuyDryRunResult } from "@/lib/execution/binance-order.browser";
-import { prepareQueuedBuyEarnRedemption } from "@/lib/execution/earn-redemption.browser";
+import { prepareQueuedBuyEarnRedemption, reconcileEarnRedemptionIntent } from "@/lib/execution/earn-redemption.browser";
 import type { BuyFundingPlan } from "@/lib/execution/wallet-funds";
 import type { EarnRedemptionIntent } from "@/lib/execution/earn-redemption";
 import { strategyConfig } from "@/strategy.config";
@@ -44,6 +44,8 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
   const [fundingLoading, setFundingLoading] = useState<Record<string, boolean>>({});
   const [fundingPlans, setFundingPlans] = useState<Record<string, { plan: BuyFundingPlan | null; intents: EarnRedemptionIntent[] }>>({});
   const [fundingErrors, setFundingErrors] = useState<Record<string, string>>({});
+  const [reconcileLoading, setReconcileLoading] = useState<Record<string, boolean>>({});
+  const [reconcileMessages, setReconcileMessages] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let active = true;
@@ -53,6 +55,8 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
     setFundingLoading({});
     setFundingPlans({});
     setFundingErrors({});
+    setReconcileLoading({});
+    setReconcileMessages({});
     listBuyOrders()
       .then((rows) => {
         if (active) {
@@ -103,6 +107,30 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
       }));
     } finally {
       setFundingLoading((current) => ({ ...current, [order.id]: false }));
+    }
+  };
+
+  const reconcileEarnIntent = async (orderId: string, intent: EarnRedemptionIntent) => {
+    setReconcileLoading((current) => ({ ...current, [intent.id]: true }));
+    setReconcileMessages((current) => ({ ...current, [intent.id]: "" }));
+    try {
+      const result = await reconcileEarnRedemptionIntent(intent);
+      const latest = await listEarnRedemptionIntents(orderId);
+      setFundingPlans((current) => ({
+        ...current,
+        [orderId]: {
+          plan: current[orderId]?.plan ?? null,
+          intents: latest,
+        },
+      }));
+      setReconcileMessages((current) => ({ ...current, [intent.id]: result.reason }));
+    } catch (e) {
+      setReconcileMessages((current) => ({
+        ...current,
+        [intent.id]: e instanceof Error ? e.message : "赎回核对失败",
+      }));
+    } finally {
+      setReconcileLoading((current) => ({ ...current, [intent.id]: false }));
     }
   };
 
@@ -206,9 +234,24 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
                       <div className="mt-1 space-y-1">
                         <p className="text-sub">本地赎回意图状态（不会自动重发）：</p>
                         {fundingPlans[order.id].intents.map((intent) => (
-                          <p key={intent.id} className="text-sub">
-                            {intent.productId} · {money(intent.amountUsdt)} USDT · {EARN_REDEMPTION_STATUS[intent.status]}
-                          </p>
+                          <div key={intent.id} className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sub">
+                              {intent.productId} · {money(intent.amountUsdt)} USDT · {EARN_REDEMPTION_STATUS[intent.status]}
+                            </p>
+                            {intent.status !== "planned" && intent.status !== "credited" && intent.status !== "failed" ? (
+                              <button
+                                type="button"
+                                disabled={Boolean(reconcileLoading[intent.id])}
+                                onClick={() => void reconcileEarnIntent(order.id, intent)}
+                                className="rounded-full border border-line px-2 py-0.5 text-[10px] text-sub hover:text-fg disabled:opacity-40"
+                              >
+                                {reconcileLoading[intent.id] ? "核对中…" : "核对赎回"}
+                              </button>
+                            ) : null}
+                            {reconcileMessages[intent.id] ? (
+                              <p className="w-full text-[10px] text-mute">{reconcileMessages[intent.id]}</p>
+                            ) : null}
+                          </div>
                         ))}
                       </div>
                     ) : null}
