@@ -87,3 +87,15 @@
 - `notification-outbox.ts` 校验成交事实并构造稳定事件 ID；单元测试覆盖字段校验与幂等 ID。
 
 **当前边界：** 目前只完成“确认买入成交 → 本地 Outbox”的原子链路。邮件 Worker 的成交事件接收接口、可靠投递调度、SELL fill 的对账入账，以及邮件送达回执仍未完成。不能把 Outbox 入队视为邮件已经发送。当前不会因为策略信号或未成交订单发送成交邮件。
+
+## 第八阶段：签名成交邮件接收端（尚未接入前端）
+
+- 新增独立 `workers/trade-fill-email.js`，与旧的卖出信号提醒 Worker 分离；只接受 `confirmed_trade_fill` 买入/卖出成交事件，不接受策略信号。
+- Worker 使用 HMAC-SHA256 校验原始请求体 + 毫秒时间戳，拒绝超过 ±5 分钟的请求；签名密钥只应存放在服务端/Worker Secret，不能放入浏览器构建变量。
+- Worker 校验成交方向、交易对、成交 ID、订单 ID、数量、价格、成交额、手续费与事件幂等 ID；批量最多 20 条、请求体最多 32 KiB。
+- Worker 使用 Resend 发送成交确认邮件，收件人由 Worker 配置固定；邮件发送成功后才写 KV 去重记录，失败不标记已发送。
+- 新增 `notification-signature.server.ts`，提供仅服务端使用的 HMAC 签名方法；新增单元测试覆盖签名稳定性、正文变化和参数校验。
+
+**尚未完成：** 当前没有同源 Outbox dispatcher，也没有已验证的用户登录/Cloudflare Access 身份验证。不能只凭 CORS 或 Origin 保护公开 API，因此本阶段没有开放浏览器到 Worker 的投递链路，也没有部署 Worker。正式接入前必须先完成服务端身份验证和转发路由，并确认仅能转发本地 Outbox 事件。
+
+**幂等限制：** KV 是最终一致性存储，普通 KV 的先查后写不是原子锁；Resend Idempotency-Key 可降低重复发送风险，但不能宣称严格 exactly-once。若需要严格的并发事件 claim，应在正式启用前改用 Durable Object。
