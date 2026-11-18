@@ -205,22 +205,9 @@ export async function fetchSpotAndEarnUsdtBalances(): Promise<Pick<UsdtWalletBuc
     throw new Error("Binance Spot USDT 余额无效");
   }
 
-  const fetchEarnPositions = async (path: string): Promise<SimpleEarnPositionPage["rows"]> => {
-    const rows: SimpleEarnPositionPage["rows"] = [];
-    for (let current = 1; current <= 20; current++) {
-      const page = await signedGet<SimpleEarnPositionPage>(path, {
-        asset: "USDT", current, size: 100,
-      });
-      if (!Array.isArray(page.rows)) throw new Error("Binance Simple Earn 持仓响应格式无效");
-      rows.push(...page.rows);
-      if (rows.length >= page.total || page.rows.length < 100) break;
-    }
-    return rows;
-  };
-
   const [flexibleRows, lockedRows] = await Promise.all([
-    fetchEarnPositions("/sapi/v1/simple-earn/flexible/position"),
-    fetchEarnPositions("/sapi/v1/simple-earn/locked/position"),
+    fetchFlexibleEarnUsdtPositions(),
+    fetchLockedEarnUsdtPositions(),
   ]);
   const flexible = sumSimpleEarnUsdtPositions(flexibleRows);
   const locked = sumSimpleEarnUsdtPositions(lockedRows);
@@ -228,7 +215,9 @@ export async function fetchSpotAndEarnUsdtBalances(): Promise<Pick<UsdtWalletBuc
     spotFreeUsdt,
     spotLockedUsdt,
     flexibleEarnUsdt: flexible.totalUsdt,
-    flexibleEarnRedeemingUsdt: flexible.redeemingUsdt,
+    // Flexible position API does not expose a per-position redeeming amount.
+    // Pending redemptions are tracked by the local intent ledger and history API.
+    flexibleEarnRedeemingUsdt: 0,
     flexibleEarnFrozenUsdt: flexible.frozenUsdt,
     lockedEarnUsdt: locked.totalUsdt,
     lockedEarnRedeemingUsdt: locked.redeemingUsdt,
@@ -245,17 +234,68 @@ export interface FlexibleEarnRedemptionRecord {
   status?: string;
 }
 
-/** Read all USDT Flexible Earn positions, retaining product IDs for a future exact redemption plan. */
+interface FlexibleEarnApiPosition {
+  asset: string;
+  productId?: string;
+  totalAmount: string;
+  canRedeem?: boolean;
+  collateralAmount?: string;
+}
+
+interface LockedEarnApiPosition {
+  asset: string;
+  amount: string;
+  redeemingAmt?: string;
+}
+
+async function fetchLockedEarnUsdtPositions(): Promise<SimpleEarnPositionPage["rows"]> {
+  const rows: SimpleEarnPositionPage["rows"] = [];
+  for (let current = 1; current <= 20; current++) {
+    const page = await signedGet<{ total: number; rows: LockedEarnApiPosition[] }>(
+      "/sapi/v1/simple-earn/locked/position",
+      { asset: "USDT", current, size: 100 },
+    );
+    if (!Array.isArray(page.rows)) throw new Error("Binance Simple Earn 定期持仓响应格式无效");
+    rows.push(...page.rows.map((row) => ({
+      asset: row.asset,
+      amount: row.amount,
+      redeemingAmt: row.redeemingAmt ?? "0",
+      freezeAmount: "0",
+    })));
+    if (rows.length >= page.total || page.rows.length < 100) break;
+    if (current === 20) throw new Error("Binance Simple Earn 定期持仓超过分页安全上限，拒绝使用不完整数据");
+  }
+  return rows;
+}
+
+/** Read Flexible Earn positions using Binance's actual totalAmount/canRedeem/productId fields. */
 export async function fetchFlexibleEarnUsdtPositions(): Promise<SimpleEarnPositionPage["rows"]> {
   const rows: SimpleEarnPositionPage["rows"] = [];
   for (let current = 1; current <= 20; current++) {
-    const page = await signedGet<SimpleEarnPositionPage>(
+    const page = await signedGet<{ total: number; rows: FlexibleEarnApiPosition[] }>(
       "/sapi/v1/simple-earn/flexible/position",
       { asset: "USDT", current, size: 100 },
     );
     if (!Array.isArray(page.rows)) throw new Error("Binance Simple Earn 活期持仓响应格式无效");
-    rows.push(...page.rows);
+    rows.push(...page.rows.map((row) => {
+      const amount = Number(row.totalAmount);
+      const collateral = Number(row.collateralAmount ?? "0");
+      if (!Number.isFinite(amount) || amount < 0 ||
+          !Number.isFinite(collateral) || collateral < 0 || collateral > amount) {
+        throw new Error("Binance Simple Earn 活期持仓金额无效");
+      }
+      // Unknown canRedeem is treated as non-redeemable (fail closed).
+      const frozen = row.canRedeem === true ? collateral : amount;
+      return {
+        asset: row.asset,
+        productId: row.productId,
+        amount: row.totalAmount,
+        redeemingAmt: "0",
+        freezeAmount: String(frozen),
+      };
+    }));
     if (rows.length >= page.total || page.rows.length < 100) break;
+    if (current === 20) throw new Error("Binance Simple Earn 活期持仓超过分页安全上限，拒绝使用不完整数据");
   }
   return rows;
 }
