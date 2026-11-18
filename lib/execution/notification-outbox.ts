@@ -17,6 +17,7 @@ export interface TradeNotificationOutboxEvent {
   status: "pending" | "sending" | "sent" | "failed";
   /** Lease prevents two browser tabs from delivering the same event concurrently. */
   leaseUntil: number | null;
+  nextAttemptAt: number | null;
   attemptCount: number;
   createdAt: number;
   updatedAt: number;
@@ -26,12 +27,12 @@ export interface TradeNotificationOutboxEvent {
 
 /** Whether an outbox event may be claimed by a dispatcher at the supplied time. */
 export function isTradeNotificationClaimable(
-  event: Pick<TradeNotificationOutboxEvent, "status" | "leaseUntil">,
+  event: Pick<TradeNotificationOutboxEvent, "status" | "leaseUntil" | "nextAttemptAt">,
   now: number,
 ): boolean {
   if (!Number.isSafeInteger(now) || now <= 0) return false;
   return event.status === "pending" ||
-    event.status === "failed" ||
+    (event.status === "failed" && (event.nextAttemptAt ?? 0) <= now) ||
     (event.status === "sending" && (event.leaseUntil ?? 0) <= now);
 }
 
@@ -80,6 +81,7 @@ export function buildTradeFillNotificationEvent(
     filledAt: fill.time,
     status: "pending",
     leaseUntil: null,
+    nextAttemptAt: null,
     attemptCount: 0,
     createdAt: now,
     updatedAt: now,
