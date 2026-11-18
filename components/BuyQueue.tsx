@@ -115,7 +115,7 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
       <div className="flex items-center justify-between gap-2">
         <div>
           <h3 className="text-sm font-semibold text-fg">待买队列</h3>
-          <p className="mt-0.5 text-[11px] text-mute">策略信号已入队；资金规划和预检只读取 Binance，不会赎回理财或提交订单。</p>
+          <p className="mt-0.5 text-[11px] text-mute">策略信号已入队；资金规划只读 Binance 并做本地资金预留，不会赎回理财或提交订单。</p>
         </div>
         <button
           type="button"
@@ -194,9 +194,10 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
                     <p className="font-medium text-fg">Spot 优先 · Simple Earn 活期补足</p>
                     {fundingPlans[order.id].plan ? (
                       <>
-                        <p className="mt-1 text-sub">现货计划使用：{money(fundingPlans[order.id].plan!.spotToUseUsdt)} USDT</p>
+                        <p className="mt-1 text-sub">现货本地预留：{money(fundingPlans[order.id].plan!.spotToUseUsdt)} USDT</p>
                         <p className="text-sub">活期理财计划赎回：{money(fundingPlans[order.id].plan!.flexibleEarnToRedeemUsdt)} USDT</p>
                         <p className="text-sub">仍未满足：{money(fundingPlans[order.id].plan!.unfundedUsdt)} USDT</p>
+                        <p className="text-[10px] text-mute">本地预留只防止本项目重复分配，不会冻结 Binance 账户资金。</p>
                       </>
                     ) : (
                       <p className="mt-1 text-sub">该订单已有赎回意图，沿用现有记录，不重复生成赎回计划。</p>
