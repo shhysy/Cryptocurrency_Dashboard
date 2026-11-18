@@ -55,6 +55,7 @@ export function summarizeUsdtWallets(input: UsdtWalletBuckets): UsdtWalletSummar
 
 export interface SimpleEarnPositionRow {
   asset: string;
+  productId?: string;
   amount: string;
   redeemingAmt?: string;
   freezeAmount?: string;
