@@ -1,3 +1,4 @@
+import { splitSpotAccountUsdtBalances, type UsdtWalletBuckets } from "./execution/wallet-funds";
 /**
  * 币安接口 · 浏览器直连版。
  *
@@ -185,6 +186,18 @@ export async function fetchSpotAssetBalance(asset: string): Promise<SpotAssetBal
     throw new Error("Binance 返回的现货资产余额无效");
   }
   return { asset, free, locked, total: free + locked };
+}
+
+/** Read-only Spot account breakdown. LDUSDT is shown as a flexible-Earn voucher,
+ * never merged into executable Spot free USDT. Funding and locked Earn are
+ * intentionally not inferred from this Spot endpoint.
+ */
+export async function fetchSpotUsdtWalletBuckets(): Promise<Pick<UsdtWalletBuckets,
+  "spotFreeUsdt" | "spotLockedUsdt" | "flexibleEarnUsdt">> {
+  const account = await signedGet<{ balances: { asset: string; free: string; locked: string }[] }>(
+    "/api/v3/account",
+  );
+  return splitSpotAccountUsdtBalances(account.balances);
 }
 
 /** 只返回现货账户 USDT 的 free 字段；不计 locked，不折算其他资产。 */
