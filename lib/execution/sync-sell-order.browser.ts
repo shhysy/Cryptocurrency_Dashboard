@@ -119,7 +119,7 @@ export async function syncSellOrderFromBinance(
   let newlyRecordedFills = 0;
   try {
     for (const fill of reconciled.fills) {
-      const saved = await recordConfirmedSellFill(fill);
+      const saved = await recordConfirmedSellFill(fill, event.kind as NonNullable<import("./types").TradeLedgerEntry["sellKind"]>);
       if (saved.recorded) newlyRecordedFills += 1;
     }
   } catch (error) {
