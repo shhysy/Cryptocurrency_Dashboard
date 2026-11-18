@@ -15,6 +15,12 @@ export type ReconcileDecision =
   | { action: "safe_to_retry"; reason: string }
   | { action: "manual_review"; reason: string };
 
+/** Only terminal exchange states release the one-order-at-a-time submission lock. */
+export function isExchangeOrderTerminal(status: ExchangeOrderStatus): boolean {
+  return status === "FILLED" || status === "CANCELED" ||
+    status === "REJECTED" || status === "EXPIRED";
+}
+
 /** Never resubmit while Binance may still have an open or partially-filled order. */
 export function decideOrderReconciliation(snapshot: ExchangeOrderSnapshot | null): ReconcileDecision {
   if (!snapshot) return { action: "manual_review", reason: "按客户端订单 ID 未查到订单；先核对时间窗口和交易记录，不自动重发" };
