@@ -61,3 +61,18 @@
 3. 浏览器直连的客户端签名架构无法保密 API Secret；`NEXT_PUBLIC_*` 环境变量会进入浏览器包。该架构有固有风险，不能把它描述为安全的密钥托管。
 4. 完成成交查询、部分成交、超时对账、订单过滤器、重复刷新、多个标签页并发、撤单/拒单、余额变化和卖出档位去重测试。
 5. 先用 Binance Spot Testnet / 极小额验证。默认开关维持关闭，完成测试和用户明确启用后才允许实盘。
+
+
+## 2026-11-18 开发进度补充
+
+第三阶段已增加以下基础模块（均为预检/只读/本地状态，不会发送订单）：
+
+- `lib/execution/binance-preflight.ts`：解析 Binance 市价数量步长、最小/最大名义金额和报价精度；买入按 USDT free 余额预检，卖出按 free 数量和底仓保护线预检。
+- `lib/execution/sell-guard.ts`：止盈事件去重、周期仓限制、指标止盈 2 周冷却与 50% 累计上限、底仓减仓单次最多卖出剩余底仓 50%。
+- `lib/execution/sell-store.browser.ts`：IndexedDB 原子预留卖出事件；状态只能按安全方向转换；没有成交 fill ID 不允许标记 executed。
+- `lib/execution/client-order-id.ts`：为 Binance 客户端订单 ID 生成确定性短 ID；完整策略事件键仍保存在本地台账。
+- `lib/execution/order-reconcile.ts`：订单超时对账决策；NEW / PARTIALLY_FILLED 不可重发，未查到订单转人工复核，只有确认零成交取消单才允许用新 attempt 重试。
+- `lib/binance.browser.ts`：增加只读的客户端订单 ID 查询和 BUY/SELL 成交读取接口。
+- 买入成交支出若超过待买队列剩余计划金额，将拒绝自动记账并要求人工对账。
+
+**未完成且不能宣称已实现：** Binance 下单 POST、撤单、订单轮询调度、完整的真实成交到队列/持仓同步、策略引擎到卖出 guard 的联动、买卖邮件通知 UI、端到端测试与 Testnet 测试。自动交易开关必须继续保持关闭。
