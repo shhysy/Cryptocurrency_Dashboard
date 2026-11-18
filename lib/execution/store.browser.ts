@@ -317,7 +317,7 @@ export async function applyConfirmedBuyReservationSpend(
   cumulativeConfirmedSpendUsdt: number,
   exchangeOrderTerminal: boolean,
   now = Date.now(),
-): Promise<BuyFundsReservation> {
+): Promise<BuyFundsReservation | null> {
   const db = await openDb();
   try {
     return await new Promise((resolve, reject) => {
@@ -329,8 +329,7 @@ export async function applyConfirmedBuyReservationSpend(
       request.onsuccess = () => {
         const current = request.result as BuyFundsReservation | undefined;
         if (!current) {
-          fatal = new Error("找不到该订单的 USDT 资金预留");
-          tx.abort();
+          updated = undefined;
           return;
         }
         try {
@@ -351,7 +350,7 @@ export async function applyConfirmedBuyReservationSpend(
         }
       };
       request.onerror = () => { fatal = request.error ?? new Error("读取资金预留失败"); tx.abort(); };
-      tx.oncomplete = () => updated ? resolve(updated) : reject(fatal ?? new Error("资金预留更新未完成"));
+      tx.oncomplete = () => resolve(updated ?? null);
       tx.onerror = () => reject(fatal ?? tx.error ?? new Error("资金预留更新失败"));
       tx.onabort = () => reject(fatal ?? tx.error ?? new Error("资金预留更新事务中止"));
     });
