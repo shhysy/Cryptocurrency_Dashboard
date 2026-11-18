@@ -141,12 +141,10 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
     return () => clearInterval(id);
   }, [data.source, refresh]);
 
-  // 页面加载完成后自动检测分数并发邮件（服务端冷却，不会每次刷新都发）
+  // 页面打开后每 60 秒调用一次 /api/notify；是否发信、冷却多久由服务端按 .env 决定
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (sessionStorage.getItem("mail-notify-fired") === "1") return;
-    const t = window.setTimeout(() => {
-      sessionStorage.setItem("mail-notify-fired", "1");
+    const check = () => {
       fetch("/api/notify", { method: "POST", cache: "no-store" })
         .then((r) => r.json())
         .then((j) => {
@@ -159,8 +157,13 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
           else if (j?.error) console.warn("[mail-notify]", j.error);
         })
         .catch((e) => console.warn("[mail-notify]", e));
-    }, 1500);
-    return () => window.clearTimeout(t);
+    };
+    const first = window.setTimeout(check, 1500);
+    const id = window.setInterval(check, 60_000);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(id);
+    };
   }, []);
 
   const stale = data.stale || err;

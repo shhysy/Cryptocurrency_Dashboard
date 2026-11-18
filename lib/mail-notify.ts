@@ -40,8 +40,13 @@ function scoreAlt() {
 function requireStable() {
   return process.env.MAIL_REQUIRE_STABLE === "1";
 }
+/** 冷却小时数；0 = 无冷却；空值或无效值用 24 */
+function cooldownHours() {
+  const n = parseFloat(String(process.env.MAIL_COOLDOWN_HOURS ?? "").trim());
+  return Number.isFinite(n) ? Math.max(0, n) : 24;
+}
 function cooldownMs() {
-  return Number(process.env.MAIL_COOLDOWN_HOURS || 24) * 3600_000;
+  return cooldownHours() * 3600_000;
 }
 
 function statePath() {
@@ -94,10 +99,8 @@ function filterCooldown(hits: NotifyHit[]) {
   const cd = cooldownMs();
   return hits.filter((h) => {
     const prev = state.last?.[h.symbol];
-    if (!prev) return true;
-    if (now - prev.at < cd && prev.score === h.score) return false;
-    if (now - prev.at < cd && h.score <= prev.score) return false;
-    return true;
+    // 冷却内一律不重发；冷却为 0 时每次达标都发
+    return !prev || now - prev.at >= cd;
   });
 }
 
@@ -148,7 +151,9 @@ function buildMail(hits: NotifyHit[]) {
     ...blocks.flatMap((b) => [b, "────────────────"]),
     "",
     `时间：${new Date().toLocaleString("zh-CN", { hour12: false })}`,
-    `同一币种约 ${process.env.MAIL_COOLDOWN_HOURS || 24} 小时内不重复发送。`,
+    cooldownHours() > 0
+      ? `同一币种约 ${cooldownHours()} 小时内不重复发送。`
+      : "当前未设置冷却，每次检查达标都会发送。",
     "",
     "信号仅供参考，不构成投资建议。",
   ].join("\n");
@@ -234,8 +239,18 @@ function sendSmtp(subject: string, text: string): Promise<void> {
   });
 }
 
-/** 根据看板数据检测分数并按需发邮件（含冷却去重） */
-export async function runScoreMailNotify(data: DashboardData): Promise<NotifyResult> {
+let inFlight: Promise<NotifyResult> | null = null;
+
+/** 根据看板数据检测分数并按需发邮件（含冷却去重）。多个标签页同时请求时共用同一次检查，避免重复发信。 */
+export function runScoreMailNotify(data: DashboardData): Promise<NotifyResult> {
+  if (inFlight) return inFlight;
+  inFlight = doScoreMailNotify(data).finally(() => {
+    inFlight = null;
+  });
+  return inFlight;
+}
+
+async function doScoreMailNotify(data: DashboardData): Promise<NotifyResult> {
   if (process.env.MAIL_AUTO === "0") {
     return { ok: true, sent: false, reason: "MAIL_AUTO=0 已关闭自动邮件", hits: [] };
   }

@@ -4,7 +4,11 @@
  * 用法：
  *   1. 在项目根目录编辑唯一的 .env（填写 SMTP_*、币安 Key、两个门槛分）
  *   2. 本机先 npm run dev
- *   3. npm run notify
+ *   3. npm run notify          常驻运行，每 60 秒检查一次（Ctrl+C 退出）
+ *      npm run notify -- --once  只检查一次就退出
+ *
+ * 冷却：MAIL_COOLDOWN_HOURS（小时，0 = 无冷却，每次检查达标都发）。
+ * 每轮都会重新读取 .env，改门槛或冷却不用重启。
  *
  * 门槛（写在 .env）：
  *   MAIL_MIN_SCORE_CORE=55   # 核心：BTC、PAXG
@@ -34,21 +38,36 @@ function loadEnv() {
   return out;
 }
 
-const env = loadEnv();
+let env, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, MAIL_TO, MAIL_FROM;
+let DASHBOARD_URL, REQUIRE_STABLE, SCORE_CORE, SCORE_ALT, COOLDOWN_MS, COOLDOWN_HOURS;
 
-const SMTP_HOST = env.SMTP_HOST || "smtp.qq.com";
-const SMTP_PORT = Number(env.SMTP_PORT || 465);
-const SMTP_USER = env.SMTP_USER || "";
-const SMTP_PASS = env.SMTP_PASS || "";
-const MAIL_TO = env.MAIL_TO || "2157936243@qq.com";
-const MAIL_FROM = env.MAIL_FROM || SMTP_USER;
-const DASHBOARD_URL = (env.DASHBOARD_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
-const REQUIRE_STABLE = env.MAIL_REQUIRE_STABLE === "1";
-/** 核心币（BTC/PAXG 等）邮件门槛，默认 55 — 在 .env 用 MAIL_MIN_SCORE_CORE 改 */
-const SCORE_CORE = Number(env.MAIL_MIN_SCORE_CORE ?? 55);
-/** 山寨币邮件门槛，默认 75 — 在 .env 用 MAIL_MIN_SCORE_ALT 改 */
-const SCORE_ALT = Number(env.MAIL_MIN_SCORE_ALT ?? 75);
-const COOLDOWN_MS = Number(env.MAIL_COOLDOWN_HOURS || 24) * 3600_000;
+/** 解析数字；空值或无效时用默认值（0 是有效值） */
+function num(v, def) {
+  const n = parseFloat(String(v ?? "").trim());
+  return Number.isFinite(n) ? n : def;
+}
+
+/** 每轮检查前重新读 .env，改配置不用重启 */
+function loadConfig() {
+  env = loadEnv();
+  SMTP_HOST = env.SMTP_HOST || "smtp.qq.com";
+  SMTP_PORT = num(env.SMTP_PORT, 465);
+  SMTP_USER = env.SMTP_USER || "";
+  SMTP_PASS = env.SMTP_PASS || "";
+  MAIL_TO = env.MAIL_TO || "2157936243@qq.com";
+  MAIL_FROM = env.MAIL_FROM || SMTP_USER;
+  DASHBOARD_URL = (env.DASHBOARD_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
+  REQUIRE_STABLE = env.MAIL_REQUIRE_STABLE === "1";
+  /** 核心币（BTC/PAXG 等）邮件门槛，默认 55 — 在 .env 用 MAIL_MIN_SCORE_CORE 改 */
+  SCORE_CORE = num(env.MAIL_MIN_SCORE_CORE, 55);
+  /** 山寨币邮件门槛，默认 75 — 在 .env 用 MAIL_MIN_SCORE_ALT 改 */
+  SCORE_ALT = num(env.MAIL_MIN_SCORE_ALT, 75);
+  /** 冷却小时数；0 = 无冷却，每次检查达标都发 */
+  COOLDOWN_HOURS = Math.max(0, num(env.MAIL_COOLDOWN_HOURS, 24));
+  COOLDOWN_MS = COOLDOWN_HOURS * 3600_000;
+}
+
+const CHECK_INTERVAL_MS = 60_000;
 const STATE_PATH = resolve(root, "data/notify-state.json");
 
 const CN_NAME = {
@@ -257,7 +276,7 @@ function buildMail(hits) {
     "",
     `打开看板查看：${DASHBOARD_URL}`,
     `发送时间：${new Date().toLocaleString("zh-CN", { hour12: false })}`,
-    `同一币种约 ${env.MAIL_COOLDOWN_HOURS || 24} 小时内不会重复发送。`,
+    COOLDOWN_HOURS > 0 ? `同一币种约 ${COOLDOWN_HOURS} 小时内不会重复发送。` : "当前未设置冷却，每次检查达标都会发送。",
     "",
     "本邮件由脚本 scripts/notify-score.mjs 自动发出，信号仅供参考，不构成投资建议。",
   ].join("\n");
@@ -265,38 +284,45 @@ function buildMail(hits) {
   return { subject, text };
 }
 
-const state = readState();
-const now = Date.now();
+async function checkOnce() {
+  loadConfig();
+  const state = readState();
+  const now = Date.now();
+  const ts = new Date().toLocaleTimeString("zh-CN", { hour12: false });
 
-console.log(`[notify] 门槛：核心 ${SCORE_CORE} / 山寨 ${SCORE_ALT}${REQUIRE_STABLE ? " · 需企稳" : ""}`);
-console.log(`[notify] 拉取 ${DASHBOARD_URL}/api/dashboard …`);
-const data = await fetchDashboard();
-const hits = pickHits(data);
-console.log(
-  `[notify] 达标 ${hits.length} 个:`,
-  hits.map((h) => `${h.name}(${h.symbol})=${h.score}`).join(", ") || "(无)",
-);
+  const data = await fetchDashboard();
+  const hits = pickHits(data);
+  console.log(
+    `[notify ${ts}] 门槛 核心${SCORE_CORE}/山寨${SCORE_ALT}，冷却 ${COOLDOWN_HOURS}h，达标 ${hits.length} 个:`,
+    hits.map((h) => `${h.name}=${h.score}`).join(", ") || "(无)",
+  );
 
-const toSend = hits.filter((h) => {
-  const prev = state.last?.[h.symbol];
-  if (!prev) return true;
-  if (now - prev.at < COOLDOWN_MS && prev.score === h.score) return false;
-  if (now - prev.at < COOLDOWN_MS && h.score <= prev.score) return false;
-  return true;
-});
+  // 冷却内一律不重复发；冷却为 0 时每次达标都发
+  const toSend = hits.filter((h) => {
+    const prev = state.last?.[h.symbol];
+    return !prev || now - prev.at >= COOLDOWN_MS;
+  });
+  if (!toSend.length) return;
 
-if (!toSend.length) {
-  console.log("[notify] 无需发信（无新达标或仍在冷却）");
-  process.exit(0);
-}
-
-const { subject, text } = buildMail(toSend);
-console.log(`[notify] 主题: ${subject}`);
-console.log(`[notify] 发送至 ${MAIL_TO} …`);
-await sendMail({ subject, text });
-for (const h of toSend) {
+  const { subject, text } = buildMail(toSend);
+  console.log(`[notify ${ts}] 发送至 ${MAIL_TO}：${subject}`);
+  await sendMail({ subject, text });
   state.last = state.last || {};
-  state.last[h.symbol] = { at: now, score: h.score };
+  for (const h of toSend) state.last[h.symbol] = { at: now, score: h.score };
+  writeState(state);
+  console.log(`[notify ${ts}] 已发送`);
 }
-writeState(state);
-console.log("[notify] 已发送");
+
+if (process.argv.includes("--once")) {
+  await checkOnce();
+} else {
+  console.log(`[notify] 常驻模式：每 ${CHECK_INTERVAL_MS / 1000} 秒检查一次，Ctrl+C 退出`);
+  for (;;) {
+    try {
+      await checkOnce();
+    } catch (e) {
+      console.error(`[notify] 本轮失败（下轮继续）：${e.message}`);
+    }
+    await new Promise((r) => setTimeout(r, CHECK_INTERVAL_MS));
+  }
+}
