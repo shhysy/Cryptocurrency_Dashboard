@@ -270,7 +270,8 @@ export async function fetchSpotTradesForOrder(symbol: string, orderId: number): 
   }
   return all;
 }
-\n/** Read-only fill history for both BUY and SELL; fill IDs are unique within a symbol. */
+
+/** Read-only fill history for both BUY and SELL; fill IDs are unique within a symbol. */
 export async function fetchSpotTrades(symbol: string, maxPages = 5): Promise<BinanceSpotTrade[]> {
   if (!symbol || !Number.isInteger(maxPages) || maxPages < 1 || maxPages > 20) {
     throw new Error("成交查询参数无效");
