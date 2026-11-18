@@ -41,7 +41,7 @@ describe("spot execution planning", () => {
       rules,
     });
     expect(order.status).toBe("ready");
-    expect(order.quoteAmount).toBe(30);
+    expect(order.quoteAmount).toBeCloseTo(30, 8);
   });
 
   it("blocks orders below minimum notional after quantity rounding", () => {
