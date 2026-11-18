@@ -95,7 +95,7 @@ export async function prepareQueuedBuyEarnRedemption(input: {
   const persisted = await enqueueEarnRedemptionIntents(intents);
   return {
     plan,
-    intents,
+    intents: persisted.intents,
     createdIntents: persisted.created,
     existingIntents: persisted.existing,
   };
