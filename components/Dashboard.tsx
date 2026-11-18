@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Balances from "./Balances";
+import BuyQueue from "./BuyQueue";
 import CoinCardView from "./CoinCard";
 import CoinCardCompact from "./CoinCardCompact";
 import Hero from "./Hero";
@@ -21,11 +22,12 @@ const SCENARIOS: [string, string][] = [
   ["sell", "🔴 建议卖出"],
 ];
 
-type Tab = "trades" | "balance" | "strategy";
+type Tab = "trades" | "balance" | "strategy" | "queue";
 const TABS: [Tab, string][] = [
   ["trades", "买入记录"],
   ["balance", "账户余额"],
   ["strategy", "策略说明"],
+  ["queue", "待买队列"],
 ];
 
 function sortCoinsForSignal<T extends { signal: { score: number; tag: string; action: { side: string } } }>(coins: T[]): T[] {
@@ -352,6 +354,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
                 {tab === "trades" && <Timeline trades={data.trades} symbols={symbols} bare />}
                 {tab === "balance" && <Balances data={data} bare />}
                 {tab === "strategy" && <StrategyInfo bare />}
+                {tab === "queue" && <BuyQueue refreshKey={data.updatedAt} />}
               </div>
             </div>
           </aside>
@@ -382,6 +385,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
       </section>
 
       <Timeline trades={data.trades} symbols={symbols} />
+      <BuyQueue refreshKey={data.updatedAt} />
       <StrategyInfo />
       {notes}
       <div className="pt-6">{footer}</div>
