@@ -2,14 +2,16 @@ import type { ExecutionFill, QueuedBuyOrder, TradeLedgerEntry } from "./types";
 import { applyConfirmedBuyFill } from "./queue";
 import { planBuyFundsReservation, remainingReservationAfterFill, type BuyFundsReservation } from "./fund-reservation";
 import { buildTradeFillNotificationEvent, type TradeNotificationOutboxEvent } from "./notification-outbox";
+import { transitionEarnRedemption, type EarnRedemptionIntent, type EarnRedemptionStatus } from "./earn-redemption";
 
 const DB_NAME = "long-term-investment-execution";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const ORDERS = "buy-orders";
 const FILLS = "fills";
 const LEDGER = "trade-ledger";
 const RESERVATIONS = "buy-funds-reservations";
 const NOTIFICATION_OUTBOX = "notification-outbox";
+const EARN_REDEMPTIONS = "earn-redemption-intents";
 
 function openDb(): Promise<IDBDatabase> {
   if (typeof indexedDB === "undefined") return Promise.reject(new Error("当前环境不支持 IndexedDB"));
@@ -22,6 +24,7 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(LEDGER)) db.createObjectStore(LEDGER, { keyPath: "id" });
       if (!db.objectStoreNames.contains(RESERVATIONS)) db.createObjectStore(RESERVATIONS, { keyPath: "orderId" });
       if (!db.objectStoreNames.contains(NOTIFICATION_OUTBOX)) db.createObjectStore(NOTIFICATION_OUTBOX, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(EARN_REDEMPTIONS)) db.createObjectStore(EARN_REDEMPTIONS, { keyPath: "id" });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error("打开执行数据库失败"));
@@ -569,6 +572,126 @@ export async function markTradeNotificationFailed(
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error ?? new Error("记录成交通知失败状态失败"));
       tx.onabort = () => reject(tx.error ?? new Error("成交通知事件不存在"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+
+/**
+ * Persist redemption intents before any future exchange mutation.
+ * Add-if-absent is atomic across tabs; an existing intent is never silently
+ * resized or reset to planned after a timeout.
+ */
+export async function enqueueEarnRedemptionIntents(
+  intents: EarnRedemptionIntent[],
+): Promise<{ created: number; existing: number }> {
+  if (intents.length === 0) return { created: 0, existing: 0 };
+  const ids = new Set<string>();
+  for (const intent of intents) {
+    if (!intent.id || !intent.orderId || !intent.productId || intent.asset !== "USDT" ||
+        !Number.isFinite(intent.amountUsdt) || intent.amountUsdt <= 0) {
+      throw new Error("活期理财赎回意图字段无效");
+    }
+    if (ids.has(intent.id)) throw new Error("同一批赎回计划包含重复意图 ID");
+    ids.add(intent.id);
+  }
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(EARN_REDEMPTIONS, "readwrite");
+      const store = tx.objectStore(EARN_REDEMPTIONS);
+      let created = 0;
+      let existing = 0;
+      let fatal: Error | null = null;
+      let pending = intents.length;
+      for (const intent of intents) {
+        const request = store.get(intent.id);
+        request.onsuccess = () => {
+          const prior = request.result as EarnRedemptionIntent | undefined;
+          if (prior) {
+            if (prior.orderId !== intent.orderId || prior.productId !== intent.productId ||
+                Math.abs(prior.amountUsdt - intent.amountUsdt) > 1e-8) {
+              fatal = new Error("已存在的赎回意图与新计划金额不一致，必须人工复核");
+              tx.abort();
+              return;
+            }
+            existing += 1;
+          } else {
+            store.add(intent);
+            created += 1;
+          }
+          pending -= 1;
+        };
+        request.onerror = () => {
+          fatal = request.error ?? new Error("读取理财赎回意图失败");
+          tx.abort();
+        };
+      }
+      tx.oncomplete = () => resolve({ created, existing });
+      tx.onerror = () => reject(fatal ?? tx.error ?? new Error("保存理财赎回意图失败"));
+      tx.onabort = () => reject(fatal ?? tx.error ?? new Error("保存理财赎回意图事务中止"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** Apply one validated state transition to a persisted redemption intent. */
+export async function updateEarnRedemptionIntent(
+  id: string,
+  nextStatus: EarnRedemptionStatus,
+  patch: Partial<Pick<EarnRedemptionIntent, "redemptionId" | "lastError">> = {},
+  now = Date.now(),
+): Promise<EarnRedemptionIntent> {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(EARN_REDEMPTIONS, "readwrite");
+      const store = tx.objectStore(EARN_REDEMPTIONS);
+      const request = store.get(id);
+      let updated: EarnRedemptionIntent | undefined;
+      let fatal: Error | null = null;
+      request.onsuccess = () => {
+        const current = request.result as EarnRedemptionIntent | undefined;
+        if (!current) {
+          fatal = new Error("理财赎回意图不存在");
+          tx.abort();
+          return;
+        }
+        try {
+          updated = transitionEarnRedemption(current, nextStatus, patch, now);
+          store.put(updated);
+        } catch (error) {
+          fatal = error instanceof Error ? error : new Error("更新理财赎回状态失败");
+          tx.abort();
+        }
+      };
+      request.onerror = () => { fatal = request.error ?? new Error("读取理财赎回意图失败"); tx.abort(); };
+      tx.oncomplete = () => updated ? resolve(updated) : reject(new Error("理财赎回状态更新未完成"));
+      tx.onerror = () => reject(fatal ?? tx.error ?? new Error("更新理财赎回状态失败"));
+      tx.onabort = () => reject(fatal ?? tx.error ?? new Error("理财赎回事务中止"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export async function listEarnRedemptionIntents(
+  orderId?: string,
+): Promise<EarnRedemptionIntent[]> {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(EARN_REDEMPTIONS, "readonly");
+      const request = tx.objectStore(EARN_REDEMPTIONS).getAll();
+      request.onsuccess = () => resolve(
+        (request.result as EarnRedemptionIntent[])
+          .filter((item) => !orderId || item.orderId === orderId)
+          .sort((a, b) => a.createdAt - b.createdAt),
+      );
+      request.onerror = () => reject(request.error ?? new Error("读取理财赎回队列失败"));
     });
   } finally {
     db.close();
