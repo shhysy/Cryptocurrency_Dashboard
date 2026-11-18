@@ -1,4 +1,4 @@
-export type SellEventStatus = "pending" | "reconcile_required" | "executed" | "blocked";
+export type SellEventStatus = "pending" | "reconcile_required" | "partially_filled" | "executed" | "blocked";
 
 export interface SellEventRecord {
   eventKey: string;
@@ -70,8 +70,9 @@ export async function updateSellEvent(record: SellEventRecord): Promise<void> {
           return;
         }
         const allowed: Record<SellEventStatus, SellEventStatus[]> = {
-          pending: ["pending", "reconcile_required", "executed", "blocked"],
-          reconcile_required: ["reconcile_required", "executed", "blocked"],
+          pending: ["pending", "reconcile_required", "partially_filled", "executed", "blocked"],
+          reconcile_required: ["reconcile_required", "partially_filled", "executed", "blocked"],
+          partially_filled: ["partially_filled"],
           blocked: ["blocked"],
           executed: ["executed"],
         };
@@ -83,7 +84,7 @@ export async function updateSellEvent(record: SellEventRecord): Promise<void> {
           tx.abort();
           return;
         }
-        if (record.status === "executed" && record.fillIds.length === 0) {
+        if ((record.status === "executed" || record.status === "partially_filled") && record.fillIds.length === 0) {
           tx.abort();
           return;
         }
