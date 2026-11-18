@@ -3,10 +3,10 @@ import {
   fetchSpotTradesForOrder,
 } from "../binance.browser";
 import { clientOrderIdForEvent } from "./client-order-id";
-import { applyConfirmedBuyFill, markOrderReconcileRequired } from "./queue";
+import { markOrderReconcileRequired } from "./queue";
 import { decideOrderReconciliation } from "./order-reconcile";
 import { reconcileConfirmedBuyFills } from "./fill-reconcile";
-import { listBuyOrders, recordConfirmedFill, saveBuyOrder } from "./store.browser";
+import { listBuyOrders, recordConfirmedBuyFill, saveBuyOrder } from "./store.browser";
 
 export interface BuyOrderSyncResult {
   action: "wait" | "complete" | "partial" | "safe_to_retry" | "manual_review";
@@ -111,13 +111,9 @@ export async function syncBuyOrderFromBinance(
   let newlyRecordedFills = 0;
   try {
     for (const fill of reconciled.fills) {
-      const quoteSpent = fill.quoteQty + fill.commissionUsdt;
-      const candidate = applyConfirmedBuyFill(current, quoteSpent);
-      const saved = await recordConfirmedFill(fill, candidate);
-      if (saved.recorded) {
-        current = candidate;
-        newlyRecordedFills += 1;
-      }
+      const saved = await recordConfirmedBuyFill(fill, current.id);
+      current = saved.order;
+      if (saved.recorded) newlyRecordedFills += 1;
     }
   } catch (error) {
     const reason = error instanceof Error ? error.message : "成交台账写入失败";
