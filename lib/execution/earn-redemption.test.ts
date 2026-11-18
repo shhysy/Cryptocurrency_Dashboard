@@ -1,12 +1,26 @@
 import { describe, expect, it } from "vitest";
 import {
   allocateFlexibleEarnRedemption,
+  availableFlexibleEarnUsdt,
   createEarnRedemptionIntents,
   markEarnRedemptionAmbiguous,
   transitionEarnRedemption,
 } from "./earn-redemption";
 
 describe("Simple Earn redemption intent", () => {
+  it("subtracts existing local redemption reservations before allocating another order", () => {
+    const positions = [
+      { asset: "USDT", productId: "p1", amount: "100", redeemingAmt: "0", freezeAmount: "0" },
+    ];
+    expect(availableFlexibleEarnUsdt(positions, { p1: 60 })).toBe(40);
+    expect(allocateFlexibleEarnRedemption(30, positions, { p1: 60 })).toEqual([
+      { productId: "p1", amountUsdt: 30 },
+    ]);
+    expect(() => allocateFlexibleEarnRedemption(50, positions, { p1: 60 }))
+      .toThrow("可赎回余额不足");
+  });
+
+
   it("allocates only the requested shortfall across Flexible products", () => {
     expect(allocateFlexibleEarnRedemption(75, [
       { asset: "USDT", productId: "p1", amount: "30", redeemingAmt: "5", freezeAmount: "0" },
