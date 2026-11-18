@@ -1,6 +1,7 @@
 import { strategyConfig } from "@/strategy.config";
+import { fetchSpotAssetBalance } from "../binance.browser";
 import { listTradeLedger } from "./store.browser";
-import { replayPositionLedger, type PositionLedgerSnapshot } from "./position-accounting";
+import { assertPositionMatchesExchange, replayPositionLedger, type PositionLedgerSnapshot } from "./position-accounting";
 
 /**
  * Rebuild one asset's local position from exchange-confirmed ledger fills.
@@ -24,4 +25,30 @@ export async function getReconciledPositionFromLedger(
   const fills = all.filter((fill) => fill.symbol === pair);
   const position = replayPositionLedger(fills, baseRatio, quoteAsset);
   return { symbol: baseAsset, pair, fillCount: fills.length, ...position };
+}
+
+
+/**
+ * Build the final read-only position snapshot for a sell preflight.
+ * Any external transfer/manual trade/unsynced fill mismatch blocks the result.
+ */
+export async function getSellPositionSnapshotFromBinance(
+  symbolOrPair: string,
+  quoteAsset = "USDT",
+): Promise<PositionLedgerSnapshot & {
+  symbol: string;
+  pair: string;
+  fillCount: number;
+  freeBaseQty: number;
+  totalPositionQty: number;
+  protectedBaseQty: number;
+}> {
+  const position = await getReconciledPositionFromLedger(symbolOrPair, quoteAsset);
+  const balance = await fetchSpotAssetBalance(position.symbol);
+  const exchangePosition = assertPositionMatchesExchange(position, {
+    freeQty: balance.free,
+    lockedQty: balance.locked,
+    totalQty: balance.total,
+  });
+  return { ...position, ...exchangePosition };
 }
