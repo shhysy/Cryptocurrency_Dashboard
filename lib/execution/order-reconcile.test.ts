@@ -1,0 +1,38 @@
+import { describe, expect, it } from "vitest";
+import { decideOrderReconciliation } from "./order-reconcile";
+import { clientOrderIdForEvent } from "./client-order-id";
+
+describe("Binance 订单对账与幂等 ID", () => {
+  it("相同事件与尝试次数生成相同且不超过 36 字符的客户端订单 ID", () => {
+    const id = clientOrderIdForEvent("BTC:head:2026-W46", 0);
+    expect(id).toBe(clientOrderIdForEvent("BTC:head:2026-W46", 0));
+    expect(id.length).toBeLessThanOrEqual(36);
+    expect(id).toMatch(/^[A-Za-z0-9_-]+$/);
+  });
+
+  it("不同尝试次数生成不同客户端订单 ID", () => {
+    expect(clientOrderIdForEvent("BTC:head:2026-W46", 0))
+      .not.toBe(clientOrderIdForEvent("BTC:head:2026-W46", 1));
+  });
+
+  it("NEW 状态绝不允许重发", () => {
+    expect(decideOrderReconciliation({ status: "NEW", executedQty: 0, cummulativeQuoteQty: 0, orderId: 1 }).action).toBe("wait");
+  });
+
+  it("部分成交状态先入账，不能重发", () => {
+    expect(decideOrderReconciliation({ status: "PARTIALLY_FILLED", executedQty: 0.001, cummulativeQuoteQty: 50, orderId: 1 }))
+      .toMatchObject({ action: "apply_partial_then_wait", executedQty: 0.001, quoteQty: 50 });
+  });
+
+  it("FILLED 状态确认完成", () => {
+    expect(decideOrderReconciliation({ status: "FILLED", executedQty: 0.002, cummulativeQuoteQty: 100, orderId: 1 }).action).toBe("complete");
+  });
+
+  it("零成交取消单才允许用新 attempt 重试", () => {
+    expect(decideOrderReconciliation({ status: "CANCELED", executedQty: 0, cummulativeQuoteQty: 0, orderId: 1 }).action).toBe("safe_to_retry");
+  });
+
+  it("未查到订单不能假定失败并重发", () => {
+    expect(decideOrderReconciliation(null).action).toBe("manual_review");
+  });
+});
