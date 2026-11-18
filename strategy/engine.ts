@@ -257,7 +257,7 @@ function planBuy(c: Ctx): Action {
     const remainingCap = Math.max(0, profile.capUsdt - input.invested);
     if (remainingCap < amount) {
       amount = remainingCap;
-      limits.push(`单币成本上限（累计）${usd(profile.capUsdt)}，已投入 ${usd(input.invested)}`);
+      limits.push(`单币累计成本上限（单币成本上限）${usd(profile.capUsdt)}，已投入 ${usd(input.invested)}`);
     }
     if (amount < cfg.minOrderUsdt) {
       blocked.push(`单币额度剩余 ${usd(amount)}，低于最小下单额 ${usd(cfg.minOrderUsdt)}`);
