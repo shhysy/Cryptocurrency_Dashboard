@@ -644,6 +644,53 @@ export async function enqueueEarnRedemptionIntents(
   }
 }
 
+/**
+ * Atomically claim a planned redemption before the network POST.
+ * Multiple tabs cannot both submit the same intent; any non-planned status
+ * requires reconciliation instead of another mutation request.
+ */
+export async function claimEarnRedemptionIntentForSubmit(
+  id: string,
+  now = Date.now(),
+): Promise<EarnRedemptionIntent> {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(EARN_REDEMPTIONS, "readwrite");
+      const store = tx.objectStore(EARN_REDEMPTIONS);
+      const request = store.get(id);
+      let claimed: EarnRedemptionIntent | undefined;
+      let fatal: Error | null = null;
+      request.onsuccess = () => {
+        const current = request.result as EarnRedemptionIntent | undefined;
+        if (!current) {
+          fatal = new Error("理财赎回意图不存在");
+          tx.abort();
+          return;
+        }
+        if (current.status !== "planned") {
+          fatal = new Error(`赎回意图状态为 ${current.status}，禁止再次提交；请先对账`);
+          tx.abort();
+          return;
+        }
+        try {
+          claimed = transitionEarnRedemption(current, "submitting", {}, now);
+          store.put(claimed);
+        } catch (error) {
+          fatal = error instanceof Error ? error : new Error("领取赎回意图失败");
+          tx.abort();
+        }
+      };
+      request.onerror = () => { fatal = request.error ?? new Error("读取赎回意图失败"); tx.abort(); };
+      tx.oncomplete = () => claimed ? resolve(claimed) : reject(new Error("赎回意图领取未完成"));
+      tx.onerror = () => reject(fatal ?? tx.error ?? new Error("领取赎回意图失败"));
+      tx.onabort = () => reject(fatal ?? tx.error ?? new Error("赎回意图领取事务中止"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
 /** Apply one validated state transition to a persisted redemption intent. */
 export async function updateEarnRedemptionIntent(
   id: string,
