@@ -1,5 +1,5 @@
 /**
- * 策略阈值（周线级别），对应《长期投资策略 V3.3》表格的「参数中心」。
+ * 策略参数（周线级别），对应《长期投资策略 V3.3》表格的「参数中心」。
  * 所有数字都在这里改，策略引擎不含硬编码阈值。百分比一律用小数：0.3 = 30%；金额单位 USDT。
  */
 
@@ -75,7 +75,8 @@ export const strategyConfig = {
     pricePositionDiscount: 0.5,
     trendPerItem: 5, // 企稳每满足一项得分（最高 15）
   },
-  scoreMax: 90,
+  // 展示满分 100：引擎把「分项合计（理论满 90）」线性映射到 scoreMax
+  scoreMax: 100,
 
   profiles: {
     core: {
@@ -83,8 +84,8 @@ export const strategyConfig = {
       capUsdt: 1000,
       headHigh: 200,
       headNormal: 150,
-      minScore: 55,
-      highScore: 80,
+      minScore: 61, // 原 55（/90）→ 100 分制
+      highScore: 89, // 原 80 → 100 分制
       stabilizeMin: 2,
       cooldownWeeks: 2,
       cooldownBearWeeks: 4,
@@ -112,8 +113,8 @@ export const strategyConfig = {
       capUsdt: 500,
       headHigh: 100,
       headNormal: 75,
-      minScore: 75,
-      highScore: 90,
+      minScore: 83, // 原 75 → 100 分制
+      highScore: 100, // 原 90 → 100 分制
       stabilizeMin: 3,
       cooldownWeeks: 4,
       cooldownBearWeeks: 4,
