@@ -21,4 +21,4 @@
 
 ## 尚未完成
 
-当前仍未接入 POST /api/v3/order、订单状态轮询、撤单、真实成交同步、邮件发送以及 UI 操作面板。所有交易动作都应继续处于模拟/预检状态。只有完成 Testnet 测试后，才考虑增加独立实盘开关。
+已增加只读接口 `fetchSpotOrderByClientId` 与 `fetchSpotTrades`，可按客户端订单 ID 查询订单、读取 BUY/SELL 成交；同时增加 Binance `newClientOrderId` 格式的确定性 ID 与订单状态对账决策函数。\n\n当前仍未接入 POST /api/v3/order、自动订单轮询调度、撤单、成交到持仓成本/队列的完整联动、邮件发送以及 UI 操作面板。卖出 guard 和 IndexedDB 事件存储已建立，但尚未接入策略引擎的实际自动执行链路。所有交易动作都应继续处于模拟/预检状态。只有完成 Testnet 测试后，才考虑增加独立实盘开关。
