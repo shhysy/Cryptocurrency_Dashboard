@@ -188,6 +188,8 @@ export function availableFlexibleEarnUsdt(
 /** A redemption record is accepted only when its exact exchange ID is known. */
 export function matchEarnRedemptionRecord<T extends {
   redeemId?: number | string;
+  projectId?: string;
+  productId?: string;
   asset?: string;
   amount?: string;
   destAccount?: string;
@@ -198,6 +200,8 @@ export function matchEarnRedemptionRecord<T extends {
   if (!intent.redemptionId) return null;
   const matches = records.filter((record) =>
     String(record.redeemId ?? "") === intent.redemptionId &&
+    (record.projectId === undefined || record.projectId === intent.productId) &&
+    (record.productId === undefined || record.productId === intent.productId) &&
     record.asset === "USDT" &&
     record.destAccount === "SPOT" &&
     Number(record.amount) === intent.amountUsdt
