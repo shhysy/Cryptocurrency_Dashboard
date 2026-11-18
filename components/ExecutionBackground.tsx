@@ -5,6 +5,7 @@ import { listBuyOrders } from "@/lib/execution/store.browser";
 import { listSellEvents } from "@/lib/execution/sell-store.browser";
 import { syncBuyOrderFromBinance } from "@/lib/execution/sync-buy-order.browser";
 import { syncSellOrderFromBinance } from "@/lib/execution/sync-sell-order.browser";
+import { dispatchPendingTradeNotifications } from "@/lib/execution/notification-dispatch.browser";
 
 /**
  * Dashboard-level background reconciler. It remains mounted even when the
@@ -54,6 +55,11 @@ export default function ExecutionBackground({ onChange }: { onChange: () => void
           } finally {
             inFlight.delete(key);
           }
+        }
+        const notifications = await dispatchPendingTradeNotifications();
+        if (notifications.sent > 0) changed = true;
+        if (notifications.failed > 0) {
+          console.warn("[trade-notifications] delivery failed", notifications.reason);
         }
         if (active && changed) onChange();
       } catch (error) {
