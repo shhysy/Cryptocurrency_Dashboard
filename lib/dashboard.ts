@@ -185,7 +185,15 @@ export function buildDashboard(
     trades,
     verdict,
     market: { fearGreed, btcState, accountKnown: account.known },
-    config: { doubleLine: cfg.sell.levels[0].ret },
+    config: {
+      doubleLine: cfg.sell.levels[0].ret,
+      mailScoreCore: Number(
+        process.env.MAIL_MIN_SCORE_CORE ?? process.env.NEXT_PUBLIC_MAIL_MIN_SCORE_CORE ?? 55,
+      ),
+      mailScoreAlt: Number(
+        process.env.MAIL_MIN_SCORE_ALT ?? process.env.NEXT_PUBLIC_MAIL_MIN_SCORE_ALT ?? 75,
+      ),
+    },
   };
 }
 
