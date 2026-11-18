@@ -9,6 +9,7 @@ export interface UsdtWalletBuckets {
   spotLockedUsdt: number;
   flexibleEarnUsdt: number;
   flexibleEarnRedeemingUsdt: number;
+  flexibleEarnFrozenUsdt: number;
   lockedEarnUsdt: number;
   lockedEarnRedeemingUsdt: number;
   activeBuyReservationsUsdt: number;
@@ -35,7 +36,7 @@ export function summarizeUsdtWallets(input: UsdtWalletBuckets): UsdtWalletSummar
     0, input.spotFreeUsdt - input.activeBuyReservationsUsdt,
   );
   const flexibleEarnAvailableUsdt = Math.max(
-    0, input.flexibleEarnUsdt - input.flexibleEarnRedeemingUsdt,
+    0, input.flexibleEarnUsdt - input.flexibleEarnRedeemingUsdt - input.flexibleEarnFrozenUsdt,
   );
   // Planning visibility includes flexible Earn because Binance supports using
   // eligible flexible positions for Spot orders; locked products are excluded.
@@ -86,4 +87,35 @@ export function sumSimpleEarnUsdtPositions(rows: SimpleEarnPositionRow[]): {
     sum.frozenUsdt += frozen;
     return sum;
   }, { totalUsdt: 0, redeemingUsdt: 0, frozenUsdt: 0 });
+}
+
+/**
+ * Allocate a queued buy from Spot first. Only the shortfall may be requested
+ * from eligible Simple Earn Flexible holdings. This is a plan only: it does
+ * not redeem, transfer, or submit an order.
+ */
+export interface BuyFundingPlan {
+  requestedUsdt: number;
+  spotToUseUsdt: number;
+  flexibleEarnToRedeemUsdt: number;
+  unfundedUsdt: number;
+}
+
+export function planSpotFirstBuyFunding(
+  requestedUsdt: number,
+  spotFreeAfterReservationsUsdt: number,
+  flexibleEarnAvailableUsdt: number,
+): BuyFundingPlan {
+  amount(requestedUsdt, "买入计划金额");
+  amount(spotFreeAfterReservationsUsdt, "现货可用 USDT");
+  amount(flexibleEarnAvailableUsdt, "活期理财可用 USDT");
+  const spotToUseUsdt = Math.min(requestedUsdt, spotFreeAfterReservationsUsdt);
+  const shortfall = Math.max(0, requestedUsdt - spotToUseUsdt);
+  const flexibleEarnToRedeemUsdt = Math.min(shortfall, flexibleEarnAvailableUsdt);
+  return {
+    requestedUsdt,
+    spotToUseUsdt,
+    flexibleEarnToRedeemUsdt,
+    unfundedUsdt: Math.max(0, shortfall - flexibleEarnToRedeemUsdt),
+  };
 }
