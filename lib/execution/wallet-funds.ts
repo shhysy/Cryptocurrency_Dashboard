@@ -59,6 +59,6 @@ export function splitSpotAccountUsdtBalances(
   return {
     spotFreeUsdt: parse(spot?.free ?? "0", "Spot USDT free"),
     spotLockedUsdt: parse(spot?.locked ?? "0", "Spot USDT locked"),
-    flexibleEarnUsdt: parse(earn?.free ?? "0", "LDUSDT flexible Earn"),
+    flexibleEarnUsdt: parse(earn?.free ?? "0", "LDUSDT flexible Earn free") +\n      parse(earn?.locked ?? "0", "LDUSDT flexible Earn locked"),
   };
 }
