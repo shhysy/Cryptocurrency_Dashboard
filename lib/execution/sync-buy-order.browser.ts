@@ -2,7 +2,7 @@ import {
   fetchSpotOrderByClientId,
   fetchSpotTradesForOrder,
 } from "../binance.browser";
-import type { BinanceSpotOrderSnapshot, BinanceSpotTrade, SpotSymbolFilters } from "../binance.browser";
+import type { BinanceSpotOrderSnapshot, BinanceSpotTrade } from "../binance.browser";
 import { clientOrderIdForEvent } from "./client-order-id";
 import { markOrderReconcileRequired } from "./queue";
 import { decideOrderReconciliation } from "./order-reconcile";
@@ -30,10 +30,11 @@ export async function syncBuyOrderFromBinance(
   if (!initial) throw new Error("找不到待买订单");
   if (!Number.isInteger(attempt) || attempt < 0) throw new Error("订单 attempt 参数无效");
 
+  const pair = initial.symbol + initial.quoteAsset;
   const clientOrderId = clientOrderIdForEvent(initial.eventKey, attempt);
   let snapshot: BinanceSpotOrderSnapshot;
   try {
-    snapshot = await fetchSpotOrderByClientId(initial.symbol + initial.quoteAsset, clientOrderId);
+    snapshot = await fetchSpotOrderByClientId(pair, clientOrderId);
   } catch (error) {
     const reason = error instanceof Error ? error.message : "查询 Binance 订单失败";
     const blocked = markOrderReconcileRequired(initial, reason);
@@ -44,6 +45,16 @@ export async function syncBuyOrderFromBinance(
       orderStatus: null,
       remainingUsdt: blocked.remainingUsdt,
       reason,
+    };
+  }
+
+  if (snapshot.symbol !== pair) {
+    const reason = "Binance 订单交易对与本地待买订单不一致";
+    const blocked = markOrderReconcileRequired(initial, reason);
+    await saveBuyOrder(blocked);
+    return {
+      action: "manual_review", newlyRecordedFills: 0, orderStatus: snapshot.status,
+      remainingUsdt: blocked.remainingUsdt, reason,
     };
   }
 
@@ -76,15 +87,11 @@ export async function syncBuyOrderFromBinance(
     };
   }
 
-  let filters: SpotSymbolFilters;
   let trades: BinanceSpotTrade[];
   try {
-    [filters, trades] = await Promise.all([
-      fetchSpotSymbolFilters(snapshot.symbol),
-      fetchSpotTradesForOrder(snapshot.symbol, snapshot.orderId),
-    ]);
+    trades = await fetchSpotTradesForOrder(snapshot.symbol, snapshot.orderId);
   } catch (error) {
-    const reason = error instanceof Error ? error.message : "读取成交明细或交易规则失败";
+    const reason = error instanceof Error ? error.message : "读取成交明细失败";
     const blocked = markOrderReconcileRequired(initial, reason);
     await saveBuyOrder(blocked);
     return {
@@ -92,17 +99,7 @@ export async function syncBuyOrderFromBinance(
       remainingUsdt: blocked.remainingUsdt, reason,
     };
   }
-  if (filters.quoteAsset !== initial.quoteAsset || filters.status !== "TRADING") {
-    const reason = filters.quoteAsset !== initial.quoteAsset
-      ? "交易对报价资产与待买订单不一致"
-      : "交易对当前不可交易，暂停自动记账";
-    const blocked = markOrderReconcileRequired(initial, reason);
-    await saveBuyOrder(blocked);
-    return {
-      action: "manual_review", newlyRecordedFills: 0, orderStatus: snapshot.status,
-      remainingUsdt: blocked.remainingUsdt, reason,
-    };
-  }
+
   let reconciled;
   try {
     reconciled = reconcileConfirmedBuyFills({
@@ -148,9 +145,8 @@ export async function syncBuyOrderFromBinance(
     };
   }
 
-  const isCompleteOrder = snapshot.status === "FILLED";
   return {
-    action: isCompleteOrder ? "complete" : "partial",
+    action: snapshot.status === "FILLED" ? "complete" : "partial",
     newlyRecordedFills,
     orderStatus: snapshot.status,
     remainingUsdt: current.remainingUsdt,
