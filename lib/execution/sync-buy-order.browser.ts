@@ -1,7 +1,9 @@
 import {
   fetchSpotOrderByClientId,
   fetchSpotTradesForOrder,
+  fetchSpotSymbolFilters,
 } from "../binance.browser";
+import type { BinanceSpotOrderSnapshot } from "../binance.browser";
 import { clientOrderIdForEvent } from "./client-order-id";
 import { markOrderReconcileRequired } from "./queue";
 import { decideOrderReconciliation } from "./order-reconcile";
@@ -30,7 +32,7 @@ export async function syncBuyOrderFromBinance(
   if (!Number.isInteger(attempt) || attempt < 0) throw new Error("订单 attempt 参数无效");
 
   const clientOrderId = clientOrderIdForEvent(initial.eventKey, attempt);
-  let snapshot;
+  let snapshot: BinanceSpotOrderSnapshot;
   try {
     snapshot = await fetchSpotOrderByClientId(initial.symbol + initial.quoteAsset, clientOrderId);
   } catch (error) {
@@ -76,8 +78,7 @@ export async function syncBuyOrderFromBinance(
   }
 
   const [filters, trades] = await Promise.all([
-    // Exchange info is public and provides the actual base/quote asset names.
-    import("../binance.browser").then(({ fetchSpotSymbolFilters }) => fetchSpotSymbolFilters(snapshot.symbol)),
+    fetchSpotSymbolFilters(snapshot.symbol),
     fetchSpotTradesForOrder(snapshot.symbol, snapshot.orderId),
   ]);
   let reconciled;
