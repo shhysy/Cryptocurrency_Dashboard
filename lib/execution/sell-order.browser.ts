@@ -59,10 +59,12 @@ export function prepareQueuedSellDryRun(input: {
     allowBaseReduction: event.kind === "base_reduce",
   });
   const executableQty = preflight.ok ? preflight.quantity : 0;
-  const remainingCycleQty = Math.max(
-    0,
-    position.totalPositionQty - position.protectedBaseQty - (event.kind === "base_reduce" ? 0 : executableQty),
-  );
+  const rawRemainingCycleQty =
+    position.totalPositionQty - position.protectedBaseQty -
+    (event.kind === "base_reduce" ? 0 : executableQty);
+  const remainingCycleQty = rawRemainingCycleQty <= 1e-10
+    ? 0
+    : Number(rawRemainingCycleQty.toFixed(12));
 
   return {
     mode: SELL_ORDER_MODE,
