@@ -205,6 +205,27 @@ export function matchEarnRedemptionRecord<T extends {
   return matches.length === 1 ? matches[0] : null;
 }
 
+/** Recover a lost POST response only from one unique, exact exchange history row. */
+export function findUniqueEarnRedemptionRecord<T extends {
+  redeemId?: number | string;
+  productId?: string;
+  asset?: string;
+  amount?: string;
+  destAccount?: string;
+}>(
+  intent: EarnRedemptionIntent,
+  records: T[],
+): T | null {
+  const matches = records.filter((record) =>
+    record.redeemId !== undefined &&
+    record.productId === intent.productId &&
+    record.asset === "USDT" &&
+    record.destAccount === "SPOT" &&
+    Number(record.amount) === intent.amountUsdt
+  );
+  return matches.length === 1 ? matches[0] : null;
+}
+
 /** Conservative balance confirmation: Spot free must reflect the full redemption on top of baseline. */
 export function isEarnRedemptionCredited(
   intent: EarnRedemptionIntent,
