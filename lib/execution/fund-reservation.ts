@@ -38,11 +38,18 @@ export function planBuyFundsReservation(input: {
     };
   }
 
+  const existing = activeReservations.find(
+    (item) => item.status === "active" && item.orderId === orderId,
+  );
   const totalReservedUsdt = activeReservations
     .filter((item) => item.status === "active" && item.orderId !== orderId)
     .reduce((sum, item) => sum + Math.max(0, item.reservedUsdt), 0);
   const availableUsdt = Math.max(0, observedFreeUsdt - totalReservedUsdt);
-  const reserveUsdt = Math.min(requestedUsdt, availableUsdt);
+  // An existing reservation is reused as-is; this function never silently
+  // increases it on a repeated preview.
+  const reserveUsdt = existing
+    ? existing.reservedUsdt
+    : Math.min(requestedUsdt, availableUsdt);
 
   if (reserveUsdt + 1e-8 < minNotionalUsdt) {
     return {
