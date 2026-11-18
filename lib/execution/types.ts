@@ -47,6 +47,8 @@ export interface ExecutionFill {
 export interface TradeLedgerEntry extends ExecutionFill {
   id: string;
   realizedPnlUsdt: number | null;
+  /** V3.3 sell bucket selector; BUY rows omit this field. */
+  sellKind?: "take_profit" | "indicator_profit" | "trail_stop" | "base_reduce";
 }
 
 export interface BuyExecutionPlan {
