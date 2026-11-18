@@ -26,9 +26,31 @@
 5. Worker 验证签名、调用 Resend，并在发送成功后写入 KV。
 6. 服务端将成功接收的事件 ID 返回浏览器；浏览器再将对应 Outbox 标记为 sent。
 
-**本阶段尚未实现第 2–3 步。** 当前仓库没有可确认的用户会话/身份验证机制；不能仅凭 CORS、Origin 或公开 URL 保护服务端 API。必须先确定 Cloudflare Access 或应用登录态，并在服务端验证身份后，才可安全开放转发接口。当前 Worker 仅完成服务端到服务端的签名接收端，尚未部署，也未接入前端 Outbox。
+**第 2–3 步现已实现，但默认不会发送任何邮件，且必须先完成 Cloudflare Access 配置。** 浏览器 Outbox dispatcher 通过同源 `/api/trade-fill-notifications` 提交；该 API 检查精确 Origin、验证 Cloudflare Access JWT 的签名/issuer/audience/有效期，并可限制唯一允许邮箱，再由服务端 HMAC 签名转发到 Worker。HMAC Secret、Resend Key 和收件人都不进入浏览器。若 Access 或环境变量未配置，接口 fail-closed，Outbox 事件保留并按指数退避重试。
 
-HMAC 只能证明请求来自持有服务端密钥的一方，不能独立证明成交本身真实。真实成交事实仍必须由本地 Binance 只读对账链路核验后才可入 Outbox；服务端转发层必须限制为已登录用户，并且不能允许匿名调用者任意伪造事件。
+HMAC 只能证明请求来自持有服务端密钥的一方，不能独立证明成交本身真实。Outbox 事件是在浏览器完成 Binance 只读订单/逐笔成交核对后生成，但浏览器运行环境和 IndexedDB 仍可被本机用户修改。因此邮件是私人记账提醒，不是独立审计证明，也不能用来授权交易。真正的资金安全仍由 Binance 交易前预检、订单幂等与持仓核对保障。
+
+## 应用服务端配置
+
+在部署看板的服务端环境变量中配置以下项目（不要使用 `NEXT_PUBLIC_` 前缀）：
+
+| 变量 | 说明 |
+|---|---|
+| `APP_ORIGIN` | 看板完整 Origin，例如 `https://dashboard.example.com` |
+| `CF_ACCESS_TEAM_DOMAIN` | Cloudflare Access Team Domain，例如 `https://myteam.cloudflareaccess.com` |
+| `CF_ACCESS_AUD` | Cloudflare Access 应用的 Audience Tag |
+| `CF_ACCESS_ALLOWED_EMAIL` | 唯一允许登录的邮箱，建议设置 |
+| `TRADE_FILL_NOTIFY_URL` | 已部署成交邮件 Worker 的 HTTPS URL |
+| `TRADE_NOTIFY_HMAC_SECRET` | 与 Worker 相同的随机 HMAC Secret，至少 32 字符 |
+
+同时在 Cloudflare Zero Trust 中为看板域名/路径配置 Access 应用，只允许自己的邮箱登录。API 会在服务端再次验证 `Cf-Access-Jwt-Assertion`，不把 Origin 当作身份认证。
+
+## Outbox 投递
+
+- `ExecutionBackground` 在看板打开且标签页可见时，每 30 秒核对订单并尝试投递 Outbox。
+- Outbox 在 IndexedDB readwrite transaction 中领取 2 分钟租约，防止同一浏览器多个标签页重复投递；崩溃后租约过期可恢复。
+- 失败事件使用指数退避，最长间隔 1 小时；成功响应（包括 Worker 已识别的重复事件）后才标记 sent。
+- 页面关闭期间不会运行 dispatcher；重新打开看板后继续处理未发送事件。
 
 ## KV 幂等说明
 
@@ -42,3 +64,9 @@ KV 用于长期去重（默认保留 365 天），但 Cloudflare KV 是最终一
 4. 运行 `npx wrangler deploy --config wrangler.trade-fill-email.jsonc`。
 
 部署/邮件密钥不是 Binance API Key，不需要 Binance 交易权限。当前不要部署或启用真实通知投递，待服务端身份验证和 Outbox dispatcher 完成后再联调。
+
+## 当前状态
+
+- 服务端 Access JWT 验证、Origin 检查、HMAC 转发 API、浏览器 Outbox 租约和 dispatcher 已写入仓库。
+- 需要你在部署环境设置上表中的 Access/Worker 环境变量，并部署成交邮件 Worker；当前没有你的 Access 域名、Audience Tag 或邮件服务凭据，因此不能代你完成部署或验证收件。
+- 本功能不会要求 Binance 交易权限；邮件发送和 Binance 下单权限完全分离。
