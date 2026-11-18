@@ -1,4 +1,4 @@
-name: CI # validate tests and types on gpt - sell queue v4 dry-run ui
+name: CI # validate tests and types on gpt - sell queue v5 dry-run refresh
 
 on:
   push:
