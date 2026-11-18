@@ -34,6 +34,7 @@ describe("trade fill notification outbox", () => {
       filledAt: 1_800_000_000_000,
       status: "pending",
       leaseUntil: null,
+      nextAttemptAt: null,
       attemptCount: 0,
       createdAt: 42,
       updatedAt: 42,
@@ -67,18 +68,28 @@ describe("confirmed SELL fill notification", () => {
 
 describe("trade notification delivery lease", () => {
   it("claims pending and failed events", () => {
-    expect(isTradeNotificationClaimable({ status: "pending", leaseUntil: null }, 100)).toBe(true);
-    expect(isTradeNotificationClaimable({ status: "failed", leaseUntil: null }, 100)).toBe(true);
+    expect(isTradeNotificationClaimable({ status: "pending", leaseUntil: null, nextAttemptAt: null }, 100)).toBe(true);
+    expect(isTradeNotificationClaimable({ status: "failed", leaseUntil: null, nextAttemptAt: null }, 100)).toBe(true);
   });
 
   it("does not claim a sending event before its lease expires", () => {
-    expect(isTradeNotificationClaimable({ status: "sending", leaseUntil: 200 }, 199)).toBe(false);
+    expect(isTradeNotificationClaimable({ status: "sending", leaseUntil: 200, nextAttemptAt: null }, 199)).toBe(false);
     expect(isTradeNotificationClaimable({ status: "sending", leaseUntil: 200 }, 200)).toBe(true);
-    expect(isTradeNotificationClaimable({ status: "sending", leaseUntil: null }, 100)).toBe(true);
+    expect(isTradeNotificationClaimable({ status: "sending", leaseUntil: null, nextAttemptAt: null }, 100)).toBe(true);
   });
 
   it("never reclaims sent events or accepts invalid clocks", () => {
-    expect(isTradeNotificationClaimable({ status: "sent", leaseUntil: null }, 100)).toBe(false);
+    expect(isTradeNotificationClaimable({ status: "sent", leaseUntil: null, nextAttemptAt: null }, 100)).toBe(false);
     expect(isTradeNotificationClaimable({ status: "pending", leaseUntil: null }, Number.NaN)).toBe(false);
   });
 });
+
+
+  it("honors exponential retry backoff for failed events", () => {
+    expect(isTradeNotificationClaimable({
+      status: "failed", leaseUntil: null, nextAttemptAt: 500,
+    }, 499)).toBe(false);
+    expect(isTradeNotificationClaimable({
+      status: "failed", leaseUntil: null, nextAttemptAt: 500,
+    }, 500)).toBe(true);
+  });
