@@ -1,28 +1,27 @@
-# 第十四阶段：USDT 多账户分层（只读基础）
+# 第十四阶段：Spot + Simple Earn USDT 只读接入
 
-## 需求
+## 用户确认的账户范围
 
-USDT 可能分布于 Spot、Simple Earn Flexible/Locked、Funding 或其他账户。账户净值展示与现货买入资金不能使用同一个余额字段。
+只接入 Binance 现货账户与理财账户（Simple Earn）。不接入 Funding、合约或其他钱包。
 
 ## 已完成
 
-- 建立 `UsdtWalletBuckets` 和 `summarizeUsdtWallets`，分开统计 Spot free/locked、Flexible Earn、Locked Earn、Funding、其他账户和活动买入预留。
-- 只有 Spot free 扣除活动预留后的余额属于可规划现货买入资金。
-- Spot account 返回的 `LDUSDT` 凭证与普通 `USDT` 分开解析；不把 LDUSDT 当作现货可下单余额。
-- 新增 `fetchSpotUsdtWalletBuckets` 只读接口。
-- 更新账户余额 UI 文案，准确说明当前数据覆盖范围。
-- 新增单元测试，覆盖账户分层、可执行余额、Earn/Funding 排除及异常数值。
+- Spot USDT：读取 `free` 和 `locked`。
+- Simple Earn Flexible：读取 USDT 持仓，分别统计总额、赎回中和冻结金额。
+- Simple Earn Locked：读取 USDT 持仓并单独展示，不纳入即时买入规划。
+- Flexible / Locked 持仓支持分页，异常余额或冻结/赎回数量超过持仓总额时拒绝计算。
+- 资金规划模型区分 Spot free、Flexible Earn 可规划余额、Locked Earn 和活动预留。
+- 修正此前错误：不再通过 Spot account 的 `LDUSDT` 资产标识推断 Simple Earn Flexible 余额。
 
-## 尚未接入
+## 关于理财账户交易
 
-- Funding 钱包只读余额。
-- Simple Earn Flexible/Locked 全量持仓与分页。
-- 赎回中、到期、提前赎回损失/限制等状态。
-- 账户间划转历史与对账。
+Binance 官方说明，符合条件的 Simple Earn Flexible 资产可以用于 Spot 交易，交易资金顺序为 Spot Account 优先，其次 Earn Flexible Assets；使用时对应资产会从 Flexible 产品赎回并停止计息。Locked Earn 不等同于 Flexible Earn，不纳入即时买入规划。
 
-## 安全规则
+本项目目前只实现只读持仓读取和资金规划展示。当前 DRY_RUN 订单适配器仍以 Spot free 作为实际可执行余额；尚未验证 API 下单时是否能直接消费 Flexible Earn，或是否必须先调用 Simple Earn redeem。后续会在受控测试中验证，不能把“资金规划可用”误认为“订单 API 已可用”。
 
-- 不自动赎回理财，不自动从 Funding 划转到 Spot。
-- 只有资产真实到达 Spot free 后才可用于现货买入。
-- 未读取的账户来源必须显示为“未读取/未知”，不能把缺失数据当作 0 并宣称总资产完整。
-- 不新增任何交易、赎回、划转 POST；真实下单仍关闭。
+## 安全边界
+
+- 所有本阶段新增请求均为 GET USER_DATA。
+- 不赎回、不申购、不划转、不下单。
+- 不需要 Binance 交易权限。
+- 不把 Locked Earn 或赎回中的金额当作即时可用余额。
