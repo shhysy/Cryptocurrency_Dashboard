@@ -155,6 +155,36 @@ export async function fetchYahooQuote(sym: string): Promise<Ticker> {
   return { price, change24h: price / closes[closes.length - 2] - 1 };
 }
 
+// ---------- 交易执行前置读取（仍然只读，不发送订单） ----------
+export interface SpotSymbolFilters {
+  symbol: string;
+  status: string;
+  baseAsset: string;
+  quoteAsset: string;
+  basePrecision: number;
+  quotePrecision: number;
+  filters: Record<string, string | number>[];
+}
+
+/** 只返回现货账户 USDT 的 free 字段；不计 locked，不折算其他资产。 */
+export async function fetchFreeUsdtBalance(): Promise<number> {
+  const acc = await signedGet<{ balances: { asset: string; free: string; locked: string }[] }>("/api/v3/account");
+  const row = acc.balances.find((b) => b.asset === "USDT");
+  const free = Number(row?.free ?? 0);
+  if (!Number.isFinite(free) || free < 0) throw new Error("Binance 返回的 USDT free 余额无效");
+  return free;
+}
+
+/** 读取交易对状态和过滤器，为后续下单前校验准备；此函数不下单。 */
+export async function fetchSpotSymbolFilters(symbol: string): Promise<SpotSymbolFilters> {
+  const data = await getJson<{ symbols: SpotSymbolFilters[] }>(
+    `${BASE}/api/v3/exchangeInfo?symbol=${encodeURIComponent(symbol)}`,
+  );
+  const found = data.symbols?.find((row) => row.symbol === symbol);
+  if (!found) throw new Error(`Binance 未返回交易对规则：${symbol}`);
+  return found;
+}
+
 // ---------- 账户（只读） ----------
 export async function fetchBalances(): Promise<Record<string, number>> {
   const acc = await signedGet<{ balances: { asset: string; free: string; locked: string }[] }>("/api/v3/account", {
