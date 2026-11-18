@@ -49,9 +49,12 @@ export function prepareQueuedSellDryRun(input: {
   if (event.symbol !== rules.symbol) {
     throw new Error("卖出事件交易对与 Binance 交易规则不一致");
   }
+  const finalRequestedQty = event.kind === "base_reduce"
+    ? Math.min(event.requestedQty, position.protectedBaseQty * 0.5)
+    : event.requestedQty;
   const preflight = preflightMarketSell({
     rules,
-    desiredQty: event.requestedQty,
+    desiredQty: finalRequestedQty,
     freeBaseQty: position.freeBaseQty,
     totalPositionQty: position.totalPositionQty,
     protectedBaseQty: position.protectedBaseQty,
