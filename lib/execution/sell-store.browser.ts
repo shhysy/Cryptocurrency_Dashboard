@@ -115,3 +115,44 @@ export async function listSellEvents(): Promise<SellEventRecord[]> {
     db.close();
   }
 }
+/**
+ * Bind an exchange order ID after an external executor has positively
+ * received the Binance response. The ID is immutable once attached.
+ */
+export async function bindSellEventToExchangeOrder(
+  eventKey: string,
+  exchangeOrderId: string,
+  now = Date.now(),
+): Promise<SellEventRecord> {
+  if (!eventKey || !/^[0-9]{1,32}$/.test(exchangeOrderId)) {
+    throw new Error("卖出事件或 Binance 订单 ID 无效");
+  }
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      const store = tx.objectStore(STORE);
+      const request = store.get(eventKey);
+      let updated: SellEventRecord | undefined;
+      request.onsuccess = () => {
+        const current = request.result as SellEventRecord | undefined;
+        if (!current) { tx.abort(); return; }
+        if (current.status !== "pending" && current.status !== "reconcile_required") {
+          tx.abort();
+          return;
+        }
+        if (current.exchangeOrderId && current.exchangeOrderId !== exchangeOrderId) {
+          tx.abort();
+          return;
+        }
+        updated = { ...current, exchangeOrderId, updatedAt: now, lastError: null };
+        store.put(updated);
+      };
+      tx.oncomplete = () => updated ? resolve(updated) : reject(new Error("卖出事件不存在"));
+      tx.onerror = () => reject(tx.error ?? new Error("绑定 Binance 卖出订单失败"));
+      tx.onabort = () => reject(tx.error ?? new Error("卖出事件状态不允许绑定订单，或订单 ID 已绑定"));
+    });
+  } finally {
+    db.close();
+  }
+}
