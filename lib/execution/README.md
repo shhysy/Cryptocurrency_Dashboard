@@ -76,3 +76,14 @@
 - 新增测试覆盖周期仓卖出、可卖数量裁剪、底仓保护、独立底仓减仓事件及实盘关闭。
 
 本阶段不提交卖单，不改变现有卖出事件状态，也不写入成交台账。真实卖出前仍需真实持仓账本、成交对账、订单幂等和受保护的签名执行端。
+
+## 第七阶段：真实成交邮件 Outbox（本地持久化）
+
+- IndexedDB 数据库升级到 v3，新增 `notification-outbox` store。
+- 每一笔通过 Binance 成交明细核验、并成功写入买入成交台账的 BUY fill，会在同一个 IndexedDB readwrite 事务中生成邮件 outbox 事件。
+- Outbox 事件 ID 使用 `trade-fill:<symbol>:<exchangeTradeId>`，与成交去重键一致；重复同步同一成交不会再次创建邮件事件。
+- 事件仅包含成交方向、交易对、成交数量/价格/金额、手续费、交易所订单 ID 和成交时间，不包含 API Key、Secret、账户总资产或余额。
+- `listTradeNotificationOutbox` 可读取待投递事件；投递端确认接收后调用 `markTradeNotificationSent`；失败则调用 `markTradeNotificationFailed`，保留事件供后续重试。
+- `notification-outbox.ts` 校验成交事实并构造稳定事件 ID；单元测试覆盖字段校验与幂等 ID。
+
+**当前边界：** 目前只完成“确认买入成交 → 本地 Outbox”的原子链路。邮件 Worker 的成交事件接收接口、可靠投递调度、SELL fill 的对账入账，以及邮件送达回执仍未完成。不能把 Outbox 入队视为邮件已经发送。当前不会因为策略信号或未成交订单发送成交邮件。
