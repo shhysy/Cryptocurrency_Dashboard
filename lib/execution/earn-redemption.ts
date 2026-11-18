@@ -33,15 +33,6 @@ function positiveAmount(value: number, label: string): number {
   return value;
 }
 
-function stableHash(value: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < value.length; i++) {
-    hash ^= value.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
-}
-
 /**
  * Allocate only the Spot shortfall across eligible USDT Flexible Earn products.
  * Locked products are never passed to this function. Values are rounded down
@@ -99,9 +90,8 @@ export function createEarnRedemptionIntents(input: {
     if (!allocation.productId.trim() || allocation.amountUsdt <= 0) {
       throw new Error("赎回产品或金额无效");
     }
-    const identity = `${input.orderId}|${allocation.productId}|USDT`;
     return {
-      id: `earn-redeem:${stableHash(identity)}`,
+      id: `earn-redeem:${encodeURIComponent(input.orderId)}:${encodeURIComponent(allocation.productId)}:USDT`,
       orderId: input.orderId,
       productId: allocation.productId,
       asset: "USDT",
@@ -180,4 +170,38 @@ export function availableFlexibleEarnUsdt(
     positiveAmount(locallyReserved, "本地已预留赎回金额");
     return total + Math.max(0, gross - redeeming - frozen - locallyReserved);
   }, 0);
+}
+
+
+/** A redemption record is accepted only when its exact exchange ID is known. */
+export function matchEarnRedemptionRecord<T extends {
+  redeemId?: number | string;
+  asset?: string;
+  amount?: string;
+  destAccount?: string;
+}>(
+  intent: EarnRedemptionIntent,
+  records: T[],
+): T | null {
+  if (!intent.redemptionId) return null;
+  const matches = records.filter((record) =>
+    String(record.redeemId ?? "") === intent.redemptionId &&
+    record.asset === "USDT" &&
+    record.destAccount === "SPOT" &&
+    Number(record.amount) === intent.amountUsdt
+  );
+  return matches.length === 1 ? matches[0] : null;
+}
+
+/** Conservative balance confirmation: Spot free must reflect the full redemption on top of baseline. */
+export function isEarnRedemptionCredited(
+  intent: EarnRedemptionIntent,
+  currentSpotFreeUsdt: number,
+  toleranceUsdt = 1e-8,
+): boolean {
+  positiveAmount(currentSpotFreeUsdt, "当前现货 USDT");
+  positiveAmount(toleranceUsdt, "到账核对容差");
+  if (intent.spotFreeBeforeUsdt === null) return false;
+  return currentSpotFreeUsdt + toleranceUsdt >=
+    intent.spotFreeBeforeUsdt + intent.amountUsdt;
 }
