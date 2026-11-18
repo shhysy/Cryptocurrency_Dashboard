@@ -7,6 +7,7 @@ import { clientOrderIdForEvent } from "./client-order-id";
 import { decideOrderReconciliation } from "./order-reconcile";
 import { reconcileConfirmedBuyFills, type BuyFillReconciliation } from "./fill-reconcile";
 import {
+  applyConfirmedBuyReservationSpend,
   listBuyOrders,
   markBuyOrderReconcileRequired,
   markBuyOrderReconciled,
@@ -136,6 +137,26 @@ export async function syncBuyOrderFromBinance(
     }
   } catch (error) {
     const reason = error instanceof Error ? error.message : "成交台账写入失败";
+    const blocked = await markBuyOrderReconcileRequired(current.id, reason);
+    return {
+      action: "manual_review", newlyRecordedFills, orderStatus: snapshot.status,
+      remainingUsdt: blocked.remainingUsdt, reason,
+    };
+  }
+
+  try {
+    const cumulativeSpendUsdt = reconciled.fills.reduce(
+      (sum, fill) => sum + fill.quoteQty + fill.commissionUsdt,
+      0,
+    );
+    const terminal = ["FILLED", "CANCELED", "EXPIRED", "REJECTED"].includes(snapshot.status);
+    await applyConfirmedBuyReservationSpend(
+      current.id,
+      cumulativeSpendUsdt,
+      terminal,
+    );
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "资金预留成交对账失败";
     const blocked = await markBuyOrderReconcileRequired(current.id, reason);
     return {
       action: "manual_review", newlyRecordedFills, orderStatus: snapshot.status,
