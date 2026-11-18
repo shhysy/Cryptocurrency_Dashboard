@@ -3,6 +3,9 @@ import {
   fetchFlexibleEarnUsdtPositions,
   fetchSpotAndEarnUsdtBalances,
   fetchSpotAssetBalance,
+  fetchFlexibleEarnUsdtPositions,
+  redeemFlexibleEarnUsdt,
+  LIVE_EARN_REDEMPTION_ENABLED,
 } from "../binance.browser";
 import {
   allocateFlexibleEarnRedemption,
@@ -14,6 +17,7 @@ import {
 } from "./earn-redemption";
 import {
   enqueueEarnRedemptionIntents,
+  claimEarnRedemptionIntentForSubmit,
   listEarnRedemptionIntents,
   reserveBuyFunds,
   listBuyOrders,
@@ -188,4 +192,63 @@ export async function reconcileEarnRedemptionIntent(
     outcome: "manual_review",
     reason: `赎回记录状态为 ${record.status ?? "未知"}，但现货 free 未体现完整到账，暂停自动买入`,
   };
+}
+
+
+/**
+ * Submit exactly one persisted Flexible Earn redemption intent.
+ * This path is intentionally feature-disabled until the user confirms a
+ * TRADE-enabled key. Any ambiguous result is parked for reconciliation.
+ */
+export async function submitPlannedEarnRedemption(intentId: string): Promise<{
+  intent: EarnRedemptionIntent;
+  outcome: "submitted" | "manual_review";
+}> {
+  if (!LIVE_EARN_REDEMPTION_ENABLED) {
+    throw new Error("真实理财赎回尚未启用；当前不会发送 Binance POST 请求");
+  }
+  if (!intentId.trim()) throw new Error("赎回意图 ID 不能为空");
+  const intents = await listEarnRedemptionIntents();
+  const planned = intents.find((item) => item.id === intentId);
+  if (!planned) throw new Error("理财赎回意图不存在");
+  if (planned.status !== "planned") {
+    throw new Error("该赎回意图不是待提交状态；必须先核对交易所记录，禁止重复提交");
+  }
+
+  const positions = await fetchFlexibleEarnUsdtPositions();
+  const product = positions.find((row) =>
+    row.asset === "USDT" && String(row.productId ?? "") === planned.productId
+  );
+  if (!product) throw new Error("Binance 未返回该 USDT 活期产品；停止赎回");
+  const total = Number(product.amount);
+  const redeeming = Number(product.redeemingAmt ?? "0");
+  const frozen = Number(product.freezeAmount ?? "0");
+  const available = total - redeeming - frozen;
+  if (![total, redeeming, frozen, available].every(Number.isFinite) ||
+      available + 1e-8 < planned.amountUsdt) {
+    throw new Error("该活期产品最新可赎回余额不足；停止赎回");
+  }
+
+  // Claim first. A second browser tab sees the in-flight state and cannot POST.
+  await claimEarnRedemptionIntentForSubmit(intentId);
+  try {
+    const response = await redeemFlexibleEarnUsdt({
+      productId: planned.productId,
+      amountUsdt: planned.amountUsdt,
+    });
+    const saved = await updateEarnRedemptionIntent(
+      intentId,
+      "submitted",
+      { redemptionId: String(response.redeemId), lastError: null },
+    );
+    return { intent: saved, outcome: "submitted" };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "赎回提交结果不明确";
+    const parked = await updateEarnRedemptionIntent(
+      intentId,
+      "reconcile_required",
+      { lastError: reason.slice(0, 500) },
+    );
+    return { intent: parked, outcome: "manual_review" };
+  }
 }
