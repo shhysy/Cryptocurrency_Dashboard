@@ -79,3 +79,12 @@
 
 
 执行代码目录说明：`lib/execution/` 是当前 V3.3 执行开发主目录；`lib/trading/` 保留为早期通用原型，尚未接入 Dashboard，不得与主目录的 IndexedDB 队列同时启用。
+## 2026-11-18 后续进度：买入成交只读对账
+
+在 `lib/execution/` 主目录新增：
+- `fill-reconcile.ts`：以 Binance 订单累计成交量/金额核对逐笔 BUY 成交；手续费币种不明时不猜测，转人工复核。
+- `sync-buy-order.browser.ts`：按待买订单 ID + attempt 只读查询 Binance 订单和成交，核实后才写本地买入队列/成交台账。
+- `store.browser.ts`：`recordConfirmedBuyFill` 将唯一成交 ID、队列剩余金额和成交台账写入同一 IndexedDB 事务，减少多标签页并发造成的重复/丢失记账。
+- `order-reconcile.ts`：拒绝没有真实成交数量或订单 ID 的异常 FILLED 快照。
+
+该同步函数目前需要显式调用，未接入 UI 或定时轮询；不发送订单、不撤单、不自动重试、不发邮件。BNB 等第三资产手续费当前会暂停自动记账，需后续补充可靠的历史换算。新增 `fill-reconcile.test.ts` 并扩展订单对账测试，但尚未运行本地测试/typecheck。实盘开关继续关闭。
