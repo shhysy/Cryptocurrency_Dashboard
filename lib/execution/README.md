@@ -122,6 +122,8 @@
 **重要限制：** 目前仍没有卖单提交器，`bindSellEventToExchangeOrder` 仅供未来在收到 Binance 正常下单响应后绑定订单 ID；当前没有任何调用路径会提交卖单。若订单 ID 未绑定，对账模块会停止并提示复核。该模块不撤单、不重试、不提交 POST。卖出事件库和成交账本仍是两个 IndexedDB 数据库；成交写入成功但事件状态更新失败时，重跑对账会依靠成交 ID 去重，不重复入账或重复创建邮件 Outbox。
 
 ## 第十一阶段：加权平均持仓账本回放（只读计算）
+- 新增 Binance 现货资产 free/locked 精确读取；getSellPositionSnapshotFromBinance 会将本地台账总数量与 Binance free+locked 总数量严格核对，存在转入/转出、手动交易或漏记时直接拒绝生成卖出预检持仓快照。
+
 
 - 新增 position-accounting.ts，按成交时间回放已确认 BUY/SELL fills，采用与当前策略成本口径一致的加权平均成本。
 - BUY 成交按 V3.3 baseRatio 拆分长期底仓和周期仓；普通止盈/指标止盈/追踪止损只扣周期仓，base_reduce 只扣长期底仓。
