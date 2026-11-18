@@ -1,6 +1,7 @@
 import type { ExecutionFill, QueuedBuyOrder, TradeLedgerEntry } from "./types";
 import { applyConfirmedBuyFill } from "./queue";
 import { planBuyFundsReservation, remainingReservationAfterFill, type BuyFundsReservation } from "./fund-reservation";
+import { buildTradeFillNotificationEvent, type TradeNotificationOutboxEvent } from "./notification-outbox";
 
 const DB_NAME = "long-term-investment-execution";
 const DB_VERSION = 3;
@@ -146,27 +147,7 @@ export async function recordConfirmedBuyFill(
           // The notification is created in the same transaction as the
           // exchange-confirmed fill. Duplicate fill IDs never create a second
           // email event.
-          outbox.add({
-            id: `trade-fill:${fill.symbol}:${fill.fillId}`,
-            type: "confirmed_trade_fill",
-            side: fill.side,
-            symbol: fill.symbol,
-            fillId: fill.fillId,
-            exchangeOrderId: fill.orderId,
-            filledQty: fill.qty,
-            fillPrice: fill.price,
-            quoteQty: fill.quoteQty,
-            commission: fill.commission,
-            commissionAsset: fill.commissionAsset,
-            commissionUsdt: fill.commissionUsdt,
-            filledAt: fill.time,
-            status: "pending",
-            attemptCount: 0,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            lastError: null,
-            sentAt: null,
-          });
+          outbox.add(buildTradeFillNotificationEvent(fill));
           result = { recorded: true, ledger, order: updatedOrder };
         } catch (error) {
           fatalError = error instanceof Error ? error : new Error("成交入账失败");
@@ -465,27 +446,7 @@ export async function listBuyFundsReservations(): Promise<BuyFundsReservation[]>
 }
 
 
-export interface TradeNotificationOutboxEvent {
-  id: string;
-  type: "confirmed_trade_fill";
-  side: "BUY" | "SELL";
-  symbol: string;
-  fillId: string;
-  exchangeOrderId: string;
-  filledQty: number;
-  fillPrice: number;
-  quoteQty: number;
-  commission: number;
-  commissionAsset: string;
-  commissionUsdt: number;
-  filledAt: number;
-  status: "pending" | "sent" | "failed";
-  attemptCount: number;
-  createdAt: number;
-  updatedAt: number;
-  lastError: string | null;
-  sentAt: number | null;
-}
+
 
 /** Read confirmed-fill email events awaiting a notification dispatcher. */
 export async function listTradeNotificationOutbox(): Promise<TradeNotificationOutboxEvent[]> {
