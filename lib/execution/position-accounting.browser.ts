@@ -1,4 +1,3 @@
-import { strategyConfig } from "@/strategy.config";
 import { fetchSpotAssetBalance } from "../binance.browser";
 import { listTradeLedger } from "./store.browser";
 import { assertPositionMatchesExchange, replayPositionLedger, type PositionLedgerSnapshot } from "./position-accounting";
@@ -19,11 +18,9 @@ export async function getReconciledPositionFromLedger(
   const baseAsset = pair.slice(0, pair.length - quoteAsset.length);
   if (!baseAsset || baseAsset === pair) throw new Error("无法从交易对识别基础资产");
 
-  const group = strategyConfig.coreSymbols.includes(baseAsset) ? "core" : "alt";
-  const baseRatio = strategyConfig.profiles[group].baseRatio;
   const all = await listTradeLedger();
   const fills = all.filter((fill) => fill.symbol === pair);
-  const position = replayPositionLedger(fills, baseRatio, quoteAsset);
+  const position = replayPositionLedger(fills, quoteAsset);
   return { symbol: baseAsset, pair, fillCount: fills.length, ...position };
 }
 
