@@ -10,6 +10,7 @@ export interface MarketRules {
   maxQty: number;
   minNotional: number;
   maxNotional: number | null;
+  quotePrecision: number;
   quoteOrderQtyMarketAllowed: boolean;
 }
 
@@ -43,7 +44,8 @@ export function parseMarketRules(info: SpotSymbolFilters): MarketRules {
     maxQty: num(lot.maxQty, "maxQty"),
     minNotional,
     maxNotional,
-    quoteOrderQtyMarketAllowed: Boolean((info as SpotSymbolFilters & { quoteOrderQtyMarketAllowed?: boolean }).quoteOrderQtyMarketAllowed),
+    quotePrecision: info.quotePrecision,
+    quoteOrderQtyMarketAllowed: Boolean(info.quoteOrderQtyMarketAllowed),
   };
 }
 
@@ -87,8 +89,9 @@ export function preflightMarketBuy(
     return { ok: false, quoteOrderQty: null, estimatedBaseQty, reason: "预计买入数量不符合交易所数量限制" };
   }
   // quoteOrderQty is a quote-asset amount; keep precision conservative and never exceed free USDT.
-  const quotePrecision = 8;
-  const rounded = Math.floor(quote * 10 ** quotePrecision) / 10 ** quotePrecision;
+  const quotePrecision = Math.max(0, Math.min(8, rules.quotePrecision));
+  const scale = 10 ** quotePrecision;
+  const rounded = Math.floor(quote * scale + 1e-8) / scale;
   return { ok: rounded >= rules.minNotional, quoteOrderQty: rounded.toFixed(quotePrecision), estimatedBaseQty, reason: rounded >= rules.minNotional ? null : "精度处理后低于最小名义金额" };
 }
 
