@@ -86,6 +86,10 @@ export async function updateSellEvent(record: SellEventRecord): Promise<void> {
           tx.abort();
           return;
         }
+        if (current.exchangeOrderId && current.exchangeOrderId !== record.exchangeOrderId) {
+          tx.abort();
+          return;
+        }
         if ((record.status === "executed" || record.status === "partially_filled") && record.fillIds.length === 0) {
           tx.abort();
           return;
