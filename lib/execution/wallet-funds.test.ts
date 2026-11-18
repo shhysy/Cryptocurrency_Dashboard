@@ -5,12 +5,12 @@ describe("USDT wallet separation", () => {
   it("keeps Spot free separate from LDUSDT flexible Earn vouchers", () => {
     const split = splitSpotAccountUsdtBalances([
       { asset: "USDT", free: "12.5", locked: "1" },
-      { asset: "LDUSDT", free: "80", locked: "0" },
+      { asset: "LDUSDT", free: "80", locked: "2" },
     ]);
     expect(split).toEqual({
       spotFreeUsdt: 12.5,
       spotLockedUsdt: 1,
-      flexibleEarnUsdt: 80,
+      flexibleEarnUsdt: 82,
     });
   });
 
