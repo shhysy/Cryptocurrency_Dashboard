@@ -1,6 +1,6 @@
 import { fetchSpotAssetBalance } from "../binance.browser";
 import { listTradeLedger } from "./store.browser";
-import { assertPositionMatchesExchange, replayPositionLedger, type PositionLedgerSnapshot } from "./position-accounting";
+import { assertPositionMatchesExchange, buildPositionReconciliationReport, replayPositionLedger, type PositionLedgerSnapshot, type PositionReconciliationReport } from "./position-accounting";
 
 /**
  * Rebuild one asset's local position from exchange-confirmed ledger fills.
@@ -48,4 +48,24 @@ export async function getSellPositionSnapshotFromBinance(
     totalQty: balance.total,
   });
   return { ...position, ...exchangePosition };
+}
+
+
+/**
+ * Read-only diagnostic for the local ledger versus Binance. Unlike the
+ * sell snapshot, this returns a classified mismatch instead of hiding the
+ * useful quantities behind an exception. It never repairs either source.
+ */
+export async function getPositionReconciliationReportFromBinance(
+  symbolOrPair: string,
+  quoteAsset = "USDT",
+): Promise<PositionReconciliationReport & { symbol: string; pair: string; fillCount: number }> {
+  const position = await getReconciledPositionFromLedger(symbolOrPair, quoteAsset);
+  const balance = await fetchSpotAssetBalance(position.symbol);
+  const report = buildPositionReconciliationReport(position, {
+    freeQty: balance.free,
+    lockedQty: balance.locked,
+    totalQty: balance.total,
+  });
+  return { ...report, symbol: position.symbol, pair: position.pair, fillCount: position.fillCount };
 }
