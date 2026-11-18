@@ -11,8 +11,8 @@ describe("queued order CSV export", () => {
 
   it("quotes cells and neutralizes spreadsheet formulas", () => {
     const csv = queuedOrdersToCsv([{
-      id: "=HYPERLINK(1)",
-      eventKey: "event-1",
+    expect(csv).toContain("\"'=HYPERLINK(1)\"");
+    expect(csv).toContain("\"50\"");
       symbol: "BTCUSDT",
       side: "BUY",
       strategyTag: "头仓",
