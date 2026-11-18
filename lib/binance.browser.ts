@@ -164,7 +164,7 @@ export interface SpotSymbolFilters {
   basePrecision: number;
   quotePrecision: number;
   quoteOrderQtyMarketAllowed?: boolean;
-  filters: Record<string, string | number>[];
+  filters: Record<string, string | number | boolean>[];
 }
 
 /** 只返回现货账户 USDT 的 free 字段；不计 locked，不折算其他资产。 */
