@@ -3,12 +3,10 @@
  *
  * 用法：
  *   1. 复制 .env.example 为 .env，填写 SMTP_*、币安 Key 等
- *   2. 本机先 npm run dev（或 DASHBOARD_URL 指向已部署站点）
- *   3. node scripts/notify-score.mjs
- *   4. 可选 cron：每小时 0 分执行一次
+ *   2. 本机先 npm run dev
+ *   3. npm run notify
  *
- * 注意：Cloudflare Workers 通常无法直连 smtp.qq.com，请在本机或 VPS 上跑本脚本。
- * 授权码只放环境变量，不要提交 Git。
+ * 门槛区分：核心 MAIL_MIN_SCORE_CORE（默认 55），山寨 MAIL_MIN_SCORE_ALT（默认 75）
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { connect as tlsConnect } from "node:tls";
@@ -45,10 +43,10 @@ const MAIL_TO = env.MAIL_TO || "2157936243@qq.com";
 const MAIL_FROM = env.MAIL_FROM || SMTP_USER;
 const DASHBOARD_URL = (env.DASHBOARD_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
 const REQUIRE_STABLE = env.MAIL_REQUIRE_STABLE === "1";
-// 邮件触发分数：MAIL_MIN_SCORE 有值则全币种统一用该分；留空则核心 55 / 山寨 75
-const MAIL_MIN_SCORE = env.MAIL_MIN_SCORE !== undefined && env.MAIL_MIN_SCORE !== ""
-  ? Number(env.MAIL_MIN_SCORE)
-  : null;
+/** 核心币（BTC/PAXG 等）邮件门槛，默认 55 */
+const SCORE_CORE = Number(env.MAIL_MIN_SCORE_CORE ?? 55);
+/** 山寨币邮件门槛，默认 75 */
+const SCORE_ALT = Number(env.MAIL_MIN_SCORE_ALT ?? 75);
 const COOLDOWN_MS = Number(env.MAIL_COOLDOWN_HOURS || 24) * 3600_000;
 const STATE_PATH = resolve(root, "data/notify-state.json");
 
@@ -154,8 +152,11 @@ async function fetchDashboard() {
 }
 
 function thresholdFor(group) {
-  if (MAIL_MIN_SCORE !== null && !Number.isNaN(MAIL_MIN_SCORE)) return MAIL_MIN_SCORE;
-  return group === "core" ? 55 : 75;
+  return group === "core" ? SCORE_CORE : SCORE_ALT;
+}
+
+function groupLabel(group) {
+  return group === "core" ? "核心" : "山寨";
 }
 
 function pickHits(data) {
@@ -168,28 +169,83 @@ function pickHits(data) {
     if (REQUIRE_STABLE && !c.signal?.metrics?.stabilized) continue;
     hits.push({
       symbol: c.symbol,
-      name: c.name,
+      name: c.name || c.symbol,
+      group,
       score,
       minScore,
-      tag: c.signal?.tag,
-      kind: c.signal?.kind,
+      tag: c.signal?.tag || "",
+      kind: c.signal?.kind || "",
       stabilized: c.signal?.metrics?.stabilized,
       stableCount: c.signal?.metrics?.stableCount,
       blocked: c.signal?.action?.blocked || [],
-      reasons: (c.signal?.reasons || []).map((r) => r.text).slice(0, 5),
+      actionLabel: c.signal?.action?.label || "",
+      reasons: (c.signal?.reasons || []).map((r) => r.text).slice(0, 6),
     });
   }
   return hits;
 }
 
+/** 邮件正文模板：币种名称 + 代码 + 分数 + 门槛 + 状态 */
+function buildMail(hits) {
+  const names = hits.map((h) => h.name).join("、");
+  const codes = hits.map((h) => h.symbol).join("/");
+  const subject = `【信号看板】${names}（${codes}）分数达标`;
+
+  const blocks = hits.map((h, i) => {
+    const stable =
+      h.stabilized === true
+        ? `已企稳（${h.stableCount ?? "?"} 项）`
+        : h.stabilized === false
+          ? `未企稳（${h.stableCount ?? "?"} 项）`
+          : "企稳数据不足";
+    const status = h.tag || h.kind || "—";
+    const action = h.actionLabel ? `建议动作：${h.actionLabel}` : "";
+    const blocked = h.blocked.length ? `当前挡住：${h.blocked.join("；")}` : "";
+    const why = h.reasons.length ? h.reasons.map((r) => `  · ${r}`).join("\n") : "  · （无明细依据）";
+
+    return [
+      `【${i + 1}】${h.name}（${h.symbol}）`,
+      `  分组：${groupLabel(h.group)} · 机会指数 ${h.score} / 90（邮件门槛 ${h.minScore}）`,
+      `  状态：${status} · ${stable}`,
+      action ? `  ${action}` : null,
+      blocked ? `  ${blocked}` : null,
+      `  依据：`,
+      why,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  });
+
+  const text = [
+    "长期投资信号看板 · 分数提醒",
+    "",
+    `共 ${hits.length} 个币种达到对应分组门槛${REQUIRE_STABLE ? "（且已企稳）" : ""}：`,
+    `核心门槛 ${SCORE_CORE} 分 · 山寨门槛 ${SCORE_ALT} 分`,
+    "",
+    "————————",
+    ...blocks.flatMap((b) => [b, "————————"]),
+    "",
+    `看板链接：${DASHBOARD_URL}`,
+    `发送时间：${new Date().toLocaleString("zh-CN", { hour12: false })}`,
+    `去重：同一币种约 ${env.MAIL_COOLDOWN_HOURS || 24} 小时内不重复通知`,
+    "",
+    "（信号仅供参考，不构成投资建议）",
+  ].join("\n");
+
+  return { subject, text };
+}
+
 const state = readState();
 const now = Date.now();
 
-console.log(`[notify] 邮件分数门槛: ${MAIL_MIN_SCORE !== null && !Number.isNaN(MAIL_MIN_SCORE) ? MAIL_MIN_SCORE + "（统一）" : "核心55 / 山寨75"}`);
+console.log(`[notify] 门槛：核心 ${SCORE_CORE} / 山寨 ${SCORE_ALT}${REQUIRE_STABLE ? " · 需企稳" : ""}`);
 console.log(`[notify] 拉取 ${DASHBOARD_URL}/api/dashboard …`);
 const data = await fetchDashboard();
 const hits = pickHits(data);
-console.log(`[notify] 达标币种 ${hits.length} 个:`, hits.map((h) => `${h.symbol}=${h.score}`).join(", ") || "(无)");
+console.log(
+  `[notify] 达标 ${hits.length} 个:`,
+  hits.map((h) => `${h.name}(${h.symbol})=${h.score}`).join(", ") || "(无)",
+);
 
 const toSend = hits.filter((h) => {
   const prev = state.last?.[h.symbol];
@@ -204,22 +260,8 @@ if (!toSend.length) {
   process.exit(0);
 }
 
-const lines = toSend.map((h) => {
-  const st = h.stabilized ? `企稳 ${h.stableCount}` : h.stabilized === false ? `未企稳 ${h.stableCount ?? "?"}` : "企稳未知";
-  const block = h.blocked.length ? `；挡住: ${h.blocked[0]}` : "";
-  const why = h.reasons.length ? `\n  依据: ${h.reasons.join("；")}` : "";
-  return `• ${h.symbol} (${h.name}) 机会指数 ${h.score}/90（门槛 ${h.minScore}）· ${h.tag || h.kind} · ${st}${block}${why}`;
-});
-
-const subject = `【信号看板】${toSend.map((h) => h.symbol).join("/")} 分数达标`;
-const text =
-  `长期投资信号看板 · 分数提醒\n\n` +
-  `以下币种机会指数已达到对应买入门槛${REQUIRE_STABLE ? "（且已企稳）" : ""}：\n\n` +
-  lines.join("\n\n") +
-  `\n\n看板: ${DASHBOARD_URL}\n` +
-  `时间: ${new Date().toISOString()}\n` +
-  `（同一币种默认 ${env.MAIL_COOLDOWN_HOURS || 24} 小时内不重复通知）\n`;
-
+const { subject, text } = buildMail(toSend);
+console.log(`[notify] 主题: ${subject}`);
 console.log(`[notify] 发送至 ${MAIL_TO} …`);
 await sendMail({ subject, text });
 for (const h of toSend) {
