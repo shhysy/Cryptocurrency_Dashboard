@@ -51,6 +51,11 @@ export function buildSellEventReservations(
     const activeEvents = symbolEvents.filter((event) =>
       event.status === "pending" || event.status === "reconcile_required" || event.status === "executed"
     );
+    // A take-profit tier is a one-time event per asset; a later weekly candle
+    // must not create a second reservation for the same tier.
+    if (kind === "take_profit" && activeEvents.some((event) =>
+      event.kind === "take_profit" && event.eventKey.endsWith(`:${action.label || action.kind}`)
+    )) continue;
     const profile = strategyConfig.profiles[coin.signal.group];
     const boughtQty = coin.buys.reduce((sum, trade) => sum + trade.qty, 0);
     const baseQty = boughtQty * profile.baseRatio;
