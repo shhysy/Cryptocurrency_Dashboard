@@ -92,7 +92,8 @@ node scripts/import-csv.mjs data/manual-trades.example.csv
 
 ## 安全提醒
 
-- API Key 只勾**读取**权限，不要勾交易、提现。
+- 当前自动赎回/买卖实盘开关均关闭，现有只读 Key 不会执行资金变动。
+- 私人浏览器直连模式会把 `NEXT_PUBLIC_BINANCE_API_SECRET` 打进前端 bundle；这不是安全存储。若你接受该风险，也必须使用专用 Key、固定 IP 白名单，并且只开放必要的现货/理财交易权限，绝不开放提现、划转或合约权限。
 - 能绑定 IP 白名单就绑定（固定 IP 的服务器可以，Cloudflare Workers 不行）。
 - `.env.local` 不要提交 Git、不要发给任何人或贴进聊天。已经泄露的 Key 立刻在币安删除重建。
 - `DASHBOARD_PASSWORD` 留空时页面不需要密码，仅适合只在本机使用。部署到公网必须设置，否则任何人打开地址都能看到你的资产。
@@ -153,7 +154,7 @@ ENABLE_ACCOUNT=0                  # 可选：只要信号、少打账户接口�
 
 说明：
 
-- 浏览器直连模式下，Key 会进入前端 bundle（见 `lib/credentials.ts` / `binance.browser.ts`），**务必**在币安给 Key 绑你自己的家宽 IP，且只开只读权限。
+- 浏览器直连模式下，Key 和 Secret 会进入前端 bundle（见 `lib/credentials.ts` / `binance.browser.ts`）。仅限私人自用，并应绑定固定家宽 IP；不要复用其他服务的 API Key。当前真实赎回/买卖开关保持关闭。
 - `ENABLE_ACCOUNT=0` 时策略仍打分、仍给出「买/卖/暂缓」方向，但不会根据真实余额算建议金额。
 - 原油 CL 走币安 U 本位永续公开行情（`fapi`），与现货直连同一套部署思路；**无需改接口代码**，只配环境变量即可。
 
