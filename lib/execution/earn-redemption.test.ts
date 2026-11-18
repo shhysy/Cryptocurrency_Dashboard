@@ -135,7 +135,7 @@ describe("Simple Earn redemption reconciliation", () => {
   it("recovers a lost redemption response only from one exact history record", () => {
     const candidate = {
       redeemId: 987,
-      productId: "flexible-1",
+      projectId: "flexible-1",
       asset: "USDT",
       amount: "25",
       destAccount: "SPOT",
@@ -147,7 +147,7 @@ describe("Simple Earn redemption reconciliation", () => {
       { ...candidate, redeemId: 988 },
     ])).toBeNull();
     expect(findUniqueEarnRedemptionRecord(intent, [
-      { ...candidate, productId: "other-product" },
+      { ...candidate, projectId: "other-product" },
     ])).toBeNull();
     expect(findUniqueEarnRedemptionRecord(intent, [
       { ...candidate, amount: "24.99" },
