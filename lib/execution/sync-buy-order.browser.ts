@@ -4,7 +4,7 @@ import {
 } from "../binance.browser";
 import type { BinanceSpotOrderSnapshot, BinanceSpotTrade } from "../binance.browser";
 import { clientOrderIdForEvent } from "./client-order-id";
-import { decideOrderReconciliation } from "./order-reconcile";
+import { decideOrderReconciliation, isExchangeOrderTerminal } from "./order-reconcile";
 import { reconcileConfirmedBuyFills, type BuyFillReconciliation } from "./fill-reconcile";
 import {
   applyConfirmedBuyReservationSpend,
@@ -154,7 +154,7 @@ export async function syncBuyOrderFromBinance(
       (sum, fill) => sum + fill.quoteQty + fill.commissionUsdt,
       0,
     );
-    const terminal = ["FILLED", "CANCELED", "EXPIRED", "REJECTED"].includes(snapshot.status);
+    const terminal = isExchangeOrderTerminal(snapshot.status);
     await applyConfirmedBuyReservationSpend(
       current.id,
       cumulativeSpendUsdt,
@@ -169,7 +169,7 @@ export async function syncBuyOrderFromBinance(
     };
   }
 
-  const exchangeTerminal = ["FILLED", "CANCELED", "EXPIRED", "REJECTED"].includes(snapshot.status);
+  const exchangeTerminal = isExchangeOrderTerminal(snapshot.status);
   if (!exchangeTerminal) {
     const held = await markBuyOrderReconcileRequired(
       current.id,
