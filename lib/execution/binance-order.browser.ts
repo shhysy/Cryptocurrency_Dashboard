@@ -29,6 +29,7 @@ export interface BuyDryRunResult {
   otherReservedUsdt: number;
   proposedReserveUsdt: number;
   executableUsdt: number;
+  quoteOrderQty: string | null;
   estimatedBaseQty: number;
   remainingPlannedUsdt: number;
   ok: boolean;
@@ -101,6 +102,7 @@ export async function prepareQueuedBuyDryRun(
     otherReservedUsdt: reservationPlan.totalReservedUsdt,
     proposedReserveUsdt: reservationPlan.ok ? reservationPlan.reserveUsdt : 0,
     executableUsdt,
+    quoteOrderQty: preflight?.quoteOrderQty ?? null,
     estimatedBaseQty: preflight?.estimatedBaseQty ?? 0,
     remainingPlannedUsdt: Math.max(0, order.remainingUsdt - executableUsdt),
     ok: Boolean(reservationPlan.ok && preflight?.ok),
