@@ -70,34 +70,82 @@ export async function saveBuyOrder(order: QueuedBuyOrder): Promise<void> {
 }
 
 /**
- * Idempotently record an exchange-confirmed fill.
- * A unique fill key and queue update share one IndexedDB transaction so refreshes cannot apply the same fill twice.
+ * Atomically apply one exchange-confirmed BUY fill.
+ * The queue read, unique fill claim, cost update and ledger insert share one
+ * IndexedDB transaction, so concurrent tabs cannot lose or double-apply fills.
  */
-export async function recordConfirmedFill(fill: ExecutionFill, updatedOrder: QueuedBuyOrder): Promise<{ recorded: boolean; ledger: TradeLedgerEntry }> {
+export async function recordConfirmedBuyFill(
+  fill: ExecutionFill,
+  queuedOrderId: string,
+): Promise<{ recorded: boolean; ledger: TradeLedgerEntry; order: QueuedBuyOrder }> {
+  if (fill.side !== "BUY") throw new Error("当前原子记账函数只接受买入成交");
+  if (!queuedOrderId || !fill.fillId || !fill.symbol) throw new Error("成交记录或待买订单标识无效");
   const db = await openDb();
   const id = fillKey(fill);
   try {
     return await new Promise((resolve, reject) => {
       const tx = db.transaction([ORDERS, FILLS, LEDGER], "readwrite");
+      const orders = tx.objectStore(ORDERS);
       const fills = tx.objectStore(FILLS);
-      const get = fills.get(id);
-      let result: { recorded: boolean; ledger: TradeLedgerEntry } = {
-        recorded: false,
-        ledger: { ...fill, id, realizedPnlUsdt: null },
+      const ledgerStore = tx.objectStore(LEDGER);
+      const getFill = fills.get(id);
+      const getOrder = orders.get(queuedOrderId);
+      let fillReady = false;
+      let orderReady = false;
+      let existingFill = false;
+      let currentOrder: QueuedBuyOrder | undefined;
+      let result: { recorded: boolean; ledger: TradeLedgerEntry; order: QueuedBuyOrder } | undefined;
+      let fatalError: Error | null = null;
+
+      const finishReads = () => {
+        if (!fillReady || !orderReady || result || fatalError) return;
+        if (!currentOrder) {
+          fatalError = new Error("成交对应的待买订单不存在");
+          tx.abort();
+          return;
+        }
+        const ledger: TradeLedgerEntry = { ...fill, id, realizedPnlUsdt: null };
+        if (existingFill) {
+          result = { recorded: false, ledger, order: currentOrder };
+          return;
+        }
+        try {
+          const updatedOrder = applyConfirmedBuyFill(
+            currentOrder,
+            fill.quoteQty + fill.commissionUsdt,
+          );
+          fills.add({ id, fill });
+          ledgerStore.add(ledger);
+          orders.put(updatedOrder);
+          result = { recorded: true, ledger, order: updatedOrder };
+        } catch (error) {
+          fatalError = error instanceof Error ? error : new Error("成交入账失败");
+          tx.abort();
+        }
       };
-      get.onsuccess = () => {
-        if (get.result) return;
-        const ledger = { ...fill, id, realizedPnlUsdt: null };
-        fills.add({ id, fill });
-        tx.objectStore(LEDGER).add(ledger);
-        tx.objectStore(ORDERS).put(updatedOrder);
-        result = { recorded: true, ledger };
+
+      getFill.onsuccess = () => {
+        existingFill = Boolean(getFill.result);
+        fillReady = true;
+        finishReads();
       };
-      tx.oncomplete = () => resolve(result);
-      tx.onerror = () => reject(tx.error ?? new Error("写入成交台账失败"));
-      tx.onabort = () => reject(tx.error ?? new Error("成交台账事务中止"));
+      getOrder.onsuccess = () => {
+        currentOrder = getOrder.result as QueuedBuyOrder | undefined;
+        orderReady = true;
+        finishReads();
+      };
+      getFill.onerror = () => { fatalError = getFill.error ?? new Error("查询成交 ID 失败"); };
+      getOrder.onerror = () => { fatalError = getOrder.error ?? new Error("读取待买订单失败"); };
+      tx.oncomplete = () => {
+        if (result) resolve(result);
+        else reject(fatalError ?? new Error("成交事务未生成结果"));
+      };
+      tx.onerror = () => reject(fatalError ?? tx.error ?? new Error("写入成交台账失败"));
+      tx.onabort = () => reject(fatalError ?? tx.error ?? new Error("成交台账事务中止"));
     });
-  } finally { db.close(); }
+  } finally {
+    db.close();
+  }
 }
 
 export async function listTradeLedger(): Promise<TradeLedgerEntry[]> {
