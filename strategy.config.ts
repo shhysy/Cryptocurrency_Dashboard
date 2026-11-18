@@ -139,13 +139,17 @@ export const strategyConfig = {
     },
   } satisfies Record<"core" | "alt", Profile>,
 
-  // 组合层面的买入上限（比例以账户净值为基数）
+  // 用户确认采用固定单币额度，不再按账户净值/现金比例/单周净值限制缩减计划金额。
+  // 仍保留最多同时持有 3 个山寨币的资产池纪律。
   portfolio: {
-    minCashRatio: 0.3, // 买后现金 / 净值不得低于此值
-    altNetCap: 0.1, // 山寨币成本合计上限
-    coreNetCap: 0.25, // 核心资产成本合计上限
-    altMaxCount: 3, // 最多同时持有的山寨币数量（只限制新开）
-    weeklyBuyCap: 0.05, // 近 7 天新增买入上限
+    altMaxCount: 3,
+  },
+  // 实盘交易必须显式启用；当前仅完成策略层改造，真实下单保持关闭。
+  execution: {
+    enabled: false,
+    quoteAsset: "USDT",
+    allowPartialBuy: true,
+    maxSlippage: 0.005,
   },
   reserveStableMin: 2, // 备用金另需企稳项数（V3.3 由 3 项放宽为 2 项）
   minOrderUsdt: 5, // 币安现货最小下单额（约），建议金额低于它就不给买入建议

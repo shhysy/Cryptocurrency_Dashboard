@@ -248,25 +248,25 @@ function planBuy(c: Ctx): Action {
   let amount = plannedUsdt;
   if (factor < 1) limits.push(`BTC ${ctx.btcState === "bear" ? "熊市" : "过渡市"}，金额 × ${factor}`);
 
-  const sized = acc.known && !input.signalOnly;
-  if (input.signalOnly) limits.push("币安现货没有该品种，只给信号，不给金额");
-  if (sized) {
-    const caps: [string, number][] = [
-      [`单币成本上限 ${usd(profile.capUsdt)}，已投入 ${usd(input.invested)}`, profile.capUsdt - input.invested],
-      [`单周新增上限（净值 ${pct(cfg.portfolio.weeklyBuyCap)}），本周已买 ${usd(acc.weeklyBuyUsdt)}`, acc.netWorthUsdt * cfg.portfolio.weeklyBuyCap - acc.weeklyBuyUsdt],
-      [`买后现金需 ≥ 净值 ${pct(cfg.portfolio.minCashRatio)}`, acc.cashUsdt - acc.netWorthUsdt * cfg.portfolio.minCashRatio],
-      group === "alt"
-        ? [`山寨币合计上限（净值 ${pct(cfg.portfolio.altNetCap)}），已占 ${usd(acc.altCostUsdt)}`, acc.netWorthUsdt * cfg.portfolio.altNetCap - acc.altCostUsdt]
-        : [`核心资产合计上限（净值 ${pct(cfg.portfolio.coreNetCap)}），已占 ${usd(acc.coreCostUsdt)}`, acc.netWorthUsdt * cfg.portfolio.coreNetCap - acc.coreCostUsdt],
-    ];
-    for (const [text, room] of caps) {
-      if (room < amount) { amount = Math.max(0, room); limits.push(text); }
+  // 固定额度策略：不按账户净值、现金比例、核心/山寨组合占比或单周净值限额缩减。
+  // 真实 USDT 可用余额、交易所过滤器、精度和最小名义金额由执行层在下单前再次校验。
+  const executable = !input.signalOnly;
+  if (input.signalOnly) limits.push("币安现货没有该品种，只给信号，不执行现货下单");
+
+  let amount = plannedUsdt;
+  if (executable) {
+    const remainingCap = Math.max(0, profile.capUsdt - input.invested);
+    if (remainingCap < amount) {
+      amount = remainingCap;
+      limits.push(`单币累计成本上限 ${usd(profile.capUsdt)}，已投入 ${usd(input.invested)}`);
     }
-    if (amount < cfg.minOrderUsdt) blocked.push(`可买金额 ${usd(amount)} 低于最小下单额 ${usd(cfg.minOrderUsdt)}`);
+    if (amount < cfg.minOrderUsdt) {
+      blocked.push(`单币额度剩余 ${usd(amount)}，低于最小下单额 ${usd(cfg.minOrderUsdt)}`);
+    }
   }
 
   if (blocked.length) return none({ kind, label, plannedUsdt, limits, blocked });
-  return { kind, label, side: "buy", plannedUsdt, usdt: sized ? amount : null, qty: sized ? amount / input.price : null, sellPct: null, limits, blocked: [], notes: [] };
+  return { kind, label, side: "buy", plannedUsdt, usdt: executable ? amount : null, qty: executable ? amount / input.price : null, sellPct: null, limits, blocked: [], notes: [] };
 }
 
 export function buildVerdict(signals: CoinSignal[]): Verdict {

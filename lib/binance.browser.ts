@@ -10,8 +10,9 @@
 import type { Candle, Trade } from "@/strategy/types";
 import { FALLBACK_BINANCE_API_KEY, FALLBACK_BINANCE_API_SECRET } from "./credentials";
 
-const API_KEY = FALLBACK_BINANCE_API_KEY;
-const API_SECRET = FALLBACK_BINANCE_API_SECRET;
+// NEXT_PUBLIC_* 会被打包到客户端，浏览器直连模式无法对使用者隐藏 Secret。
+const API_KEY = process.env.NEXT_PUBLIC_BINANCE_API_KEY || FALLBACK_BINANCE_API_KEY;
+const API_SECRET = process.env.NEXT_PUBLIC_BINANCE_API_SECRET || FALLBACK_BINANCE_API_SECRET;
 const BASE = "https://api.binance.com";
 
 async function getJson<T>(url: string, headers?: Record<string, string>): Promise<T> {
