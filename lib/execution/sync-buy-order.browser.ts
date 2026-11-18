@@ -12,6 +12,7 @@ import {
   markBuyOrderReconcileRequired,
   markBuyOrderReconciled,
   recordConfirmedBuyFill,
+  releaseBuyFundsReservation,
 } from "./store.browser";
 
 export interface BuyOrderSyncResult {
@@ -35,7 +36,10 @@ export async function syncBuyOrderFromBinance(
   if (!initial) throw new Error("找不到待买订单");
   if (!Number.isInteger(attempt) || attempt < 0) throw new Error("订单 attempt 参数无效");
 
-  const pair = initial.symbol + initial.quoteAsset;
+  const pair = initial.symbol.endsWith(initial.quoteAsset)
+    ? initial.symbol
+    : initial.symbol + initial.quoteAsset;
+  const baseAsset = pair.slice(0, pair.length - initial.quoteAsset.length);
   const clientOrderId = clientOrderIdForEvent(initial.eventKey, attempt);
   let snapshot: BinanceSpotOrderSnapshot;
   try {
@@ -82,6 +86,7 @@ export async function syncBuyOrderFromBinance(
   if (decision.action === "safe_to_retry") {
     // Confirmed terminal zero-fill orders can leave the reconciliation hold,
     // but a separate caller must still decide whether to create a new attempt.
+    await releaseBuyFundsReservation(initial.id, true, "Binance 已确认订单终态且零成交");
     const ready = await markBuyOrderReconciled(initial.id);
     return {
       action: "safe_to_retry", newlyRecordedFills: 0, orderStatus: snapshot.status,
@@ -108,7 +113,7 @@ export async function syncBuyOrderFromBinance(
       symbol: snapshot.symbol,
       executedQty: Number(snapshot.executedQty),
       cummulativeQuoteQty: Number(snapshot.cummulativeQuoteQty),
-    }, trades, initial.symbol, initial.quoteAsset);
+    }, trades, baseAsset, initial.quoteAsset);
   } catch (error) {
     const reason = error instanceof Error ? error.message : "成交明细核对失败";
     const blocked = await markBuyOrderReconcileRequired(initial.id, reason);
