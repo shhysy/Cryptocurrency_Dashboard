@@ -96,6 +96,7 @@ export function buildDashboard(
       qty,
       marketValue,
       avgCost,
+      invested: cost.invested,
       returnPct,
       toDoublePct: avgCost ? Math.max(0, (avgCost * target) / price - 1) * 100 : null,
       doubleProgress: avgCost && returnPct !== null ? Math.min(1, Math.max(0, returnPct / target)) : 0,
