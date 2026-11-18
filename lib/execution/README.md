@@ -1,28 +1,32 @@
-# 执行层基础模块（开发阶段）
+# V3.3 执行层（开发中）
 
-当前版本只实现本地订单状态、待买队列、部分金额规划、成交台账持久化接口和 CSV 导出，**不包含真实下单调用**。
+当前统一的策略执行模块位于 `lib/execution/`。所有新增能力目前仅用于金额预检、订单状态建模和本地幂等记录；**没有任何 Binance 下单 POST 调用，实盘开关仍关闭**。
 
-## 数据约定
+## 已有模块
 
-- 报价资产固定为 USDT；只使用 Binance 现货账户的 USDT free 余额。
-- 固定额度：BTC/PAXG 每币 1,000 USDT，其余币种每币 500 USDT。卖出不会释放累计买入额度。
-- 待买订单主存储为 IndexedDB；CSV 文件名为 `待买入订单.csv`，仅用于导出和备份。
-- 每笔策略动作使用稳定 `eventKey` 生成 ID；同一事件重复刷新不会再次创建订单。
-- 成交台账使用 `symbol:fillId` 唯一键，重复同步同一成交不会重复记账。
-- 真实成交确认之前不得减少待买金额或发出“买入完成”邮件。
+- `queue.ts` / `store.browser.ts`：USDT 待买队列、部分金额规划、IndexedDB 原子入队、成交 ID 去重与成交台账。
+- `csv.ts`：导出 `待买入订单.csv`；CSV 是备份，不是浏览器自动读写的唯一数据源。
+- `binance-preflight.ts`：Binance 交易对状态、数量步长、USDT 报价精度、最小/最大名义金额预检；普通卖出保护长期底仓。
+- `sell-guard.ts` / `sell-store.browser.ts`：卖出事件去重、周期仓限制、指标止盈冷却/累计上限、底仓减仓限制和 IndexedDB 事件预留。
+- `client-order-id.ts`：生成 Binance 可接受长度的确定性客户端订单 ID。
+- `order-reconcile.ts`：对订单状态作出 wait / complete / partial / safe-to-retry / manual-review 决策。
+- `binance.browser.ts`：USDT free、交易对过滤器、按客户端订单 ID 查询订单，以及读取 BUY/SELL 成交（只读）。
 
-## 部分买入示例
+## 不可绕过的执行规则
 
-计划 100 USDT、当前可用 USDT 50、单币额度剩余 1,000、交易所最小名义金额 5：
-本轮执行计划为 50 USDT，剩余 50 USDT 留在队列。若可用余额只有 3 USDT，则本轮不提交订单，整笔 100 USDT 继续等待。
+1. 买入只使用 Binance 现货 USDT `free`，不折算其他币。
+2. BTC/PAXG 成本上限各 1,000 USDT；其他币种各 500 USDT。卖出不释放额度。
+3. 订单超时必须按 `origClientOrderId` 查单；NEW / PARTIALLY_FILLED 不可重发；查不到订单转人工复核。
+4. 成交支出超过待买订单剩余金额时拒绝自动记账。
+5. 普通止盈、指标止盈和追踪止损不能触及长期底仓；底仓减仓必须是单独授权事件。
+6. 只有交易所成交记录核实后才能更新队列、成交台账和发送成交完成邮件。
 
-## 下一阶段接入点
+## 尚未完成
 
-1. Binance 读取 USDT free 余额（不使用 locked，也不折算其他资产）。
-2. Binance exchangeInfo 读取交易对状态、LOT_SIZE、MARKET_LOT_SIZE、MIN_NOTIONAL / NOTIONAL。
-3. 用 `newClientOrderId` 建立客户端幂等键；下单超时先查单，不直接重试。
-4. 用 `myTrades` / 订单查询确认实际成交，随后调用 `recordConfirmedFill`。
-5. 卖出使用独立事件幂等键、周期仓/底仓拆分与卖出成交台账。
-6. 只有成交回报核实后才请求邮件 Worker 发送买入/卖出成交通知。
+- Binance `POST /api/v3/order`、撤单与自动订单轮询。
+- 将真实订单、成交明细、待买余额和持仓成本以事务方式完整联动。
+- 把 V3.3 策略信号接入买卖队列和卖出 guard。
+- 买卖成交邮件联动及 UI 管理面板。
+- 本地 `npm test`、`npm run typecheck` 和 Binance Spot Testnet 端到端验证。
 
-IndexedDB 是浏览器本地持久化，清理浏览器数据或换设备不会自动同步；CSV 需要定期导出备份。多设备之间目前不共享队列。
+`lib/trading/` 是早期通用原型，暂不接入页面；不要同时启用两套交易存储。详见 `lib/trading/README.md`。
