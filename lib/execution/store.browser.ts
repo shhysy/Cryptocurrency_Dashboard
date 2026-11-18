@@ -662,8 +662,13 @@ export async function updateEarnRedemptionIntent(
           return;
         }
         try {
-          updated = transitionEarnRedemption(current, nextStatus, patch, now);
-          store.put(updated);
+          if (current.status === nextStatus) {
+            updated = { ...current, ...patch, updatedAt: now };
+            store.put(updated);
+          } else {
+            updated = transitionEarnRedemption(current, nextStatus, patch, now);
+            store.put(updated);
+          }
         } catch (error) {
           fatal = error instanceof Error ? error : new Error("更新理财赎回状态失败");
           tx.abort();
