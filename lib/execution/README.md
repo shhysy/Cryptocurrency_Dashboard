@@ -1,6 +1,6 @@
 # V3.3 执行层（开发中）
 
-当前统一的策略执行模块位于 `lib/execution/`。当前代码只覆盖金额预检、订单状态建模、只读成交对账与本地幂等记录；**没有任何 Binance 下单 POST 调用，实盘开关仍关闭**。
+当前统一的策略执行模块位于 `lib/execution/`。当前代码覆盖金额预检、只读成交对账、本地幂等记录，以及默认关闭的 Simple Earn 赎回 POST 适配器；**现货买卖订单 POST 尚未实现，赎回实盘开关仍关闭**。
 
 ## 已有模块
 
@@ -15,7 +15,9 @@
 - `sell-signal-queue.ts`：将新鲜 Binance 卖出信号转换为稳定事件键，并通过 `sell-guard.ts` 保护周期仓、底仓、指标止盈累计比例与冷却时间；只预留事件，不提交卖单。
 - `components/BuyQueue.tsx` / `components/SellQueue.tsx`：展示待买金额、成交金额、剩余金额、待卖事件和对账状态；买入队列支持 CSV 备份及只读 DRY_RUN 预检。
 - `binance.browser.ts`：USDT free、交易对过滤器、按客户端订单 ID 查询订单，以及读取 BUY/SELL 成交（只读）。
-- `binance-order.browser.ts`：重新读取 USDT free 与交易对过滤器，结合队列剩余金额和单币剩余额度计算本次可预检金额；固定 `DRY_RUN`，绝不提交订单。
+- `binance-order.browser.ts`：重新读取 USDT free 与交易对过滤器，结合队列剩余金额和单币剩余额度计算本次可预检金额；固定 `DRY_RUN`，绝不提交现货订单。
+- `earn-redemption.browser.ts`：已实现单次赎回提交编排、状态领取、POST 结果持久化和超时复核；`LIVE_EARN_REDEMPTION_ENABLED=false`，默认不会发送请求。
+- `binance.browser.ts`：Simple Earn Flexible redeem POST 适配器固定赎回到 Spot；启用前必须有 TRADE 权限。
 
 ## 不可绕过的执行规则
 
@@ -35,7 +37,7 @@
 
 ## 尚未完成
 
-- Binance `POST /api/v3/order`、撤单与自动订单轮询。
+- Binance Spot `POST /api/v3/order`、撤单与自动订单轮询；Simple Earn Flexible redeem POST 适配器已写好但默认关闭，尚未进行真实赎回。
 - 买入订单自动轮询调度（当前需上层显式调用）；卖出订单已有只读对账函数，但尚无真实卖单提交器与自动轮询调度。
 - 卖出信号已完成事件预留、guard 和绑定订单 ID 后的只读成交同步；尚未自动提交卖单。
 - 持仓成本、周期仓/底仓数量、实现盈亏已有加权平均成本回放函数；尚未将其接入卖出预检和 UI，也未持久化逐笔已实现盈亏。
