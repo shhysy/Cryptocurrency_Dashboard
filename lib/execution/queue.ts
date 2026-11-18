@@ -11,6 +11,9 @@ export function createQueuedBuy(intent: BuyOrderIntent, now = Date.now()): Queue
   if (!intent.eventKey || !intent.symbol || intent.quoteAsset !== "USDT") throw new Error("买入订单缺少必要标识或报价资产不是 USDT");
   if (!Number.isFinite(intent.plannedUsdt) || intent.plannedUsdt <= 0) throw new Error("计划金额必须大于 0");
   if (!Number.isFinite(intent.referencePrice) || intent.referencePrice <= 0) throw new Error("参考价格无效");
+  if (!Number.isFinite(intent.baseRatioAtSignal) || intent.baseRatioAtSignal < 0 || intent.baseRatioAtSignal > 1) {
+    throw new Error("买入信号缺少有效的历史底仓比例");
+  }
   return {
     ...intent,
     id: strategyEventId(intent.eventKey),
