@@ -125,7 +125,10 @@ export default function ExecutionBackground({ onChange, data }: { onChange: () =
 
           if (LIVE_SPOT_SELL_SUBMISSION_ENABLED) {
             const queuedSells = await listSellEvents();
-            const event = queuedSells.find((item) => item.status === "pending");
+            const event = queuedSells.find((item) =>
+              item.status === "pending" &&
+              ["take_profit", "indicator_profit", "trail_stop", "base_reduce"].includes(item.kind)
+            );
             if (event) {
               try {
                 await submitQueuedSellEvent(event.eventKey);
@@ -156,7 +159,7 @@ export default function ExecutionBackground({ onChange, data }: { onChange: () =
       active = false;
       window.clearInterval(timer);
     };
-  }, [onChange]);
+  }, [onChange, data]);
 
   return null;
 }
