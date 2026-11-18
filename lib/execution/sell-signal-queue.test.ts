@@ -132,17 +132,17 @@ describe("V3.3 sell signal reservation", () => {
     const d = data({
       coins: [{
         ...data().coins[0],
-        qty: 0.5,
+        qty: 1,
         signal: { ...sellSignal, action: { ...sellSignal.action, qty: 0.5 } },
       }],
     });
     const executed: SellEventRecord = {
       eventKey: "sell:BTC:trail_stop:1:追踪止损",
-      symbol: "BTC", kind: "trail_stop", status: "executed", requestedQty: 0.1,
+      symbol: "BTC", kind: "trail_stop", status: "executed", requestedQty: 0.2,
       createdAt: 1, updatedAt: 1, exchangeOrderId: "101", fillIds: ["BTC-2"], lastError: null,
     };
     const plan = buildSellEventReservations(d, [executed]);
-    expect(plan.records[0].requestedQty).toBeCloseTo(0.1, 12);
+    expect(plan.records[0].requestedQty).toBeCloseTo(0.5, 12);
   });
 
   it("keeps ordinary take-profit inside the cycle portion", () => {
