@@ -88,21 +88,25 @@ export async function recordConfirmedBuyFill(
   const id = fillKey(fill);
   try {
     return await new Promise((resolve, reject) => {
-      const tx = db.transaction([ORDERS, FILLS, LEDGER], "readwrite");
+      const tx = db.transaction([ORDERS, FILLS, LEDGER, RESERVATIONS], "readwrite");
       const orders = tx.objectStore(ORDERS);
       const fills = tx.objectStore(FILLS);
       const ledgerStore = tx.objectStore(LEDGER);
+      const reservations = tx.objectStore(RESERVATIONS);
       const getFill = fills.get(id);
       const getOrder = orders.get(queuedOrderId);
+      const getReservation = reservations.get(queuedOrderId);
       let fillReady = false;
       let orderReady = false;
+      let reservationReady = false;
       let existingFill = false;
       let currentOrder: QueuedBuyOrder | undefined;
+      let currentReservation: BuyFundsReservation | undefined;
       let result: { recorded: boolean; ledger: TradeLedgerEntry; order: QueuedBuyOrder } | undefined;
       let fatalError: Error | null = null;
 
       const finishReads = () => {
-        if (!fillReady || !orderReady || result || fatalError) return;
+        if (!fillReady || !orderReady || !reservationReady || result || fatalError) return;
         if (!currentOrder) {
           fatalError = new Error("成交对应的待买订单不存在");
           tx.abort();
@@ -114,10 +118,22 @@ export async function recordConfirmedBuyFill(
           return;
         }
         try {
-          const updatedOrder = applyConfirmedBuyFill(
-            currentOrder,
-            fill.quoteQty + fill.commissionUsdt,
-          );
+          const confirmedSpendUsdt = fill.quoteQty + fill.commissionUsdt;
+          const updatedOrder = applyConfirmedBuyFill(currentOrder, confirmedSpendUsdt);
+
+          // If this attempt has a local USDT reservation, consume it in the
+          // same transaction as the unique fill and queue/ledger update.
+          if (currentReservation?.status === "active") {
+            const remaining = remainingReservationAfterFill(currentReservation, confirmedSpendUsdt);
+            reservations.put({
+              ...currentReservation,
+              reservedUsdt: remaining,
+              status: remaining <= 1e-8 ? "released" : "active",
+              updatedAt: Date.now(),
+              releaseReason: remaining <= 1e-8 ? "已由真实成交完全消耗" : null,
+            } satisfies BuyFundsReservation);
+          }
+
           fills.add({ id, fill });
           ledgerStore.add(ledger);
           orders.put(updatedOrder);
@@ -138,8 +154,14 @@ export async function recordConfirmedBuyFill(
         orderReady = true;
         finishReads();
       };
-      getFill.onerror = () => { fatalError = getFill.error ?? new Error("查询成交 ID 失败"); };
-      getOrder.onerror = () => { fatalError = getOrder.error ?? new Error("读取待买订单失败"); };
+      getReservation.onsuccess = () => {
+        currentReservation = getReservation.result as BuyFundsReservation | undefined;
+        reservationReady = true;
+        finishReads();
+      };
+      getFill.onerror = () => { fatalError = getFill.error ?? new Error("查询成交 ID 失败"); tx.abort(); };
+      getOrder.onerror = () => { fatalError = getOrder.error ?? new Error("读取待买订单失败"); tx.abort(); };
+      getReservation.onerror = () => { fatalError = getReservation.error ?? new Error("读取资金预留失败"); tx.abort(); };
       tx.oncomplete = () => {
         if (result) resolve(result);
         else reject(fatalError ?? new Error("成交事务未生成结果"));
