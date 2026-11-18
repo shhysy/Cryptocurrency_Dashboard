@@ -17,6 +17,7 @@
 - TradeLedgerEntry.sellKind 持久化卖出事件类别；卖出同步传入事件类别。
 - 新增 getReconciledPositionFromLedger，读取本地成交台账并重建单币快照。
 - 新增 fetchSpotAssetBalance 和 getSellPositionSnapshotFromBinance，读取 Binance free/locked，并要求交易所总持仓与本地台账数量一致，否则拒绝输出卖出预检快照。
+- 新增 prepareQueuedSellDryRunFromBinance，只有本地成交账本和 Binance free/locked 对账一致后才进入只读卖出预检；新增集成测试覆盖成功路径与数量不一致阻断。
 - 测试覆盖买卖费用、底仓/周期仓边界和异常成交数据。
 
 ## 当前计算口径
@@ -32,6 +33,6 @@
 - 本地回放只代表已核验成交；getSellPositionSnapshotFromBinance 会额外与 Binance free/locked 总量核对，二者不一致就拒绝提供卖出预检快照。
 - 手动交易、转入/转出、其他设备交易或遗漏历史成交会造成台账与交易所余额差异。
 - 当前底仓比例从 V3.3 配置读取；将来若改变比例，必须保存历史策略参数或做显式迁移。
-- 尚未将该快照接入真实卖出预检；卖出前必须重新读取 Binance free/locked 并对账。
+- 已接入只读 DRY_RUN 卖出预检；仍然没有任何真实下单调用。
 - 未确认成交、第三资产手续费未可靠估值或超过仓位的卖出，必须暂停并人工复核。
 - 不包含订单提交、撤单、自动重试；实盘保持关闭。
