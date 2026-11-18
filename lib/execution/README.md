@@ -162,16 +162,13 @@
 **安全边界：** 报告不会把余额差额自动记成买入、卖出或转账，不会改变成本、底仓或周期仓，也不会自动修复任何记录。只有 `status=matched` 才表示数量层面一致；真正的卖出预检仍走原有严格核对函数，报告本身不授权下单。
 
 
-## 第十四阶段：USDT 多账户分层（修订）
+## 第十四阶段：Spot 优先、Simple Earn 活期补足（资金调度规划）
 
-- 账户范围仅包含 Binance Spot 与 Simple Earn，不接入 Funding、合约或其他账户。
-- Spot USDT 通过 `GET /api/v3/account` 读取 free/locked。
-- Simple Earn Flexible 与 Locked 持仓分别通过只读 USER_DATA GET 接口读取，并按 USDT 资产汇总，支持分页。
-- Flexible Earn 持仓区分总额、赎回中和冻结金额；赎回中/冻结金额不计入可规划余额。
-- Locked Earn 只纳入资产展示，不计入即时可用买入规划。
-- Binance 官方说明，符合条件的 Simple Earn Flexible 资产可以用于 Spot 交易，系统可按 Spot 余额优先、Earn Flexible 余额其次进行资金规划。相关资产在下单时会从 Flexible 产品赎回，不再继续计息。
-- 现有 API 下单适配器仍只读 Spot free；本项目尚未实现或验证通过 API 订单直接消费 Earn Flexible 的链路。未来如要自动使用 Earn Flexible，必须先在 Spot Testnet/受控环境验证赎回/订单路径与失败恢复，不得把规划余额直接当作已在 Spot 的 free。
-- 不调用任何赎回、申购、划转或下单 POST；本阶段只读取余额和持仓。
-- 不再把 `LDUSDT` 作为 Simple Earn Flexible 持仓的识别方式；LDUSDT 是另一类资产标识，不能用来代替 Simple Earn position API。
+- 用户确认的资金策略：闲置 USDT 留在 Simple Earn Flexible 赚取利息；买入时优先使用 Spot USDT；Spot 不足时只计划赎回 Flexible Earn 的差额。
+- `wallet-funds.ts` 新增 `planSpotFirstBuyFunding`，输出 Spot 使用金额、Flexible Earn 待赎回金额和仍未满足金额；这是纯函数规划，不发送赎回或订单请求。
+- Flexible Earn 可用余额扣除赎回中与冻结金额；Locked Earn 不纳入即时买入规划。
+- Spot 可用金额仍先扣除其他活动买入预留。
+- Simple Earn 只读接口读取 Spot USDT、Flexible/Locked Earn USDT，并返回 Flexible 冻结/赎回中字段。
+- 测试覆盖 Spot 优先、只赎回差额、理财不足时保留待买余额、冻结/赎回中金额排除。
 
-**当前买入资金边界：** 策略资金规划可以显示 Spot free + 可用 Flexible Earn；锁定理财不进入规划。现有 DRY_RUN 订单预检仍以 Spot free 为实际下单前置余额，避免在没有 API 自动赎回验证前高估可直接执行金额。
+**当前边界：** 尚未实现 Simple Earn redeem POST 或 Spot order POST。未来赎回必须有稳定幂等意图、赎回状态查询、Spot 到账确认、再次余额预检与失败恢复；用户当前只读 Key 不具备赎回/交易能力。需要更换权限前会先通知用户。不会自动提前赎回 Locked Earn。
