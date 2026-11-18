@@ -64,7 +64,8 @@ export function applyConfirmedBuyFill(
   now = Date.now(),
 ): QueuedBuyOrder {
   if (!Number.isFinite(quoteSpentIncludingFee) || quoteSpentIncludingFee <= 0) throw new Error("成交支出必须大于 0");
-  const applied = Math.min(order.remainingUsdt, quoteSpentIncludingFee);
+  if (quoteSpentIncludingFee > order.remainingUsdt + EPSILON) throw new Error("实际成交支出超过订单剩余计划金额，必须人工对账");
+  const applied = quoteSpentIncludingFee;
   const remainingUsdt = Math.max(0, order.remainingUsdt - applied);
   return {
     ...order,
