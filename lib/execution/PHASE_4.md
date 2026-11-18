@@ -2,12 +2,12 @@
 
 ## 本阶段交付
 
-- 新增 `binance-order.browser.ts`，把待买队列订单转换为 Binance 市价买入预检结果。
+- 新增 `binance-order.browser.ts`，把待买队列订单转换为 Binance 市价买入预检结果；待买队列提供“只读预检”按钮，显示 USDT free、本次可执行金额、预计数量和剩余计划金额。
 - 每次预检重新读取现货账户 USDT `free` 和交易对过滤器，不使用账户净值，不把其他币种折算为 USDT。
 - 实际预检金额取待买订单剩余金额、USDT free、单币剩余成本上限三者的最小值。
 - 交易对必须为 `TRADING`、报价资产必须为 USDT，并校验 `quoteOrderQtyMarketAllowed`、最小/最大名义金额、预计数量限制。
 - 余额不足时允许部分金额预检；若低于交易所最小名义金额则不执行，剩余金额仍留在待买队列。
-- 使用 `clientOrderIdForEvent(eventKey, attemptCount)` 生成稳定客户端订单 ID，供未来订单查询和对账。
+- 使用 `clientOrderIdForEvent(eventKey, attemptCount)` 生成稳定客户端订单 ID，供未来订单查询和对账；当队列存储的是基础币代码时，预检会补全 USDT 交易对。
 - `LIVE_ORDER_SUBMISSION_ENABLED` 固定为 false；任何调用 `assertLiveOrderSubmissionDisabled` 的真实下单路径都会被拒绝。
 
 ## 安全边界
