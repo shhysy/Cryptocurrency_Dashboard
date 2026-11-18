@@ -167,6 +167,26 @@ export interface SpotSymbolFilters {
   filters: Record<string, string | number | boolean>[];
 }
 
+export interface SpotAssetBalance {
+  asset: string;
+  free: number;
+  locked: number;
+  total: number;
+}
+
+/** Read-only exact free/locked balance for one spot asset. */
+export async function fetchSpotAssetBalance(asset: string): Promise<SpotAssetBalance> {
+  if (!/^[A-Z0-9]{2,20}$/.test(asset)) throw new Error("查询现货资产代码无效");
+  const account = await signedGet<{ balances: { asset: string; free: string; locked: string }[] }>("/api/v3/account");
+  const row = account.balances.find((item) => item.asset === asset);
+  const free = Number(row?.free ?? 0);
+  const locked = Number(row?.locked ?? 0);
+  if (![free, locked].every(Number.isFinite) || free < 0 || locked < 0) {
+    throw new Error("Binance 返回的现货资产余额无效");
+  }
+  return { asset, free, locked, total: free + locked };
+}
+
 /** 只返回现货账户 USDT 的 free 字段；不计 locked，不折算其他资产。 */
 export async function fetchFreeUsdtBalance(): Promise<number> {
   const acc = await signedGet<{ balances: { asset: string; free: string; locked: string }[] }>("/api/v3/account");
