@@ -22,4 +22,5 @@ jobs:
       - name: Run tests
         run: npm test
       - name: TypeScript typecheck
+        if: always()
         run: npm run typecheck
