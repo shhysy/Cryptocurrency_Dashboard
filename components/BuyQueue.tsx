@@ -31,6 +31,9 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
 
   useEffect(() => {
     let active = true;
+    setPreviews({});
+    setPreviewErrors({});
+    setPreviewLoading({});
     listBuyOrders()
       .then((rows) => {
         if (active) {
