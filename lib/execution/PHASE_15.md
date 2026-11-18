@@ -27,6 +27,6 @@
 - `LIVE_SPOT_ORDER_SUBMISSION_ENABLED=false`，当前不会发送 Spot BUY POST。
 - 用户现有 Binance Key 仍为只读；真正提交订单需要 TRADE 权限，启用前会再次通知用户。
 - 浏览器直连会暴露前端 bundle 中的 API Secret；用户已选择私人自用方式并接受该风险。只可使用专用 API Key、固定 IP 白名单，禁止提现、划转、合约等无关权限。
-- BUY 已有单次提交编排；SELL 目前只有底层 POST 适配器和 clientOrderId 对账恢复，完整卖单提交编排、自动轮询调度与 Spot Testnet 端到端测试仍未完成。
+- BUY 已有单次提交编排；SELL 的完整提交编排和页面打开期间的自动只读对账已在第十六阶段补齐。Spot Testnet 端到端测试仍未完成。
 - 本地 IndexedDB 预留不是 Binance 侧锁仓；最终执行前仍必须重新读取 Spot free 和交易对规则。
 
