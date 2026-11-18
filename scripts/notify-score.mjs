@@ -2,7 +2,7 @@
  * 分数达标邮件通知（QQ 邮箱 SMTP）。
  *
  * 用法：
- *   1. .env.local 填写 SMTP_*、MAIL_TO、DASHBOARD_URL
+ *   1. 复制 .env.example 为 .env，填写 SMTP_*、币安 Key 等
  *   2. 本机先 npm run dev（或 DASHBOARD_URL 指向已部署站点）
  *   3. node scripts/notify-score.mjs
  *   4. 可选 cron：每小时 0 分执行一次
@@ -20,7 +20,7 @@ const root = resolve(__dirname, "..");
 
 function loadEnv() {
   const out = { ...process.env };
-  for (const name of [".env.local", ".env"]) {
+  for (const name of [".env", ".env.local"]) {
     const p = resolve(root, name);
     if (!existsSync(p)) continue;
     for (const line of readFileSync(p, "utf8").split(/\r?\n/)) {
@@ -61,20 +61,15 @@ function writeState(state) {
   writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
 }
 
-/** 极简 SMTP（SSL 465）：AUTH LOGIN + 一封纯文本邮件 */
 function sendMail({ subject, text }) {
-  if (!SMTP_USER || !SMTP_PASS) throw new Error("请在 .env.local 设置 SMTP_USER 与 SMTP_PASS（QQ 授权码）");
+  if (!SMTP_USER || !SMTP_PASS) throw new Error("请在 .env 设置 SMTP_USER 与 SMTP_PASS（QQ 授权码）");
   if (!MAIL_TO) throw new Error("请设置 MAIL_TO");
 
   return new Promise((resolvePromise, reject) => {
     const socket = tlsConnect({ host: SMTP_HOST, port: SMTP_PORT, servername: SMTP_HOST }, () => {
       let buf = "";
       let step = 0;
-
-      const send = (cmd) => {
-        socket.write(cmd + "\r\n");
-      };
-
+      const send = (cmd) => socket.write(cmd + "\r\n");
       const b64 = (s) => Buffer.from(s, "utf8").toString("base64");
 
       socket.on("data", (chunk) => {
@@ -85,7 +80,6 @@ function sendMail({ subject, text }) {
           if (!line) continue;
           const code = line.slice(0, 3);
           if (line.length >= 4 && line[3] === "-") continue;
-
           try {
             if (step === 0 && code === "220") {
               send(`EHLO localhost`);
@@ -136,7 +130,6 @@ function sendMail({ subject, text }) {
           }
         }
       });
-
       socket.on("error", reject);
       socket.on("end", () => {
         if (step < 9) reject(new Error("SMTP 连接意外关闭"));
@@ -149,9 +142,7 @@ function sendMail({ subject, text }) {
 async function fetchDashboard() {
   const headers = { Accept: "application/json" };
   const pass = env.DASHBOARD_PASSWORD;
-  if (pass) {
-    headers.Authorization = "Basic " + Buffer.from(`user:${pass}`).toString("base64");
-  }
+  if (pass) headers.Authorization = "Basic " + Buffer.from(`user:${pass}`).toString("base64");
   const url = `${DASHBOARD_URL}/api/dashboard`;
   const res = await fetch(url, { headers, cache: "no-store", signal: AbortSignal.timeout(60_000) });
   if (!res.ok) throw new Error(`拉取看板失败 HTTP ${res.status} ${url}`);
@@ -159,9 +150,8 @@ async function fetchDashboard() {
 }
 
 function pickHits(data) {
-  const coins = data.coins || [];
   const hits = [];
-  for (const c of coins) {
+  for (const c of data.coins || []) {
     const score = c.signal?.score ?? 0;
     const group = c.signal?.group || "alt";
     const minScore = group === "core" ? 55 : 75;
