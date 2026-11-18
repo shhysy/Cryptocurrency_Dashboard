@@ -60,6 +60,61 @@ async function signedGet<T>(path: string, params: Record<string, string | number
   return getJson<T>(`${BASE}${path}?${qs}&signature=${signature}`, { "X-MBX-APIKEY": API_KEY });
 }
 
+/**
+ * Real Earn redemption remains deliberately disabled until the user has
+ * confirmed the TRADE-enabled key and explicitly enables this feature.
+ * The key/secret are still supplied through the existing private-use browser
+ * configuration; never commit credential values to the repository.
+ */
+export const LIVE_EARN_REDEMPTION_ENABLED = false as const;
+
+export interface FlexibleEarnRedemptionSubmitResponse {
+  redeemId: number | string;
+  success?: boolean;
+}
+
+export async function redeemFlexibleEarnUsdt(input: {
+  productId: string;
+  amountUsdt: number;
+}): Promise<FlexibleEarnRedemptionSubmitResponse> {
+  if (!LIVE_EARN_REDEMPTION_ENABLED) {
+    throw new Error("真实理财赎回尚未启用；当前不会发送 Binance POST 请求");
+  }
+  if (!API_KEY || !API_SECRET) throw new Error("缺少 Binance API Key/Secret");
+  if (!input.productId.trim() || !Number.isFinite(input.amountUsdt) || input.amountUsdt <= 0) {
+    throw new Error("理财赎回产品或金额无效");
+  }
+  const params = {
+    productId: input.productId,
+    amount: input.amountUsdt.toFixed(8).replace(/0+$/, "").replace(/\\.$/, ""),
+    destAccount: "SPOT",
+    recvWindow: 10000,
+    timestamp: Math.round(await serverNow()),
+  };
+  const qs = new URLSearchParams(
+    Object.entries(params).map(([key, value]) => [key, String(value)]),
+  ).toString();
+  const signature = await hmacHex(API_SECRET, qs);
+  const res = await fetch(`${BASE}/sapi/v1/simple-earn/flexible/redeem?${qs}&signature=${signature}`, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": API_KEY },
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  });
+  const body = await res.text().catch(() => "");
+  if (!res.ok) throw new Error(`Binance Flexible redeem ${res.status}: ${body.slice(0, 300)}`);
+  let parsed: FlexibleEarnRedemptionSubmitResponse;
+  try {
+    parsed = JSON.parse(body) as FlexibleEarnRedemptionSubmitResponse;
+  } catch {
+    throw new Error("Binance 赎回响应无法解析；必须通过历史记录人工核对，禁止重发");
+  }
+  if (parsed.redeemId === undefined || parsed.redeemId === null || String(parsed.redeemId).trim() === "") {
+    throw new Error("Binance 赎回响应缺少 redeemId；必须通过历史记录人工核对，禁止重发");
+  }
+  return parsed;
+}
+
 // ---------- 公开行情 ----------
 export interface Ticker {
   price: number;
