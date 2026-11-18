@@ -64,6 +64,7 @@ describe("V3.3 buy signal queue bridge", () => {
       plannedUsdt: 180,
       quoteAsset: "USDT",
       strategyLabel: "头仓",
+      baseRatioAtSignal: 0.4,
       strategyVersion: "V3.3",
     });
   });
