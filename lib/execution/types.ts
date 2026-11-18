@@ -14,6 +14,8 @@ export interface BuyOrderIntent {
   strategyLabel: string;
   plannedUsdt: number;
   referencePrice: number;
+  /** Strategy base/cycle allocation frozen when this signal entered the queue. */
+  baseRatioAtSignal: number;
   createdAt: number;
   strategyVersion: "V3.3";
 }
@@ -49,6 +51,8 @@ export interface TradeLedgerEntry extends ExecutionFill {
   realizedPnlUsdt: number | null;
   /** V3.3 sell bucket selector; BUY rows omit this field. */
   sellKind?: "take_profit" | "indicator_profit" | "trail_stop" | "base_reduce";
+  /** Immutable V3.3 base allocation captured from the originating buy intent. */
+  baseRatioAtBuy?: number;
 }
 
 export interface BuyExecutionPlan {
