@@ -1,4 +1,4 @@
-name: CI
+name: CI # validate tests and types on gpt
 
 on:
   push:
