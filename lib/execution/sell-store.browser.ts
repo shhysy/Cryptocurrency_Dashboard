@@ -61,10 +61,41 @@ export async function updateSellEvent(record: SellEventRecord): Promise<void> {
   try {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE, "readwrite");
-      tx.objectStore(STORE).put(record);
+      const store = tx.objectStore(STORE);
+      const get = store.get(record.eventKey);
+      get.onsuccess = () => {
+        const current = get.result as SellEventRecord | undefined;
+        if (!current) {
+          tx.abort();
+          return;
+        }
+        const allowed: Record<SellEventStatus, SellEventStatus[]> = {
+          pending: ["pending", "reconcile_required", "executed", "blocked"],
+          reconcile_required: ["reconcile_required", "executed", "blocked"],
+          blocked: ["blocked"],
+          executed: ["executed"],
+        };
+        if (!allowed[current.status].includes(record.status)) {
+          tx.abort();
+          return;
+        }
+        if (current.symbol !== record.symbol || current.kind !== record.kind || current.requestedQty !== record.requestedQty) {
+          tx.abort();
+          return;
+        }
+        if (record.status === "executed" && record.fillIds.length === 0) {
+          tx.abort();
+          return;
+        }
+        store.put({
+          ...record,
+          fillIds: [...new Set([...current.fillIds, ...record.fillIds])],
+          createdAt: current.createdAt,
+        });
+      };
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error ?? new Error("更新卖出事件失败"));
-      tx.onabort = () => reject(tx.error ?? new Error("卖出事件更新事务中止"));
+      tx.onabort = () => reject(tx.error ?? new Error("卖出事件状态转换无效或事务中止"));
     });
   } finally {
     db.close();
