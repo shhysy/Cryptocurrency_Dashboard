@@ -10,7 +10,7 @@ export default function Balances({ data, bare = false }: { data: DashboardData; 
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
    <h2 className="text-lg font-semibold">账户余额</h2>
-          <p className="mt-1 text-xs text-mute">当前读取到的账户资产；Simple Earn 理财余额由独立接口读取{data.source === "mock" ? "，示例数据" : ""}，不含合约和其他交易所</p>
+          <p className="mt-1 text-xs text-mute">当前列表展示现货账户资产；Simple Earn USDT 在买入资金规划时单独读取{data.source === "mock" ? "，示例数据" : ""}，不含合约和其他交易所</p>
  </div>
         <p className="num text-sm text-sub">
    现金估值（当前账户数据）<b className="text-fg">{usd(cashUsdt, 2)}</b>
@@ -19,7 +19,7 @@ export default function Balances({ data, bare = false }: { data: DashboardData; 
 
       {assets.length === 0 ? (
         <p className="mt-6 rounded-xl border border-line px-4 py-6 text-center text-sm text-mute">
-          当前读取范围没有资产余额。Simple Earn 理财账户另行读取；本页面不把未读取的理财资产当作 0。
+          当前现货账户没有可展示的资产余额。Simple Earn USDT 会在待买队列的资金来源规划中单独读取。
  </p>
       ) : (
         <ul className="mt-5 divide-y divide-line">
