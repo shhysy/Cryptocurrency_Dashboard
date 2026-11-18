@@ -6,6 +6,8 @@ export interface SellEventRecord {
   kind: string;
   status: SellEventStatus;
   requestedQty: number;
+  /** Actual cumulative exchange fill quantity, populated only after reconciliation. */
+  filledQty?: number;
   createdAt: number;
   updatedAt: number;
   exchangeOrderId: string | null;
