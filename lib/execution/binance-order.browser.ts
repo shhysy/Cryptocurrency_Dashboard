@@ -4,6 +4,7 @@ import {
 } from "../binance.browser";
 import { parseMarketRules, preflightMarketBuy } from "./binance-preflight";
 import { clientOrderIdForEvent } from "./client-order-id";
+import { reserveBuyFunds } from "./store.browser";
 import type { QueuedBuyOrder } from "./types";
 
 /**
@@ -94,4 +95,75 @@ export function assertLiveOrderSubmissionDisabled(): never {
     throw new Error("Live order submission requires a separately reviewed server-side executor");
   }
   throw new Error("实盘下单尚未启用：当前仅允许 DRY_RUN 预检，不会发送 Binance 订单请求");
+}
+
+
+export interface BuyReservationResult {
+  mode: typeof BINANCE_ORDER_MODE;
+  submitted: false;
+  queueOrderId: string;
+  symbol: string;
+  requestedUsdt: number;
+  observedFreeUsdt: number;
+  reservedUsdt: number;
+  remainingPlannedUsdt: number;
+  ok: boolean;
+  reason: string | null;
+}
+
+/**
+ * Locally reserves USDT for one queued order after a fresh account/filter read.
+ * This is not an exchange lock and does not submit an order.
+ */
+export async function reserveQueuedBuyFundsDryRun(
+  order: QueuedBuyOrder,
+  remainingAssetCapUsdt: number,
+  dependencies: BuyDryRunDependencies = {
+    getFreeUsdt: fetchFreeUsdtBalance,
+    getSymbolFilters: fetchSpotSymbolFilters,
+  },
+): Promise<BuyReservationResult> {
+  if (order.status !== "pending" && order.status !== "partially_filled") {
+    throw new Error(`待买订单状态为 ${order.status}，不允许预留资金`);
+  }
+  if (!Number.isFinite(remainingAssetCapUsdt) || remainingAssetCapUsdt < 0) {
+    throw new Error("单币剩余成本额度无效");
+  }
+  const pair = order.symbol.endsWith(order.quoteAsset)
+    ? order.symbol
+    : `${order.symbol}${order.quoteAsset}`;
+  const [freeUsdt, symbolInfo] = await Promise.all([
+    dependencies.getFreeUsdt(),
+    dependencies.getSymbolFilters(pair),
+  ]);
+  const rules = parseMarketRules(symbolInfo);
+  const requestedUsdt = Math.min(order.remainingUsdt, remainingAssetCapUsdt);
+  if (rules.status !== "TRADING" || rules.quoteAsset !== "USDT") {
+    return {
+      mode: BINANCE_ORDER_MODE, submitted: false, queueOrderId: order.id,
+      symbol: pair, requestedUsdt, observedFreeUsdt: freeUsdt, reservedUsdt: 0,
+      remainingPlannedUsdt: order.remainingUsdt, ok: false,
+      reason: rules.status !== "TRADING" ? "交易对当前不可交易" : "报价资产不是 USDT",
+    };
+  }
+  const result = await reserveBuyFunds({
+    orderId: order.id,
+    symbol: pair,
+    requestedUsdt,
+    observedFreeUsdt: freeUsdt,
+    minNotionalUsdt: rules.minNotional,
+  });
+  const reservedUsdt = result.reservation?.reservedUsdt ?? 0;
+  return {
+    mode: BINANCE_ORDER_MODE,
+    submitted: false,
+    queueOrderId: order.id,
+    symbol: pair,
+    requestedUsdt,
+    observedFreeUsdt: freeUsdt,
+    reservedUsdt,
+    remainingPlannedUsdt: Math.max(0, order.remainingUsdt - reservedUsdt),
+    ok: result.plan.ok,
+    reason: result.plan.reason,
+  };
 }
