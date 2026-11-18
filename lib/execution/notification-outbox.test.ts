@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTradeFillNotificationEvent } from "./notification-outbox";
+import { buildTradeFillNotificationEvent, isTradeNotificationClaimable } from "./notification-outbox";
 import type { ExecutionFill } from "./types";
 
 const fill: ExecutionFill = {
@@ -33,6 +33,7 @@ describe("trade fill notification outbox", () => {
       commissionUsdt: 0.065,
       filledAt: 1_800_000_000_000,
       status: "pending",
+      leaseUntil: null,
       attemptCount: 0,
       createdAt: 42,
       updatedAt: 42,
@@ -60,5 +61,24 @@ describe("confirmed SELL fill notification", () => {
     expect(event.side).toBe("SELL");
     expect(event.id).toBe("trade-fill:BTCUSDT:9001");
     expect(event.type).toBe("confirmed_trade_fill");
+  });
+});
+
+
+describe("trade notification delivery lease", () => {
+  it("claims pending and failed events", () => {
+    expect(isTradeNotificationClaimable({ status: "pending", leaseUntil: null }, 100)).toBe(true);
+    expect(isTradeNotificationClaimable({ status: "failed", leaseUntil: null }, 100)).toBe(true);
+  });
+
+  it("does not claim a sending event before its lease expires", () => {
+    expect(isTradeNotificationClaimable({ status: "sending", leaseUntil: 200 }, 199)).toBe(false);
+    expect(isTradeNotificationClaimable({ status: "sending", leaseUntil: 200 }, 200)).toBe(true);
+    expect(isTradeNotificationClaimable({ status: "sending", leaseUntil: null }, 100)).toBe(true);
+  });
+
+  it("never reclaims sent events or accepts invalid clocks", () => {
+    expect(isTradeNotificationClaimable({ status: "sent", leaseUntil: null }, 100)).toBe(false);
+    expect(isTradeNotificationClaimable({ status: "pending", leaseUntil: null }, Number.NaN)).toBe(false);
   });
 });
