@@ -79,6 +79,54 @@ describe("V3.3 sell signal reservation", () => {
     expect(buildSellEventReservations(data({ stale: true }), []).records).toHaveLength(0);
   });
 
+
+  it("does not reserve the same take-profit tier again on a later week", () => {
+    const later = data({
+      coins: [{
+        ...data().coins[0],
+        series: [{ t: 2, c: 50000 }, { t: 3, c: 51000 }, { t: 4, c: 52000 }],
+      }],
+    });
+    const existing: SellEventRecord = {
+      eventKey: "sell:BTC:take_profit:2:止盈1",
+      symbol: "BTC", kind: "take_profit", status: "executed", requestedQty: 0.15,
+      createdAt: 1, updatedAt: 1, exchangeOrderId: "100", fillIds: ["BTC-1"], lastError: null,
+    };
+    expect(buildSellEventReservations(later, [existing]).records).toHaveLength(0);
+  });
+
+  it("counts pending indicator-profit quantity against the 50% cycle cap", () => {
+    const indicator = data({
+      coins: [{
+        ...data().coins[0],
+        signal: { ...sellSignal, action: { ...sellSignal.action, kind: "indicatorProfit", label: "指标止盈", qty: 0.2 } },
+      }],
+    });
+    const existing: SellEventRecord = {
+      eventKey: "sell:BTC:indicator_profit:1:指标止盈",
+      symbol: "BTC", kind: "indicator_profit", status: "pending", requestedQty: 0.25,
+      createdAt: 1, updatedAt: indicator.updatedAt - 15 * 864e5,
+      exchangeOrderId: null, fillIds: [], lastError: null,
+    };
+    const plan = buildSellEventReservations(indicator, [existing]);
+    expect(plan.records[0].requestedQty).toBeCloseTo(0.05, 12);
+  });
+
+  it("does not reserve a second base-reduction event while one is pending", () => {
+    const baseReduce = data({
+      coins: [{
+        ...data().coins[0],
+        signal: { ...sellSignal, action: { ...sellSignal.action, kind: "baseReduce", label: "底仓减仓", qty: 0.2 } },
+      }],
+    });
+    const existing: SellEventRecord = {
+      eventKey: "sell:BTC:base_reduce:1:底仓减仓",
+      symbol: "BTC", kind: "base_reduce", status: "pending", requestedQty: 0.2,
+      createdAt: 1, updatedAt: 1, exchangeOrderId: null, fillIds: [], lastError: null,
+    };
+    expect(buildSellEventReservations(baseReduce, [existing]).records).toHaveLength(0);
+  });
+
   it("keeps ordinary take-profit inside the cycle portion", () => {
     const d = data({
       coins: [{
