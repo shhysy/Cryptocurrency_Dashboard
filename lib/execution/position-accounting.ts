@@ -30,13 +30,9 @@ const EPSILON = 1e-8;
  * reduced twice). Quote/third-asset fees are applied to quote cost/proceeds.
  */
 export function replayPositionLedger(
-  fills: Array<ExecutionFill & { sellKind?: string }>,
-  baseRatio: number,
+  fills: Array<ExecutionFill & { sellKind?: string; baseRatioAtBuy?: number }>,
   quoteAsset = "USDT",
 ): PositionLedgerSnapshot {
-  if (!Number.isFinite(baseRatio) || baseRatio < 0 || baseRatio > 1) {
-    throw new Error("长期底仓比例必须在 0 到 1 之间");
-  }
   if (!/^[A-Z0-9]{2,20}$/.test(quoteAsset)) throw new Error("报价资产格式无效");
 
   const sorted = [...fills].sort((a, b) =>
@@ -62,12 +58,16 @@ export function replayPositionLedger(
     const feeInBase = fill.commissionAsset === baseAsset;
 
     if (fill.side === "BUY") {
+      const baseRatioAtBuy = fill.baseRatioAtBuy;
+      if (!Number.isFinite(baseRatioAtBuy) || (baseRatioAtBuy as number) < 0 || (baseRatioAtBuy as number) > 1) {
+        throw new Error("买入成交缺少有效的历史底仓比例，禁止使用当前策略参数覆盖历史记录");
+      }
       const netQty = fill.qty - (feeInBase ? fill.commission : 0);
       if (netQty <= EPSILON) throw new Error("买入基础币手续费已达到或超过成交数量");
       const quoteCost = fill.quoteQty + (feeInBase ? 0 : fill.commissionUsdt);
       if (!Number.isFinite(quoteCost) || quoteCost < 0) throw new Error("买入成本金额无效");
-      baseQty += netQty * baseRatio;
-      cycleQty += netQty * (1 - baseRatio);
+      baseQty += netQty * (baseRatioAtBuy as number);
+      cycleQty += netQty * (1 - (baseRatioAtBuy as number));
       costBasisUsdt += quoteCost;
       continue;
     }
