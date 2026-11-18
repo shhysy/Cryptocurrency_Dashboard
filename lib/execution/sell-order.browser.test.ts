@@ -63,6 +63,16 @@ describe("Binance sell execution dry-run adapter", () => {
     })).toMatchObject({ ok: true, executableQty: 0.06, remainingCycleQty: 0 });
   });
 
+  it("accepts a base-asset queue symbol and normalizes it to the Binance pair", () => {
+    const result = prepareQueuedSellDryRun({
+      event: { ...event, symbol: "BTC" },
+      rules,
+      position,
+      currentPrice: 50000,
+    });
+    expect(result).toMatchObject({ ok: true, symbol: "BTCUSDT" });
+  });
+
   it("blocks ordinary take-profit if only the protected base remains", () => {
     expect(prepareQueuedSellDryRun({
       event: { ...event, requestedQty: 0.02 },
