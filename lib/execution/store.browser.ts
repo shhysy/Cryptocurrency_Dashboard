@@ -3,11 +3,12 @@ import { applyConfirmedBuyFill } from "./queue";
 import { planBuyFundsReservation, remainingReservationAfterFill, type BuyFundsReservation } from "./fund-reservation";
 
 const DB_NAME = "long-term-investment-execution";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const ORDERS = "buy-orders";
 const FILLS = "fills";
 const LEDGER = "trade-ledger";
 const RESERVATIONS = "buy-funds-reservations";
+const NOTIFICATION_OUTBOX = "notification-outbox";
 
 function openDb(): Promise<IDBDatabase> {
   if (typeof indexedDB === "undefined") return Promise.reject(new Error("当前环境不支持 IndexedDB"));
@@ -19,6 +20,7 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(FILLS)) db.createObjectStore(FILLS, { keyPath: "id" });
       if (!db.objectStoreNames.contains(LEDGER)) db.createObjectStore(LEDGER, { keyPath: "id" });
       if (!db.objectStoreNames.contains(RESERVATIONS)) db.createObjectStore(RESERVATIONS, { keyPath: "orderId" });
+      if (!db.objectStoreNames.contains(NOTIFICATION_OUTBOX)) db.createObjectStore(NOTIFICATION_OUTBOX, { keyPath: "id" });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error("打开执行数据库失败"));
@@ -88,11 +90,12 @@ export async function recordConfirmedBuyFill(
   const id = fillKey(fill);
   try {
     return await new Promise((resolve, reject) => {
-      const tx = db.transaction([ORDERS, FILLS, LEDGER, RESERVATIONS], "readwrite");
+      const tx = db.transaction([ORDERS, FILLS, LEDGER, RESERVATIONS, NOTIFICATION_OUTBOX], "readwrite");
       const orders = tx.objectStore(ORDERS);
       const fills = tx.objectStore(FILLS);
       const ledgerStore = tx.objectStore(LEDGER);
       const reservations = tx.objectStore(RESERVATIONS);
+      const outbox = tx.objectStore(NOTIFICATION_OUTBOX);
       const getFill = fills.get(id);
       const getOrder = orders.get(queuedOrderId);
       const getReservation = reservations.get(queuedOrderId);
@@ -140,6 +143,30 @@ export async function recordConfirmedBuyFill(
           fills.add({ id, fill });
           ledgerStore.add(ledger);
           orders.put(updatedOrder);
+          // The notification is created in the same transaction as the
+          // exchange-confirmed fill. Duplicate fill IDs never create a second
+          // email event.
+          outbox.add({
+            id: `trade-fill:${fill.symbol}:${fill.fillId}`,
+            type: "confirmed_trade_fill",
+            side: fill.side,
+            symbol: fill.symbol,
+            fillId: fill.fillId,
+            exchangeOrderId: fill.orderId,
+            filledQty: fill.qty,
+            fillPrice: fill.price,
+            quoteQty: fill.quoteQty,
+            commission: fill.commission,
+            commissionAsset: fill.commissionAsset,
+            commissionUsdt: fill.commissionUsdt,
+            filledAt: fill.time,
+            status: "pending",
+            attemptCount: 0,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            lastError: null,
+            sentAt: null,
+          });
           result = { recorded: true, ledger, order: updatedOrder };
         } catch (error) {
           fatalError = error instanceof Error ? error : new Error("成交入账失败");
@@ -431,6 +458,101 @@ export async function listBuyFundsReservations(): Promise<BuyFundsReservation[]>
       request.onsuccess = () => resolve((request.result as BuyFundsReservation[])
         .sort((a, b) => a.createdAt - b.createdAt));
       request.onerror = () => reject(request.error ?? new Error("读取资金预留列表失败"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+
+export interface TradeNotificationOutboxEvent {
+  id: string;
+  type: "confirmed_trade_fill";
+  side: "BUY" | "SELL";
+  symbol: string;
+  fillId: string;
+  exchangeOrderId: string;
+  filledQty: number;
+  fillPrice: number;
+  quoteQty: number;
+  commission: number;
+  commissionAsset: string;
+  commissionUsdt: number;
+  filledAt: number;
+  status: "pending" | "sent" | "failed";
+  attemptCount: number;
+  createdAt: number;
+  updatedAt: number;
+  lastError: string | null;
+  sentAt: number | null;
+}
+
+/** Read confirmed-fill email events awaiting a notification dispatcher. */
+export async function listTradeNotificationOutbox(): Promise<TradeNotificationOutboxEvent[]> {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(NOTIFICATION_OUTBOX, "readonly");
+      const request = tx.objectStore(NOTIFICATION_OUTBOX).getAll();
+      request.onsuccess = () => resolve((request.result as TradeNotificationOutboxEvent[])
+        .sort((a, b) => a.createdAt - b.createdAt));
+      request.onerror = () => reject(request.error ?? new Error("读取成交通知队列失败"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** Mark an outbox event sent only after the notification endpoint confirms acceptance. */
+export async function markTradeNotificationSent(id: string, now = Date.now()): Promise<void> {
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(NOTIFICATION_OUTBOX, "readwrite");
+      const store = tx.objectStore(NOTIFICATION_OUTBOX);
+      const request = store.get(id);
+      request.onsuccess = () => {
+        const current = request.result as TradeNotificationOutboxEvent | undefined;
+        if (!current) { tx.abort(); return; }
+        if (current.status === "sent") return;
+        store.put({ ...current, status: "sent", sentAt: now, updatedAt: now, lastError: null });
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("更新成交通知状态失败"));
+      tx.onabort = () => reject(tx.error ?? new Error("成交通知事件不存在"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** Record a delivery failure without deleting the confirmed trade event. */
+export async function markTradeNotificationFailed(
+  id: string,
+  reason: string,
+  now = Date.now(),
+): Promise<void> {
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(NOTIFICATION_OUTBOX, "readwrite");
+      const store = tx.objectStore(NOTIFICATION_OUTBOX);
+      const request = store.get(id);
+      request.onsuccess = () => {
+        const current = request.result as TradeNotificationOutboxEvent | undefined;
+        if (!current) { tx.abort(); return; }
+        if (current.status === "sent") return;
+        store.put({
+          ...current,
+          status: "failed",
+          attemptCount: current.attemptCount + 1,
+          updatedAt: now,
+          lastError: reason.slice(0, 500),
+        });
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("记录成交通知失败状态失败"));
+      tx.onabort = () => reject(tx.error ?? new Error("成交通知事件不存在"));
     });
   } finally {
     db.close();
