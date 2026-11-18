@@ -1,7 +1,7 @@
 import type { ExecutionFill, QueuedBuyOrder, TradeLedgerEntry } from "./types";
 import { applyConfirmedBuyFill } from "./queue";
 import { planBuyFundsReservation, remainingReservationAfterFill, type BuyFundsReservation } from "./fund-reservation";
-import { buildTradeFillNotificationEvent, type TradeNotificationOutboxEvent } from "./notification-outbox";
+import { buildTradeFillNotificationEvent, isTradeNotificationClaimable, type TradeNotificationOutboxEvent } from "./notification-outbox";
 import { transitionEarnRedemption, type EarnRedemptionIntent, type EarnRedemptionStatus } from "./earn-redemption";
 
 const DB_NAME = "long-term-investment-execution";
@@ -602,11 +602,7 @@ export async function claimTradeNotificationOutboxBatch(
       let claimed: TradeNotificationOutboxEvent[] = [];
       request.onsuccess = () => {
         const rows = (request.result as TradeNotificationOutboxEvent[])
-          .filter((event) =>
-            event.status === "pending" ||
-            event.status === "failed" ||
-            (event.status === "sending" && (event.leaseUntil ?? 0) <= now)
-          )
+          .filter((event) => isTradeNotificationClaimable(event, now))
           .sort((a, b) => a.createdAt - b.createdAt)
           .slice(0, limit);
         claimed = rows.map((event) => ({
