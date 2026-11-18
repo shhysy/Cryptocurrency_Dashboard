@@ -1,4 +1,5 @@
 import type { ExecutionFill, QueuedBuyOrder, TradeLedgerEntry } from "./types";
+import { applyConfirmedBuyFill } from "./queue";
 
 const DB_NAME = "long-term-investment-execution";
 const DB_VERSION = 1;
