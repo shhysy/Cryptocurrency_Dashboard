@@ -3,6 +3,7 @@ import {
   allocateFlexibleEarnRedemption,
   availableFlexibleEarnUsdt,
   createEarnRedemptionIntents,
+  findUniqueEarnRedemptionRecord,
   isEarnRedemptionCredited,
   matchEarnRedemptionRecord,
   markEarnRedemptionAmbiguous,
@@ -129,6 +130,28 @@ describe("Simple Earn redemption reconciliation", () => {
       { ...record, amount: "24" },
     ])).toBeNull();
     expect(matchEarnRedemptionRecord(intent, [record])).toBeNull();
+  });
+
+  it("recovers a lost redemption response only from one exact history record", () => {
+    const candidate = {
+      redeemId: 987,
+      productId: "flexible-1",
+      asset: "USDT",
+      amount: "25",
+      destAccount: "SPOT",
+      status: "SUCCESS",
+    };
+    expect(findUniqueEarnRedemptionRecord(intent, [candidate])).toEqual(candidate);
+    expect(findUniqueEarnRedemptionRecord(intent, [
+      candidate,
+      { ...candidate, redeemId: 988 },
+    ])).toBeNull();
+    expect(findUniqueEarnRedemptionRecord(intent, [
+      { ...candidate, productId: "other-product" },
+    ])).toBeNull();
+    expect(findUniqueEarnRedemptionRecord(intent, [
+      { ...candidate, amount: "24.99" },
+    ])).toBeNull();
   });
 
   it("requires Spot free to reflect the full redeemed amount", () => {
