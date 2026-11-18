@@ -81,7 +81,7 @@ describe("V3.3 position ledger replay", () => {
 
   it("rejects selling more than the protected base or cycle inventory", () => {
     expect(() => replayPositionLedger([
-      buy(), { ...sell({ qty: 0.5 }), sellKind: "take_profit" },
+      buy(), { ...sell({ qty: 0.7 }), sellKind: "take_profit" },
     ], 0.4)).toThrow("超过可用周期仓");
     expect(() => replayPositionLedger([
       buy(), { ...sell({ qty: 0.5 }), sellKind: "base_reduce" },
