@@ -356,7 +356,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
                 {tab === "trades" && <Timeline trades={data.trades} symbols={symbols} bare />}
                 {tab === "balance" && <Balances data={data} bare />}
                 {tab === "strategy" && <StrategyInfo bare />}
-                {tab === "queue" && <><BuyQueue refreshKey={data.updatedAt} /><SellQueue refreshKey={data.updatedAt} /></>}
+                {tab === "queue" && <><BuyQueue data={data} /><SellQueue refreshKey={data.updatedAt} /></>}
               </div>
             </div>
           </aside>
@@ -387,7 +387,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
       </section>
 
       <Timeline trades={data.trades} symbols={symbols} />
-      <BuyQueue refreshKey={data.updatedAt} />
+      <BuyQueue data={data} />
       <SellQueue refreshKey={data.updatedAt} />
       <StrategyInfo />
       {notes}
