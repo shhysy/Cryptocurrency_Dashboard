@@ -49,7 +49,7 @@ export function buildSellEventReservations(
     if (symbolEvents.some((event) => event.eventKey === eventKey)) continue;
 
     const activeEvents = symbolEvents.filter((event) =>
-      event.status === "pending" || event.status === "reconcile_required" || event.status === "executed"
+      event.status === "pending" || event.status === "reconcile_required" || event.status === "partially_filled" || event.status === "executed"
     );
     // A take-profit tier is a one-time event per asset; a later weekly candle
     // must not create a second reservation for the same tier.
@@ -76,7 +76,7 @@ export function buildSellEventReservations(
     const baseReduceExecuted = activeEvents.some((event) => event.kind === "base_reduce");
 
     const state: SellGuardState = {
-      executedEventKeys: symbolEvents.filter((event) => event.status === "executed").map((event) => event.eventKey),
+      executedEventKeys: symbolEvents.filter((event) => (event.status === "executed" || event.status === "partially_filled")).map((event) => event.eventKey),
       pendingEventKeys: symbolEvents
         .filter((event) => event.status === "pending" || event.status === "reconcile_required")
         .map((event) => event.eventKey),
