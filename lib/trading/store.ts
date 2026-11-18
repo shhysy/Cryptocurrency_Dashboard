@@ -92,7 +92,7 @@ async function withStore<T>(
     return await new Promise<T>((resolve, reject) => {
       const tx = db.transaction(storeName, mode);
       const request = action(tx.objectStore(storeName));
-      let result: T;
+      let result!: T;
       request.onsuccess = () => { result = request.result; };
       request.onerror = () => reject(request.error ?? new Error("IndexedDB 操作失败"));
       tx.oncomplete = () => resolve(result);
@@ -165,7 +165,7 @@ export function listTrades(): Promise<StoredTrade[]> {
 function csvCell(value: unknown): string {
   let text = value == null ? "" : String(value);
   // Prevent spreadsheet formula injection in exported text fields.
-  if (/^[=+@\\-\\t\\r]/.test(text)) text = "'" + text;
+  if ([61, 43, 64, 45, 9, 13].includes(text.charCodeAt(0))) text = "'" + text;
   return '"' + text.replace(/"/g, '""') + '"';
 }
 
@@ -179,7 +179,7 @@ export function queuedOrdersToCsv(orders: QueuedOrder[]): string {
     o.filledQuoteUsdt, o.remainingQuoteUsdt, o.status,
     new Date(o.createdAt).toISOString(), new Date(o.updatedAt).toISOString(), o.lastError ?? "",
   ]);
-  return "\\uFEFF" + [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\\r\\n");
+  return "\uFEFF" + [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
 }
 
 export async function downloadQueuedOrdersCsv(): Promise<void> {
