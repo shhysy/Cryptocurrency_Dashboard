@@ -5,7 +5,7 @@ import { createHmac } from "node:crypto";
 import { ProxyAgent, fetch } from "undici";
 
 const env = Object.fromEntries(
-  readFileSync(new URL("../.env.local", import.meta.url), "utf8")
+  readFileSync(new URL("../.env", import.meta.url), "utf8")
     .split(/\r?\n/)
     .filter((l) => l && !l.startsWith("#") && l.includes("="))
     .map((l) => [l.slice(0, l.indexOf("=")).trim(), l.slice(l.indexOf("=") + 1).trim()]),
