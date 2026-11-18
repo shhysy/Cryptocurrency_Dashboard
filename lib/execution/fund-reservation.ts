@@ -2,6 +2,8 @@ export interface BuyFundsReservation {
   orderId: string;
   symbol: string;
   reservedUsdt: number;
+  originalReservedUsdt: number;
+  consumedUsdt: number;
   status: "active" | "released";
   createdAt: number;
   updatedAt: number;
@@ -68,8 +70,9 @@ export function remainingReservationAfterFill(
   if (!Number.isFinite(confirmedSpendUsdt) || confirmedSpendUsdt < 0) {
     throw new Error("已确认成交支出无效");
   }
-  if (confirmedSpendUsdt > reservation.reservedUsdt + 1e-8) {
-    throw new Error("成交支出超过资金预留，必须人工复核");
+  const original = reservation.originalReservedUsdt ?? reservation.reservedUsdt;
+  if (confirmedSpendUsdt > original + 1e-8) {
+    throw new Error("累计成交支出超过资金预留，必须人工复核");
   }
-  return Math.max(0, reservation.reservedUsdt - confirmedSpendUsdt);
+  return Math.max(0, original - confirmedSpendUsdt);
 }
