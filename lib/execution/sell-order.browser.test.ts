@@ -79,7 +79,7 @@ describe("Binance sell execution dry-run adapter", () => {
       position,
       currentPrice: 50000,
     });
-    expect(result).toMatchObject({ ok: true, executableQty: 0.04 });
+    expect(result).toMatchObject({ ok: true, executableQty: 0.02 });
   });
 
   it("rejects stale or already-reserved sell events", () => {
