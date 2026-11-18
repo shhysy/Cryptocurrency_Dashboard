@@ -54,6 +54,10 @@ describe("待买订单与部分买入计划", () => {
     });
   });
 
+  it("实际成交支出超过队列剩余金额时拒绝自动记账", () => {
+    expect(() => applyConfirmedBuyFill(order, 101, 2000)).toThrow("实际成交支出超过订单剩余计划金额");
+  });
+
   it("网络结果不确定时标记 reconcile_required，不能盲目重新下单", () => {
     expect(markOrderReconcileRequired(order, "request timeout").status).toBe("reconcile_required");
   });
