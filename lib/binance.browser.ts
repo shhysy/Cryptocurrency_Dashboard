@@ -244,7 +244,33 @@ export interface BinanceSpotTrade {
   isBuyer: boolean;
 }
 
-/** Read-only fill history for both BUY and SELL; fill IDs are unique within a symbol. */
+
+/** Fetch only the fills belonging to one order, avoiding unrelated account history. */
+export async function fetchSpotTradesForOrder(symbol: string, orderId: number): Promise<BinanceSpotTrade[]> {
+  if (!symbol || !Number.isSafeInteger(orderId) || orderId <= 0) {
+    throw new Error("订单成交查询参数无效");
+  }
+  const all: BinanceSpotTrade[] = [];
+  let fromId: number | undefined;
+  for (let page = 0; page < 20; page++) {
+    const rows = await signedGet<{
+      id: number; orderId: number; price: string; qty: string; quoteQty: string;
+      commission: string; commissionAsset: string; time: number; isBuyer: boolean;
+    }[]>("/api/v3/myTrades", {
+      symbol, orderId, limit: 1000, ...(fromId !== undefined ? { fromId } : {}),
+    });
+    all.push(...rows.map((t) => ({
+      id: t.id, orderId: t.orderId, symbol,
+      price: Number(t.price), qty: Number(t.qty), quoteQty: Number(t.quoteQty),
+      commission: Number(t.commission), commissionAsset: t.commissionAsset,
+      time: t.time, isBuyer: t.isBuyer,
+    })));
+    if (rows.length < 1000) break;
+    fromId = rows[rows.length - 1].id + 1;
+  }
+  return all;
+}
+\n/** Read-only fill history for both BUY and SELL; fill IDs are unique within a symbol. */
 export async function fetchSpotTrades(symbol: string, maxPages = 5): Promise<BinanceSpotTrade[]> {
   if (!symbol || !Number.isInteger(maxPages) || maxPages < 1 || maxPages > 20) {
     throw new Error("成交查询参数无效");
