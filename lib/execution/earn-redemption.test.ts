@@ -3,6 +3,8 @@ import {
   allocateFlexibleEarnRedemption,
   availableFlexibleEarnUsdt,
   createEarnRedemptionIntents,
+  isEarnRedemptionCredited,
+  matchEarnRedemptionRecord,
   markEarnRedemptionAmbiguous,
   transitionEarnRedemption,
 } from "./earn-redemption";
@@ -93,5 +95,34 @@ describe("Simple Earn redemption intent", () => {
     const submitted = transitionEarnRedemption(submitting, "submitted", { redemptionId: "r1" });
     const credited = transitionEarnRedemption(submitted, "credited");
     expect(() => transitionEarnRedemption(credited, "redeeming")).toThrow("不允许赎回状态");
+  });
+});
+
+
+describe("Simple Earn redemption reconciliation", () => {
+  const intent = createEarnRedemptionIntents({
+    orderId: "buy-credit-check",
+    allocations: [{ productId: "flexible-1", amountUsdt: 25 }],
+    spotFreeBeforeUsdt: 10,
+    now: 1000,
+  })[0];
+
+  it("matches only the exact redemption ID, asset, amount and Spot destination", () => {
+    const submitted = { ...intent, redemptionId: "12345" };
+    const record = {
+      redeemId: 12345, asset: "USDT", amount: "25",
+      destAccount: "SPOT", status: "SUCCESS",
+    };
+    expect(matchEarnRedemptionRecord(submitted, [record])).toEqual(record);
+    expect(matchEarnRedemptionRecord(submitted, [
+      { ...record, amount: "24" },
+    ])).toBeNull();
+    expect(matchEarnRedemptionRecord(intent, [record])).toBeNull();
+  });
+
+  it("requires Spot free to reflect the full redeemed amount", () => {
+    expect(isEarnRedemptionCredited(intent, 34.99)).toBe(false);
+    expect(isEarnRedemptionCredited(intent, 35)).toBe(true);
+    expect(isEarnRedemptionCredited({ ...intent, spotFreeBeforeUsdt: null }, 100)).toBe(false);
   });
 });
