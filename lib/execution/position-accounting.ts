@@ -113,3 +113,34 @@ export function replayPositionLedger(
     realizedSellCount,
   };
 }
+export interface ExchangePositionBalance {
+  freeQty: number;
+  lockedQty: number;
+  totalQty: number;
+}
+
+/** Require the local confirmed-fill ledger to match Binance total holdings. */
+export function assertPositionMatchesExchange(
+  position: PositionLedgerSnapshot,
+  exchange: ExchangePositionBalance,
+): { freeBaseQty: number; totalPositionQty: number; protectedBaseQty: number } {
+  if (![exchange.freeQty, exchange.lockedQty, exchange.totalQty].every(Number.isFinite) ||
+      exchange.freeQty < 0 || exchange.lockedQty < 0 || exchange.totalQty < 0 ||
+      Math.abs(exchange.freeQty + exchange.lockedQty - exchange.totalQty) > Math.max(EPSILON, exchange.totalQty * EPSILON)) {
+    throw new Error("Binance free/locked 持仓余额字段无效");
+  }
+  const tolerance = Math.max(EPSILON, exchange.totalQty * EPSILON);
+  if (Math.abs(position.totalQty - exchange.totalQty) > tolerance) {
+    throw new Error(
+      `本地成交台账数量 ${position.totalQty} 与 Binance 总持仓 ${exchange.totalQty} 不一致，暂停卖出预检`,
+    );
+  }
+  if (position.baseQty > exchange.totalQty + tolerance) {
+    throw new Error("本地受保护底仓数量超过 Binance 总持仓，暂停卖出预检");
+  }
+  return {
+    freeBaseQty: exchange.freeQty,
+    totalPositionQty: exchange.totalQty,
+    protectedBaseQty: position.baseQty,
+  };
+}
