@@ -19,6 +19,7 @@
 - 买入手续费以 USDT 扣除时按 USDT 计入成本；以基础币扣除时按该笔成交价格估值；BNB 等第三资产手续费不做错误估算，暂停记账并转人工复核。
 - `store.browser.ts`：`recordConfirmedBuyFill` 将 fill 唯一键、待买金额扣减、成交台账写入放入同一 IndexedDB readwrite 事务。
 - `sync-buy-order.browser.ts`：显式按待买订单 ID + attempt 查询 Binance 原订单与成交；仅对账，不会 POST、撤单或自动重试。
+- `sell-signal-queue.ts`：将止盈、指标止盈、追踪止损和底仓减仓信号预留为唯一卖出事件；普通卖出受周期仓限制，底仓减仓单独授权，指标止盈执行 2 周冷却与周期仓 50% 累计上限；止盈档位不重复预留。
 
 ## 卖出幂等规则
 
@@ -31,13 +32,13 @@
 
 ## 页面表现
 
-`components/BuyQueue.tsx` 在 Dashboard 展示待买队列、已成交金额、剩余金额和复核状态，并支持导出 CSV。浏览器直连模式在数据新鲜且账户读取成功后会自动将合格 BUY 信号入队；不发送订单。
+`components/BuyQueue.tsx` 与 `components/SellQueue.tsx` 在 Dashboard 展示待买队列和待卖事件。浏览器直连模式在数据新鲜且账户读取成功后自动将合格 BUY 信号入队、将合格 SELL 信号预留为卖出事件；不发送订单。
 
 ## 尚未完成
 
 - Binance POST /api/v3/order、撤单与安全执行开关。
 - 自动订单轮询调度、买入/卖出成交的完整同步。
-- 将 V3.3 卖出信号接入卖出 guard。
+- 将卖出事件接入 Binance 自动卖单提交和真实成交同步。
 - 持仓成本、周期仓/底仓数量、实现盈亏的完整成交联动。
 - 买卖成交邮件 outbox / Worker 联动。
 - 本地 npm test、npm run typecheck 和 Binance Spot Testnet 端到端验证。
