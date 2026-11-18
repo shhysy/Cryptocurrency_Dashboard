@@ -4,7 +4,8 @@ import {
 } from "../binance.browser";
 import { parseMarketRules, preflightMarketBuy } from "./binance-preflight";
 import { clientOrderIdForEvent } from "./client-order-id";
-import { reserveBuyFunds } from "./store.browser";
+import { listBuyFundsReservations, reserveBuyFunds } from "./store.browser";
+import { planBuyFundsReservation, type BuyFundsReservation } from "./fund-reservation";
 import type { QueuedBuyOrder } from "./types";
 
 /**
@@ -24,6 +25,9 @@ export interface BuyDryRunResult {
   plannedUsdt: number;
   remainingAssetCapUsdt: number;
   freeUsdt: number;
+  unreservedFreeUsdt: number;
+  otherReservedUsdt: number;
+  proposedReserveUsdt: number;
   executableUsdt: number;
   estimatedBaseQty: number;
   remainingPlannedUsdt: number;
@@ -34,6 +38,7 @@ export interface BuyDryRunResult {
 export interface BuyDryRunDependencies {
   getFreeUsdt: () => Promise<number>;
   getSymbolFilters: (symbol: string) => Promise<Awaited<ReturnType<typeof fetchSpotSymbolFilters>>>;
+  getReservations?: () => Promise<BuyFundsReservation[]>;
 }
 
 /**
@@ -49,6 +54,7 @@ export async function prepareQueuedBuyDryRun(
   dependencies: BuyDryRunDependencies = {
     getFreeUsdt: fetchFreeUsdtBalance,
     getSymbolFilters: fetchSpotSymbolFilters,
+    getReservations: listBuyFundsReservations,
   },
 ): Promise<BuyDryRunResult> {
   if (order.status !== "pending" && order.status !== "partially_filled") {
@@ -61,14 +67,24 @@ export async function prepareQueuedBuyDryRun(
   const pair = order.symbol.endsWith(order.quoteAsset)
     ? order.symbol
     : `${order.symbol}${order.quoteAsset}`;
-  const [freeUsdt, symbolInfo] = await Promise.all([
+  const [freeUsdt, symbolInfo, reservations] = await Promise.all([
     dependencies.getFreeUsdt(),
     dependencies.getSymbolFilters(pair),
+    dependencies.getReservations?.() ?? Promise.resolve([]),
   ]);
   const rules = parseMarketRules(symbolInfo);
   const requestedUsdt = Math.min(order.remainingUsdt, remainingAssetCapUsdt);
-  const preflight = preflightMarketBuy(rules, requestedUsdt, freeUsdt, order.referencePrice);
-  const executableUsdt = preflight.ok && preflight.quoteOrderQty !== null
+  const reservationPlan = planBuyFundsReservation({
+    orderId: order.id,
+    requestedUsdt,
+    observedFreeUsdt: freeUsdt,
+    activeReservations: reservations,
+    minNotionalUsdt: rules.minNotional,
+  });
+  const preflight = reservationPlan.ok
+    ? preflightMarketBuy(rules, reservationPlan.reserveUsdt, reservationPlan.availableUsdt, order.referencePrice)
+    : null;
+  const executableUsdt = preflight?.ok && preflight.quoteOrderQty !== null
     ? Number(preflight.quoteOrderQty)
     : 0;
 
@@ -81,11 +97,14 @@ export async function prepareQueuedBuyDryRun(
     plannedUsdt: order.remainingUsdt,
     remainingAssetCapUsdt,
     freeUsdt,
+    unreservedFreeUsdt: reservationPlan.availableUsdt,
+    otherReservedUsdt: reservationPlan.totalReservedUsdt,
+    proposedReserveUsdt: reservationPlan.ok ? reservationPlan.reserveUsdt : 0,
     executableUsdt,
-    estimatedBaseQty: preflight.estimatedBaseQty,
+    estimatedBaseQty: preflight?.estimatedBaseQty ?? 0,
     remainingPlannedUsdt: Math.max(0, order.remainingUsdt - executableUsdt),
-    ok: preflight.ok,
-    reason: preflight.reason,
+    ok: Boolean(reservationPlan.ok && preflight?.ok),
+    reason: reservationPlan.reason ?? preflight?.reason ?? null,
   };
 }
 
