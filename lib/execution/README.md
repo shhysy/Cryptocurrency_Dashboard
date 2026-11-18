@@ -19,6 +19,7 @@
 - `earn-redemption.browser.ts`：已实现单次赎回提交编排、状态领取、POST 结果持久化和超时复核；`LIVE_EARN_REDEMPTION_ENABLED=false`，默认不会发送请求。
 - `buy-order-submit.browser.ts`：已实现 Spot MARKET BUY 单次提交编排、资金预留、attempt 原子领取和失败复核；`LIVE_SPOT_ORDER_SUBMISSION_ENABLED=false`，默认不会发送请求。
 - `sell-order-submit.browser.ts`：已实现 Spot MARKET SELL 单次提交编排、持仓台账复核、底仓保护和 clientOrderId 恢复；`LIVE_SPOT_SELL_SUBMISSION_ENABLED=false`，默认不会发送请求。
+- `notification-dispatch.browser.ts`：通过同源服务端 API 投递已核验成交 Outbox；IndexedDB 租约防止同浏览器标签页重复领取，失败按指数退避。
 - `binance.browser.ts`：Simple Earn Flexible redeem POST 适配器固定赎回到 Spot；Spot BUY/SELL POST 适配器均默认关闭，启用前必须有 TRADE 权限。
 
 ## 不可绕过的执行规则
@@ -194,3 +195,11 @@
 ## 第十六阶段：卖出提交编排与自动只读对账
 
 见 [PHASE_16.md](./PHASE_16.md)。买卖队列在看板打开时每 30 秒自动核对已提交订单；此过程只读，不会重发订单。买卖实盘开关仍关闭。
+
+## 第十七阶段：成交邮件 Outbox 安全投递
+
+- 成交 Outbox 在 IndexedDB 中原子领取租约，过期租约可恢复，失败重试使用指数退避。
+- `/api/trade-fill-notifications` 仅接受精确 Origin 和有效 Cloudflare Access JWT，并由服务端 HMAC 签名转发 Worker。
+- `ExecutionBackground` 在看板打开且标签页可见时每 30 秒尝试投递。
+- 需要配置 Cloudflare Access、应用服务端环境变量并部署 Worker；未配置时接口 fail-closed，不会把 HMAC Secret 暴露给浏览器。
+- 详细部署要求见 `workers/TRADE_FILL_EMAIL_SETUP.md`。
