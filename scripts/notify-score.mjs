@@ -45,6 +45,10 @@ const MAIL_TO = env.MAIL_TO || "2157936243@qq.com";
 const MAIL_FROM = env.MAIL_FROM || SMTP_USER;
 const DASHBOARD_URL = (env.DASHBOARD_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
 const REQUIRE_STABLE = env.MAIL_REQUIRE_STABLE === "1";
+// 邮件触发分数：MAIL_MIN_SCORE 有值则全币种统一用该分；留空则核心 55 / 山寨 75
+const MAIL_MIN_SCORE = env.MAIL_MIN_SCORE !== undefined && env.MAIL_MIN_SCORE !== ""
+  ? Number(env.MAIL_MIN_SCORE)
+  : null;
 const COOLDOWN_MS = Number(env.MAIL_COOLDOWN_HOURS || 24) * 3600_000;
 const STATE_PATH = resolve(root, "data/notify-state.json");
 
@@ -149,12 +153,17 @@ async function fetchDashboard() {
   return res.json();
 }
 
+function thresholdFor(group) {
+  if (MAIL_MIN_SCORE !== null && !Number.isNaN(MAIL_MIN_SCORE)) return MAIL_MIN_SCORE;
+  return group === "core" ? 55 : 75;
+}
+
 function pickHits(data) {
   const hits = [];
   for (const c of data.coins || []) {
     const score = c.signal?.score ?? 0;
     const group = c.signal?.group || "alt";
-    const minScore = group === "core" ? 55 : 75;
+    const minScore = thresholdFor(group);
     if (score < minScore) continue;
     if (REQUIRE_STABLE && !c.signal?.metrics?.stabilized) continue;
     hits.push({
@@ -176,6 +185,7 @@ function pickHits(data) {
 const state = readState();
 const now = Date.now();
 
+console.log(`[notify] 邮件分数门槛: ${MAIL_MIN_SCORE !== null && !Number.isNaN(MAIL_MIN_SCORE) ? MAIL_MIN_SCORE + "（统一）" : "核心55 / 山寨75"}`);
 console.log(`[notify] 拉取 ${DASHBOARD_URL}/api/dashboard …`);
 const data = await fetchDashboard();
 const hits = pickHits(data);
