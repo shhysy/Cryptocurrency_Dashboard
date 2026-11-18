@@ -46,55 +46,6 @@ export default function SellQueue({ refreshKey }: { refreshKey: number }) {
     return () => { active = false; };
   }, [refreshKey]);
 
-  // Poll only events with a persisted exchange/client order identifier.
-  // The operation is read-only and never submits or retries a SELL POST.
-  useEffect(() => {
-    let active = true;
-    let running = false;
-    const reconcileOpenSellOrders = async () => {
-      if (running) return;
-      running = true;
-      try {
-        const rows = await listSellEvents();
-        for (const event of rows) {
-          if (!active) break;
-          if (event.status !== "reconcile_required" ||
-              (!event.clientOrderId && !event.exchangeOrderId)) continue;
-          if (sellSyncInFlight.current.has(event.eventKey)) continue;
-          sellSyncInFlight.current.add(event.eventKey);
-          setSyncLoading((current) => ({ ...current, [event.eventKey]: true }));
-          try {
-            const result = await syncSellOrderFromBinance(event.eventKey);
-            setSyncMessages((current) => ({
-              ...current,
-              [event.eventKey]: result.reason ??
-                `自动对账：${result.action}；新增成交 ${result.newlyRecordedFills} 笔`,
-            }));
-          } catch (e) {
-            setSyncMessages((current) => ({
-              ...current,
-              [event.eventKey]: e instanceof Error ? e.message : "自动卖单对账失败",
-            }));
-          } finally {
-            sellSyncInFlight.current.delete(event.eventKey);
-            setSyncLoading((current) => ({ ...current, [event.eventKey]: false }));
-          }
-        }
-        if (active) setEvents(await listSellEvents());
-      } catch (e) {
-        if (active) setError(e instanceof Error ? e.message : "自动刷新卖单对账失败");
-      } finally {
-        running = false;
-      }
-    };
-    const timer = window.setInterval(() => { void reconcileOpenSellOrders(); }, 30_000);
-    void reconcileOpenSellOrders();
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [refreshKey]);
-
   const reconcileSellEvent = async (event: SellEventRecord) => {
     if (sellSyncInFlight.current.has(event.eventKey)) return;
     sellSyncInFlight.current.add(event.eventKey);
