@@ -1,4 +1,4 @@
-name: CI # validate tests and types on gpt - sell queue
+name: CI # validate tests and types on gpt - sell queue v2
 
 on:
   push:
