@@ -16,6 +16,7 @@
 - 计算每笔卖出时的平均成本、成本移除额与累计实现盈亏。
 - TradeLedgerEntry.sellKind 持久化卖出事件类别；卖出同步传入事件类别。
 - 新增 getReconciledPositionFromLedger，读取本地成交台账并重建单币快照。
+- 新增 fetchSpotAssetBalance 和 getSellPositionSnapshotFromBinance，读取 Binance free/locked，并要求交易所总持仓与本地台账数量一致，否则拒绝输出卖出预检快照。
 - 测试覆盖买卖费用、底仓/周期仓边界和异常成交数据。
 
 ## 当前计算口径
@@ -28,7 +29,7 @@
 
 ## 安全限制
 
-- 该模块只回放本地已核验成交，不等于 Binance 当前持仓。
+- 本地回放只代表已核验成交；getSellPositionSnapshotFromBinance 会额外与 Binance free/locked 总量核对，二者不一致就拒绝提供卖出预检快照。
 - 手动交易、转入/转出、其他设备交易或遗漏历史成交会造成台账与交易所余额差异。
 - 当前底仓比例从 V3.3 配置读取；将来若改变比例，必须保存历史策略参数或做显式迁移。
 - 尚未将该快照接入真实卖出预检；卖出前必须重新读取 Binance free/locked 并对账。
