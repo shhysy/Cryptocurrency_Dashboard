@@ -59,15 +59,15 @@ export default function ExecutionBackground({ onChange, data }: { onChange: () =
           if (event.status !== "reconcile_required" ||
               (!event.clientOrderId && !event.exchangeOrderId)) continue;
           const key = "SELL:" + event.eventKey;
-          if (inFlight.has(key)) continue;
-          inFlight.add(key);
+          if (inFlight.current.has(key)) continue;
+          inFlight.current.add(key);
           try {
             const result = await syncSellOrderFromBinance(event.eventKey);
             if (result.action !== "wait" || result.newlyRecordedFills > 0) changed = true;
           } catch (error) {
             console.warn("[execution-reconcile] SELL", event.eventKey, error);
           } finally {
-            inFlight.delete(key);
+            inFlight.current.delete(key);
           }
         }
         // Live execution is deliberately gated by independent, compile-time
