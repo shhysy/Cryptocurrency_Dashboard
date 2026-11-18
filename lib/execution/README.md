@@ -164,11 +164,14 @@
 
 ## 第十四阶段：Spot 优先、Simple Earn 活期补足（资金调度规划）
 
-- 用户确认的资金策略：闲置 USDT 留在 Simple Earn Flexible 赚取利息；买入时优先使用 Spot USDT；Spot 不足时只计划赎回 Flexible Earn 的差额。
-- `wallet-funds.ts` 新增 `planSpotFirstBuyFunding`，输出 Spot 使用金额、Flexible Earn 待赎回金额和仍未满足金额；这是纯函数规划，不发送赎回或订单请求。
-- Flexible Earn 可用余额扣除赎回中与冻结金额；Locked Earn 不纳入即时买入规划。
-- Spot 可用金额仍先扣除其他活动买入预留。
-- Simple Earn 只读接口读取 Spot USDT、Flexible/Locked Earn USDT，并返回 Flexible 冻结/赎回中字段。
-- 测试覆盖 Spot 优先、只赎回差额、理财不足时保留待买余额、冻结/赎回中金额排除。
+- 用户确认的资金策略：闲置 USDT 留在 Simple Earn Flexible 赚取利息；买入时优先使用 Spot USDT；Spot 不足时只赎回 Flexible Earn 差额。
+- `wallet-funds.ts` 提供 Spot 优先资金计划；`earn-redemption.ts` 按 Flexible productId 分配差额、生成稳定赎回意图 ID，并校验状态迁移。
+- IndexedDB 升级到 v4，新增 `earn-redemption-intents`，赎回意图 add-if-absent，重复刷新复用已有意图，不重置状态、不擅自改变金额。
+- `earn-redemption.browser.ts` 读取现货余额、Flexible 持仓、其他买单活动预留和其他赎回意图，计算本订单的资金计划。
+- `binance.browser.ts` 新增 Flexible 持仓 productId 读取和赎回历史只读查询。
+- `BuyQueue.tsx` 新增“资金来源规划”，展示 Spot 使用金额、Flexible 计划赎回金额和未满足金额。
+- 赎回只有在精确匹配 Binance redemptionId、USDT、金额、SPOT 目的账户，并且 Spot free 相对赎回前基线增加足额后，才标记到账。
+- 请求超时进入 `reconcile_required`；没有 redemptionId 时不允许盲目重发。Locked Earn 永远不进入自动赎回计划。
+- 新增测试覆盖多产品分配、重复意图、跨订单预留、超时复核、历史记录匹配和到账确认。
 
-**当前边界：** 尚未实现 Simple Earn redeem POST 或 Spot order POST。未来赎回必须有稳定幂等意图、赎回状态查询、Spot 到账确认、再次余额预检与失败恢复；用户当前只读 Key 不具备赎回/交易能力。需要更换权限前会先通知用户。不会自动提前赎回 Locked Earn。
+**当前边界：** 资金来源规划按钮只调用 GET USER_DATA 和本地 IndexedDB，不会赎回或下单。Binance 官方把 `POST /sapi/v1/simple-earn/flexible/redeem` 标为 `TRADE` 权限；用户当前只读 Key 无法执行。尚未实现真实赎回提交器，也没有 Spot order POST。真正启用前必须先解决浏览器端 Secret 暴露问题，并经用户确认开启所需权限。参考：[Binance Simple Earn API](https://developers.binance.com/en/docs/catalog/investment-and-services-simple-earn/api/rest-api/flexible-locked)。
