@@ -5,8 +5,13 @@ import {
 import type { BinanceSpotOrderSnapshot, BinanceSpotTrade } from "../binance.browser";
 import { clientOrderIdForEvent } from "./client-order-id";
 import { decideOrderReconciliation } from "./order-reconcile";
-import { reconcileConfirmedBuyFills } from "./fill-reconcile";
-import { listBuyOrders, markBuyOrderReconcileRequired, markBuyOrderReconciled, recordConfirmedBuyFill } from "./store.browser";
+import { reconcileConfirmedBuyFills, type BuyFillReconciliation } from "./fill-reconcile";
+import {
+  listBuyOrders,
+  markBuyOrderReconcileRequired,
+  markBuyOrderReconciled,
+  recordConfirmedBuyFill,
+} from "./store.browser";
 
 export interface BuyOrderSyncResult {
   action: "wait" | "complete" | "partial" | "safe_to_retry" | "manual_review";
@@ -18,7 +23,7 @@ export interface BuyOrderSyncResult {
 
 /**
  * Read-only Binance reconciliation for one already-submitted buy attempt.
- * It records only exchange-confirmed fills and never submits/cancels/retries.
+ * It records only exchange-confirmed fills and never submits, cancels or retries.
  */
 export async function syncBuyOrderFromBinance(
   queuedOrderId: string,
@@ -38,18 +43,14 @@ export async function syncBuyOrderFromBinance(
     const reason = error instanceof Error ? error.message : "查询 Binance 订单失败";
     const blocked = await markBuyOrderReconcileRequired(initial.id, reason);
     return {
-      action: "manual_review",
-      newlyRecordedFills: 0,
-      orderStatus: null,
-      remainingUsdt: blocked.remainingUsdt,
-      reason,
+      action: "manual_review", newlyRecordedFills: 0, orderStatus: null,
+      remainingUsdt: blocked.remainingUsdt, reason,
     };
   }
 
   if (snapshot.symbol !== pair) {
     const reason = "Binance 订单交易对与本地待买订单不一致";
-    const blocked = markOrderReconcileRequired(initial, reason);
-    await saveBuyOrder(blocked);
+    const blocked = await markBuyOrderReconcileRequired(initial.id, reason);
     return {
       action: "manual_review", newlyRecordedFills: 0, orderStatus: snapshot.status,
       remainingUsdt: blocked.remainingUsdt, reason,
@@ -77,7 +78,7 @@ export async function syncBuyOrderFromBinance(
     };
   }
   if (decision.action === "safe_to_retry") {
-    // A caller may later create a new attempt after explicit policy checks; never retry here.
+    // The caller may later create a new attempt after explicit policy checks; this function never retries.
     return {
       action: "safe_to_retry", newlyRecordedFills: 0, orderStatus: snapshot.status,
       remainingUsdt: initial.remainingUsdt, reason: decision.reason,
@@ -89,15 +90,14 @@ export async function syncBuyOrderFromBinance(
     trades = await fetchSpotTradesForOrder(snapshot.symbol, snapshot.orderId);
   } catch (error) {
     const reason = error instanceof Error ? error.message : "读取成交明细失败";
-    const blocked = markOrderReconcileRequired(initial, reason);
-    await saveBuyOrder(blocked);
+    const blocked = await markBuyOrderReconcileRequired(initial.id, reason);
     return {
       action: "manual_review", newlyRecordedFills: 0, orderStatus: snapshot.status,
       remainingUsdt: blocked.remainingUsdt, reason,
     };
   }
 
-  let reconciled;
+  let reconciled: BuyFillReconciliation;
   try {
     reconciled = reconcileConfirmedBuyFills({
       orderId: snapshot.orderId,
@@ -107,8 +107,7 @@ export async function syncBuyOrderFromBinance(
     }, trades, initial.symbol, initial.quoteAsset);
   } catch (error) {
     const reason = error instanceof Error ? error.message : "成交明细核对失败";
-    const blocked = markOrderReconcileRequired(initial, reason);
-    await saveBuyOrder(blocked);
+    const blocked = await markBuyOrderReconcileRequired(initial.id, reason);
     return {
       action: "manual_review", newlyRecordedFills: 0, orderStatus: snapshot.status,
       remainingUsdt: blocked.remainingUsdt, reason,
@@ -116,11 +115,11 @@ export async function syncBuyOrderFromBinance(
   }
 
   if (!reconciled.complete) {
-    const blocked = markOrderReconcileRequired(initial, reconciled.reason ?? "成交明细不完整");
-    await saveBuyOrder(blocked);
+    const reason = reconciled.reason ?? "成交明细不完整";
+    const blocked = await markBuyOrderReconcileRequired(initial.id, reason);
     return {
       action: "manual_review", newlyRecordedFills: 0, orderStatus: snapshot.status,
-      remainingUsdt: blocked.remainingUsdt, reason: reconciled.reason,
+      remainingUsdt: blocked.remainingUsdt, reason,
     };
   }
 
