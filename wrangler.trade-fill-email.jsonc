@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cryptocurrency-trade-fill-email",
+  "main": "workers/trade-fill-email.js",
+  "compatibility_date": "2026-11-18",
+  "kv_namespaces": [
+    {
+      "binding": "TRADE_FILL_NOTIFICATIONS",
+      "id": "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+    }
+  ]
+}
