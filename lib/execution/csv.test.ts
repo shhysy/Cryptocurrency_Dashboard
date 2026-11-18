@@ -31,8 +31,8 @@ describe("待买队列 CSV", () => {
 
   it("neutralizes formula-like text cells", () => {
     const csv = queuedOrdersToCsv([order]);
-    expect(csv).toContain(""'=HYPERLINK(1)"");
-    expect(csv).toContain(""'+cmd"");
-    expect(csv).toContain(""'-danger"");
+    expect(csv).toContain(`"'=HYPERLINK(1)"`);
+    expect(csv).toContain(`"'+cmd"`);
+    expect(csv).toContain(`"'-danger"`);
   });
 });
