@@ -24,8 +24,10 @@ describe("Binance 订单对账与幂等 ID", () => {
       .toMatchObject({ action: "apply_partial_then_wait", executedQty: 0.001, quoteQty: 50 });
   });
 
-  it("FILLED 状态确认完成", () => {
+  it("FILLED 状态必须包含真实成交数量和订单 ID", () => {
     expect(decideOrderReconciliation({ status: "FILLED", executedQty: 0.002, cummulativeQuoteQty: 100, orderId: 1 }).action).toBe("complete");
+    expect(decideOrderReconciliation({ status: "FILLED", executedQty: 0, cummulativeQuoteQty: 0, orderId: 1 }).action).toBe("manual_review");
+    expect(decideOrderReconciliation({ status: "FILLED", executedQty: 0.002, cummulativeQuoteQty: 100, orderId: null }).action).toBe("manual_review");
   });
 
   it("零成交取消单才允许用新 attempt 重试", () => {
