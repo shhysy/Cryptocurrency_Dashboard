@@ -1,62 +1,60 @@
 import { describe, expect, it } from "vitest";
-import { splitSpotAccountUsdtBalances, summarizeUsdtWallets } from "./wallet-funds";
+import { sumSimpleEarnUsdtPositions, summarizeUsdtWallets } from "./wallet-funds";
 
-describe("USDT wallet separation", () => {
-  it("keeps Spot free separate from LDUSDT flexible Earn vouchers", () => {
-    const split = splitSpotAccountUsdtBalances([
-      { asset: "USDT", free: "12.5", locked: "1" },
-      { asset: "LDUSDT", free: "80", locked: "2" },
-    ]);
-    expect(split).toEqual({
-      spotFreeUsdt: 12.5,
-      spotLockedUsdt: 1,
-      flexibleEarnUsdt: 82,
-    });
-  });
-
-  it("only treats Spot free less active reservations as executable", () => {
+describe("Spot and Simple Earn USDT separation", () => {
+  it("counts Flexible Earn as a separate planning source, excluding redeeming funds", () => {
     const summary = summarizeUsdtWallets({
       spotFreeUsdt: 12.5,
       spotLockedUsdt: 1,
       flexibleEarnUsdt: 80,
+      flexibleEarnRedeemingUsdt: 5,
       lockedEarnUsdt: 25,
-      fundingUsdt: 40,
-      otherWalletUsdt: 10,
+      lockedEarnRedeemingUsdt: 0,
       activeBuyReservationsUsdt: 5,
     });
     expect(summary).toMatchObject({
-      totalTrackedUsdt: 168.5,
-      nonSpotUsdt: 155,
-      spotExecutableBeforeReservationsUsdt: 12.5,
-      spotExecutableAfterReservationsUsdt: 7.5,
+      totalTrackedUsdt: 118.5,
+      spotFreeAfterReservationsUsdt: 7.5,
+      flexibleEarnAvailableUsdt: 75,
+      flexibleEarnPlanningUsdt: 75,
+      totalPlanningUsdt: 82.5,
     });
   });
 
-  it("does not let Earn or Funding balance cover a Spot buy shortfall", () => {
+  it("does not treat locked Earn as immediately available planning funds", () => {
     const summary = summarizeUsdtWallets({
-      spotFreeUsdt: 2,
-      spotLockedUsdt: 0,
-      flexibleEarnUsdt: 500,
-      lockedEarnUsdt: 100,
-      fundingUsdt: 300,
-      otherWalletUsdt: 0,
+      spotFreeUsdt: 2, spotLockedUsdt: 0,
+      flexibleEarnUsdt: 0, flexibleEarnRedeemingUsdt: 0,
+      lockedEarnUsdt: 500, lockedEarnRedeemingUsdt: 0,
       activeBuyReservationsUsdt: 0,
     });
-    expect(summary.spotExecutableAfterReservationsUsdt).toBe(2);
-    expect(summary.totalTrackedUsdt).toBe(902);
+    expect(summary.totalTrackedUsdt).toBe(502);
+    expect(summary.totalPlanningUsdt).toBe(2);
+  });
+
+  it("aggregates only USDT positions and separates redemption/frozen quantities", () => {
+    expect(sumSimpleEarnUsdtPositions([
+      { asset: "USDT", amount: "100", redeemingAmt: "10", freezeAmount: "5" },
+      { asset: "USDT", amount: "20", redeemingAmt: "0", freezeAmount: "0" },
+      { asset: "BTC", amount: "3" },
+    ])).toEqual({ totalUsdt: 120, redeemingUsdt: 10, frozenUsdt: 5 });
+  });
+
+  it("rejects malformed or over-allocated Earn position amounts", () => {
+    expect(() => sumSimpleEarnUsdtPositions([
+      { asset: "USDT", amount: "bad" },
+    ])).toThrow("非负有限数值");
+    expect(() => sumSimpleEarnUsdtPositions([
+      { asset: "USDT", amount: "10", redeemingAmt: "8", freezeAmount: "3" },
+    ])).toThrow("超过持仓总量");
   });
 
   it("rejects negative, NaN, and infinite wallet amounts", () => {
     expect(() => summarizeUsdtWallets({
-      spotFreeUsdt: -1, spotLockedUsdt: 0, flexibleEarnUsdt: 0,
-      lockedEarnUsdt: 0, fundingUsdt: 0, otherWalletUsdt: 0,
+      spotFreeUsdt: -1, spotLockedUsdt: 0,
+      flexibleEarnUsdt: 0, flexibleEarnRedeemingUsdt: 0,
+      lockedEarnUsdt: 0, lockedEarnRedeemingUsdt: 0,
       activeBuyReservationsUsdt: 0,
     })).toThrow("非负有限数值");
-  });
-
-  it("rejects malformed Binance amount strings instead of treating them as zero", () => {
-    expect(() => splitSpotAccountUsdtBalances([
-      { asset: "USDT", free: "oops", locked: "0" },
-    ])).toThrow("余额无效");
   });
 });
