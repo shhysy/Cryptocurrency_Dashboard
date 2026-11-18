@@ -1,7 +1,6 @@
 import {
   fetchSpotOrderByClientId,
   fetchSpotTradesForOrder,
-  fetchSpotSymbolFilters,
 } from "../binance.browser";
 import type { BinanceSpotOrderSnapshot, BinanceSpotTrade, SpotSymbolFilters } from "../binance.browser";
 import { clientOrderIdForEvent } from "./client-order-id";
@@ -111,7 +110,7 @@ export async function syncBuyOrderFromBinance(
       symbol: snapshot.symbol,
       executedQty: Number(snapshot.executedQty),
       cummulativeQuoteQty: Number(snapshot.cummulativeQuoteQty),
-    }, trades, filters.baseAsset, filters.quoteAsset);
+    }, trades, initial.symbol, initial.quoteAsset);
   } catch (error) {
     const reason = error instanceof Error ? error.message : "成交明细核对失败";
     const blocked = markOrderReconcileRequired(initial, reason);
