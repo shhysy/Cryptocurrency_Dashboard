@@ -14,6 +14,7 @@ const info: SpotSymbolFilters = {
 describe("Binance 市价单前置校验", () => {
   const rules = parseMarketRules(info);
   it("按数量步长向下取整", () => expect(floorToStep(0.001239, 0.0001)).toBe(0.0012));
+  it("正确处理极小数量的科学计数法步长", () => expect(floorToStep(0.000000019, 0.00000001)).toBe(0.00000001));
   it("只允许 USDT 报价且余额不足时按余额规划", () => {
     expect(preflightMarketBuy(rules, 100, 50, 50000)).toMatchObject({ ok: true, quoteOrderQty: "50.00000000" });
   });
