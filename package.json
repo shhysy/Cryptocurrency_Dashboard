@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
-    "build:cf": "opennextjs-cloudflare build"
+    "build:cf": "opennextjs-cloudflare build",
+    "notify": "node scripts/notify-score.mjs"
   },
   "dependencies": {
     "next": "^16.4.6",
