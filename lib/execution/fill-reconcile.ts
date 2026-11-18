@@ -117,7 +117,7 @@ export function reconcileConfirmedSellFills(
   const fills: ExecutionFill[] = [...unique.values()].map((trade) => {
     let commissionUsdt = 0;
     if (trade.commissionAsset === quoteAsset) commissionUsdt = trade.commission;
-    else if (trade.commissionAsset === baseAsset) commissionUsdt = trade.commission * trade.price;
+    else if (trade.commissionAsset === baseAsset) commissionUsdt = 0;
     else if (trade.commission > 0) {
       throw new Error(`手续费资产 ${trade.commissionAsset} 无法可靠换算为 USDT，暂停自动记账`);
     }
