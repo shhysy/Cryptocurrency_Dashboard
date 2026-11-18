@@ -13,3 +13,6 @@ dash.tmp.json
 # Cloudflare 本地文件（含 .dev.vars 密钥）
 .dev.vars
 .dev.vars.*
+
+# 邮件通知去重状态（本地）
+data/notify-state.json
