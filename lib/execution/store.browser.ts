@@ -287,6 +287,8 @@ export async function reserveBuyFunds(input: {
           orderId: input.orderId,
           symbol: input.symbol,
           reservedUsdt: plan.reserveUsdt,
+          originalReservedUsdt: plan.reserveUsdt,
+          consumedUsdt: 0,
           status: "active",
           createdAt: existing?.createdAt ?? now,
           updatedAt: now,
@@ -312,7 +314,7 @@ export async function reserveBuyFunds(input: {
  */
 export async function applyConfirmedBuyReservationSpend(
   orderId: string,
-  confirmedSpendUsdt: number,
+  cumulativeConfirmedSpendUsdt: number,
   exchangeOrderTerminal: boolean,
   now = Date.now(),
 ): Promise<BuyFundsReservation> {
@@ -332,10 +334,12 @@ export async function applyConfirmedBuyReservationSpend(
           return;
         }
         try {
-          const remaining = remainingReservationAfterFill(current, confirmedSpendUsdt);
+          const remaining = remainingReservationAfterFill(current, cumulativeConfirmedSpendUsdt);
           updated = {
             ...current,
             reservedUsdt: exchangeOrderTerminal ? 0 : remaining,
+            originalReservedUsdt: current.originalReservedUsdt ?? current.reservedUsdt,
+            consumedUsdt: cumulativeConfirmedSpendUsdt,
             status: exchangeOrderTerminal || remaining <= 1e-8 ? "released" : "active",
             updatedAt: now,
             releaseReason: exchangeOrderTerminal ? "Binance 已确认订单进入终态" : null,
