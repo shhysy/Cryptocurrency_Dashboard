@@ -3,7 +3,6 @@ import {
   fetchFlexibleEarnUsdtPositions,
   fetchSpotAndEarnUsdtBalances,
   fetchSpotAssetBalance,
-  fetchFlexibleEarnUsdtPositions,
   redeemFlexibleEarnUsdt,
   LIVE_EARN_REDEMPTION_ENABLED,
 } from "../binance.browser";
