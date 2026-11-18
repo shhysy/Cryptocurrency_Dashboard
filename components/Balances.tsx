@@ -10,16 +10,16 @@ export default function Balances({ data, bare = false }: { data: DashboardData; 
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
    <h2 className="text-lg font-semibold">账户余额</h2>
-          <p className="mt-1 text-xs text-mute">现货账户全部资产（含活期理财）{data.source === "mock" ? "，示例数据" : ""}，不含合约和其他交易所</p>
+          <p className="mt-1 text-xs text-mute">现货账户资产及可识别的 LD 活期理财凭证（不含资金账户、其他理财产品和合约）{data.source === "mock" ? "，示例数据" : ""}，不含合约和其他交易所</p>
  </div>
         <p className="num text-sm text-sub">
-   现金（稳定币）<b className="text-fg">{usd(cashUsdt, 2)}</b>
+   现金估值（稳定币，含已识别理财凭证）<b className="text-fg">{usd(cashUsdt, 2)}</b>
         </p>
       </div>
 
       {assets.length === 0 ? (
         <p className="mt-6 rounded-xl border border-line px-4 py-6 text-center text-sm text-mute">
-          现货账户目前没有任何余额。资产在理财、资金账户、合约或其他交易所的话，这里读不到，请到「买入记录」手动导入。
+          现货账户目前没有任何余额。其他理财产品、资金账户、合约或其他交易所资产不会自动计入；LD 开头的活期理财凭证会单独折算到对应币种展示。
  </p>
       ) : (
         <ul className="mt-5 divide-y divide-line">
