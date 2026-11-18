@@ -66,12 +66,16 @@ export async function POST(request: Request): Promise<Response> {
     return json({ ok: false, error: "请求来源不受允许" }, 403);
   }
 
+  const allowedEmail = process.env.CF_ACCESS_ALLOWED_EMAIL ?? "";
+  if (!allowedEmail) {
+    return json({ ok: false, error: "CF_ACCESS_ALLOWED_EMAIL 必须配置为唯一允许登录的邮箱" }, 503);
+  }
   const identity = await verifyCloudflareAccessJwt(
     request.headers.get("Cf-Access-Jwt-Assertion"),
     {
       teamDomain: process.env.CF_ACCESS_TEAM_DOMAIN ?? "",
       audience: process.env.CF_ACCESS_AUD ?? "",
-      allowedEmail: process.env.CF_ACCESS_ALLOWED_EMAIL,
+      allowedEmail,
     },
   );
   if (!identity.ok) return json({ ok: false, error: "需要有效的 Cloudflare Access 登录" }, 401);
