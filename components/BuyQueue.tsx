@@ -142,7 +142,8 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
                       <span className="font-medium text-fg">DRY_RUN · 未提交</span>
                       <span className={preview.ok ? "text-up" : "text-warn"}>{preview.ok ? "预检通过" : "暂不可执行"}</span>
                     </div>
-                    <p className="mt-1 text-sub">USDT free：{money(preview.freeUsdt)} · 本次可用：{money(preview.executableUsdt)} USDT</p>
+                    <p className="mt-1 text-sub">USDT free：{money(preview.freeUsdt)} · 其他订单预留：{money(preview.otherReservedUsdt)} USDT</p>
+                    <p className="text-sub">未预留余额：{money(preview.unreservedFreeUsdt)} · 本次可执行：{money(preview.executableUsdt)} USDT</p>
                     <p className="text-sub">预计数量：{qty(preview.estimatedBaseQty)} {order.symbol} · 计划剩余：{money(preview.remainingPlannedUsdt)} USDT</p>
                     {preview.reason ? <p className="mt-1 text-warn">{preview.reason}</p> : null}
                   </div>
