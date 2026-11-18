@@ -8,6 +8,7 @@ import Hero from "./Hero";
 import { useFit } from "./hooks";
 import Overview, { Donut, EquityChart, SummaryStrip } from "./Overview";
 import StrategyInfo from "./StrategyInfo";
+import ScoreToast from "./ScoreToast";
 import ThemeToggle from "./ThemeToggle";
 import Timeline from "./Timeline";
 import type { DashboardData } from "@/lib/types";
@@ -203,6 +204,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
       <main className="mx-auto flex h-dvh w-full max-w-[1800px] flex-col gap-2 overflow-hidden px-4 py-2.5 lg:px-6">
         {header}
         {banner}
+        <ScoreToast data={data} />
         <Hero data={data} />
         <SummaryStrip data={data} />
 
@@ -284,6 +286,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
     <main className="mx-auto w-full max-w-[1480px] space-y-5 px-4 pb-16 pt-5 sm:px-6 sm:pt-8 lg:px-10">
       {header}
       {banner}
+      <ScoreToast data={data} />
       <Hero data={data} />
       <Overview data={data} />
       <Balances data={data} />
