@@ -53,3 +53,14 @@
 - 新增 `binance-order.browser.test.ts` 覆盖部分余额、单币剩余额度、低于最小名义金额、复核状态阻断和实盘关闭。
 
 **本阶段没有 Binance `POST /api/v3/order`，没有自动重试、撤单或余额预留。** 由于当前账户 API Key 仍是只读，且浏览器端 Secret 无法保密，本阶段不加入签名下单代码。后续必须先解决受保护的签名执行边界，并为多个并发待买订单增加原子 USDT 资金预留，才可进入真实订单提交阶段。
+
+## 第五阶段：USDT 本地资金预留与成交释放
+
+- IndexedDB 数据库升级到 v2，新增 `buy-funds-reservations` store；既有订单、成交和台账 store 保留。
+- `fund-reservation.ts`：按 Binance 最新 USDT free 扣除其他订单的活动预留，计算本次可预留额度；支持余额不足时部分预留和交易所最小名义金额拦截。
+- `store.browser.ts`：在单个 IndexedDB readwrite 事务内读取活动预留并写入订单预留，利用同一数据库事务的串行化避免多个浏览器标签页重复分配本地余额。
+- 同一订单重复请求会返回现有活动预留，不重复占用资金；成交对账按累计确认支出更新剩余预留，避免轮询多次重复扣减。
+- 只有订单进入 Binance 已确认终态（FILLED/CANCELED/EXPIRED/REJECTED）才释放剩余预留；订单仍为 NEW/PARTIALLY_FILLED 时保留未成交资金。
+- `reserveQueuedBuyFundsDryRun` 读取账户余额和交易规则后建立本地预留，但仍明确 `submitted=false`，不会发送任何订单请求。
+
+**限制：** IndexedDB 预留只协调本应用/同一浏览器配置中的标签页，不是 Binance 侧锁仓；外部手动交易、其他设备或余额变化仍可能使快照过期。未来真实提交前必须再次读取 free，并在受保护执行端做最终余额和额度校验。浏览器数据清除也会丢失本地预留记录，不能将其视为交易所真实冻结资金。
