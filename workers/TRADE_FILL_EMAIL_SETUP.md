@@ -39,7 +39,7 @@ HMAC 只能证明请求来自持有服务端密钥的一方，不能独立证明
 | `APP_ORIGIN` | 看板完整 Origin，例如 `https://dashboard.example.com` |
 | `CF_ACCESS_TEAM_DOMAIN` | Cloudflare Access Team Domain，例如 `https://myteam.cloudflareaccess.com` |
 | `CF_ACCESS_AUD` | Cloudflare Access 应用的 Audience Tag |
-| `CF_ACCESS_ALLOWED_EMAIL` | 唯一允许登录的邮箱，建议设置 |
+| `CF_ACCESS_ALLOWED_EMAIL` | 唯一允许登录的邮箱，**必填**；API 未配置时拒绝投递 |
 | `TRADE_FILL_NOTIFY_URL` | 已部署成交邮件 Worker 的 HTTPS URL |
 | `TRADE_NOTIFY_HMAC_SECRET` | 与 Worker 相同的随机 HMAC Secret，至少 32 字符 |
 
