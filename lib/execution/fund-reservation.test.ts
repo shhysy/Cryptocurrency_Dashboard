@@ -3,7 +3,7 @@ import { planBuyFundsReservation, remainingReservationAfterFill } from "./fund-r
 import type { BuyFundsReservation } from "./fund-reservation";
 
 const active = (orderId: string, reservedUsdt: number): BuyFundsReservation => ({
-  orderId, symbol: "BTCUSDT", reservedUsdt, status: "active",
+  orderId, symbol: "BTCUSDT", reservedUsdt, originalReservedUsdt: reservedUsdt, consumedUsdt: 0, status: "active",
   createdAt: 1, updatedAt: 1, releaseReason: null,
 });
 
@@ -48,8 +48,10 @@ describe("USDT buy-funds reservation planner", () => {
     })).toMatchObject({ ok: false, reserveUsdt: 0, availableUsdt: 3 });
   });
 
-  it("consumes only confirmed fill spend and rejects overspend", () => {
-    expect(remainingReservationAfterFill(active("order-a", 50), 20)).toBe(30);
-    expect(() => remainingReservationAfterFill(active("order-a", 50), 51)).toThrow("超过资金预留");
+  it("reconciles cumulative confirmed spend idempotently and rejects overspend", () => {
+    const reservation = { ...active("order-a", 30), originalReservedUsdt: 50, consumedUsdt: 20 };
+    expect(remainingReservationAfterFill(reservation, 20)).toBe(30);
+    expect(remainingReservationAfterFill(reservation, 35)).toBe(15);
+    expect(() => remainingReservationAfterFill(reservation, 51)).toThrow("超过资金预留");
   });
 });
