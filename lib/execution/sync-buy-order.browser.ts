@@ -53,8 +53,8 @@ export async function syncBuyOrderFromBinance(
     };
   }
 
-  if (snapshot.symbol !== pair) {
-    const reason = "Binance 订单交易对与本地待买订单不一致";
+  if (snapshot.symbol !== pair || snapshot.clientOrderId !== clientOrderId) {
+    const reason = "Binance 返回的交易对或 clientOrderId 与本地待买订单不一致";
     const blocked = await markBuyOrderReconcileRequired(initial.id, reason);
     return {
       action: "manual_review", newlyRecordedFills: 0, orderStatus: snapshot.status,
