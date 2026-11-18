@@ -10,6 +10,8 @@
 - `sell-guard.ts` / `sell-store.browser.ts`：卖出事件去重、周期仓限制、指标止盈冷却/累计上限、底仓减仓限制和 IndexedDB 事件预留。
 - `client-order-id.ts`：生成 Binance 可接受长度的确定性客户端订单 ID。
 - `order-reconcile.ts`：对订单状态作出 wait / complete / partial / safe-to-retry / manual-review 决策。
+- `fill-reconcile.ts`：逐笔核对订单成交量/成交额；只对 USDT 或基础币手续费进行确定性换算，BNB 等第三资产手续费不猜值，转人工复核。
+- `sync-buy-order.browser.ts`：只读查询指定买单及成交，调用原子成交台账记录；不下单、不撤单、不重试。
 - `binance.browser.ts`：USDT free、交易对过滤器、按客户端订单 ID 查询订单，以及读取 BUY/SELL 成交（只读）。
 
 ## 不可绕过的执行规则
@@ -24,9 +26,14 @@
 ## 尚未完成
 
 - Binance `POST /api/v3/order`、撤单与自动订单轮询。
-- 将真实订单、成交明细、待买余额和持仓成本以事务方式完整联动。
+- 自动订单轮询调度，以及真实成交对买入队列的自动周期同步。
+- 卖出成交与持仓成本/已实现盈亏的完整联动。
 - 把 V3.3 策略信号接入买卖队列和卖出 guard。
 - 买卖成交邮件联动及 UI 管理面板。
 - 本地 `npm test`、`npm run typecheck` 和 Binance Spot Testnet 端到端验证。
+
+`store.browser.ts` 的 `recordConfirmedBuyFill` 已将成交 ID 去重、待买金额扣减和成交台账写入放在同一 IndexedDB 事务中，避免多标签页并发导致同一成交重复记账或覆盖余额。
+
+`sync-buy-order.browser.ts` 需要显式传入待买订单 ID 和 attempt；只适用于已存在 Binance 订单的只读对账，不会自动启动下单。手续费以 BNB 等第三资产扣除时，当前会暂停记账并要求人工换算，避免低估成本。
 
 `lib/trading/` 是早期通用原型，暂不接入页面；不要同时启用两套交易存储。详见 `lib/trading/README.md`。
