@@ -89,4 +89,15 @@ describe("V3.3 buy signal queue bridge", () => {
     expect(buildBuyOrderIntents(sell)).toHaveLength(0);
     expect(buildBuyOrderIntents(signalOnly)).toHaveLength(0);
   });
+  it("freezes the conservative profile ratio for non-core assets", () => {
+    const eth = {
+      ...dashboard().coins[0],
+      symbol: "ETH",
+      name: "Ethereum",
+      signal: { ...signal, symbol: "ETH", group: "alt" as const },
+    };
+    const [intent] = buildBuyOrderIntents(dashboard({ coins: [eth] }));
+    expect(intent.baseRatioAtSignal).toBe(0.2);
+  });
+
 });
