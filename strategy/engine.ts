@@ -38,10 +38,6 @@ const none = (over: Partial<Action> = {}): Action => ({
   ...over,
 });
 
-/**
- * BTC 市场状态（全部币种共用）：
- * 收盘 < MA200 且 MA200 比 4 周前低 = 熊市；收盘 ≥ MA200 且 MA200 不低于 4 周前 = 牛市；其余 = 过渡。
- */
 export function btcMarketState(weekly: Candle[], price: number, cfg: StrategyConfig = strategyConfig): MarketState | null {
   const closes = closesWithPrice(weekly, price);
   const now = sma(closes, cfg.ma.weeklyPeriod);
@@ -53,12 +49,6 @@ export function btcMarketState(weekly: Candle[], price: number, cfg: StrategyCon
   return "transition";
 }
 
-/**
- * 企稳三项（数据不足返回 null）：
- * 1. 本周收盘 > 上周最高价
- * 2. 周线 RSI 低于 45 且较上周回升
- * 3. 近 4 周最低价 ≥ 此前 8 周最低价（没有创出新低）
- */
 export function stableItems(weekly: Candle[], price: number, cfg: StrategyConfig = strategyConfig): boolean[] | null {
   if (weekly.length < 13) return null;
   const closes = closesWithPrice(weekly, price);
@@ -73,13 +63,6 @@ export function stableItems(weekly: Candle[], price: number, cfg: StrategyConfig
   ];
 }
 
-/**
- * 找出头仓。按时间顺序扫描买入，第一个满足下面任一条的就是头仓：
- * 1. 这一笔的金额 > headMinUsdt：补仓基准价 = 这一笔的价格。
- * 2. 到这一笔为止累计持有的数量，按当前价折合 > headMinUsdt（持有余额够大）：
- *    把到此为止的买入合并成首仓，补仓基准价 = 它们的加权平均成本。
- * 都不满足 = 还没有头仓（小额试水不算）。index 之后的每一笔买入算一档补仓。
- */
 export function findHead(buys: Trade[], price: number, cfg: StrategyConfig = strategyConfig): { index: number; basePrice: number } | null {
   const sorted = [...buys].sort((a, b) => a.time - b.time);
   let qty = 0;
@@ -117,7 +100,6 @@ export function evaluateCoin(input: CoinInput, ctx: PortfolioContext, cfg: Strat
     const hit = cfg.ma.tiers.find((t) => ratio <= t.max);
     if (hit) { maPts = hit.points; reasons.push({ key: "ma", text: `价格 / 周线 MA200 ${ratio.toFixed(2)} ≤ ${hit.max}（+${hit.points}）` }); }
   }
-  // 价格位置：RSI 与 MA 高度相关，取较高者 + 较低者 × 折减系数
   const pricePosition = Math.min(cfg.score.pricePositionCap, Math.max(rsiPts, maPts) + cfg.score.pricePositionDiscount * Math.min(rsiPts, maPts));
 
   let sentiment = 0;
@@ -128,7 +110,9 @@ export function evaluateCoin(input: CoinInput, ctx: PortfolioContext, cfg: Strat
   }
   const trend = (stableCount ?? 0) * cfg.score.trendPerItem;
   if (stableCount) reasons.push({ key: "trend", text: `企稳 ${stableCount} 项（+${trend}）` });
-  const score = Math.round(Math.min(cfg.scoreMax, pricePosition + sentiment + trend));
+  // 分项理论合计 90，再线性映射到 scoreMax（默认 100）
+  const raw = pricePosition + sentiment + trend;
+  const score = Math.round(Math.min(cfg.scoreMax, (raw / 90) * cfg.scoreMax));
   const breakdown: ScoreBreakdown = { pricePosition: Math.round(pricePosition), sentiment, trend, rsi: rsiPts, ma: maPts };
 
   const returnPct = input.qty > 0 && input.avgCost !== null ? price / input.avgCost - 1 : null;
@@ -155,7 +139,7 @@ function classify(a: Action, score: number, profile: Profile): { kind: VerdictKi
   const tag = TAG_BY_KIND[a.kind];
   if (a.side === "sell" && tag) return { kind: "sell", tag };
   if (a.side === "buy" && tag) return { kind: score >= profile.highScore ? "strong" : "accumulate", tag };
-  if (a.blocked.length) return { kind: "none", tag: "暂缓" }; // 分数够，但被门槛或上限挡住
+  if (a.blocked.length) return { kind: "none", tag: "暂缓" };
   return { kind: "none", tag: "观望" };
 }
 
@@ -172,19 +156,16 @@ function planAction(c: Ctx): Action {
   return sell ? { ...buy, notes: [...sell.notes, ...buy.notes] } : buy;
 }
 
-/** 卖出类动作，按优先级返回第一个：底仓减仓（最极端）> 止盈档位 > 指标止盈 > 追踪止损。看板读不到卖出记录，所以不知道哪一档已执行。 */
 function planSell(c: Ctx): Action | null {
   const { input, ctx, cfg, profile, overheat, overheatRsi, overheatFg, weeklyRsi } = c;
   if (input.qty <= 0 || input.avgCost === null) return null;
   const notes: string[] = [];
   if (c.returnPct !== null && c.returnPct <= -cfg.review.lossLine && ctx.btcState === "bear") notes.push("浮亏过大且 BTC 熊市：请复核基本面（不自动卖出）");
 
-  // 底仓锁定数量 = 累计买入数量 × baseRatio，扣除已减仓
   const boughtQty = input.buys.reduce((s, t) => s + t.qty, 0);
   const baseQty = Math.max(0, boughtQty * profile.baseRatio);
-  const cycleQty = Math.max(0, input.qty - baseQty); // 周期仓数量：底仓以外
+  const cycleQty = Math.max(0, input.qty - baseQty);
 
-  // 底仓减仓：价格 ≥ 均价 × 3 且同时过热（RSI > 80 + 恐惧贪婪 ≥ 80）
   const br = cfg.baseReduce;
   if (input.price >= input.avgCost * br.mult && weeklyRsi !== null && weeklyRsi > br.rsi && overheatFg) {
     const planned = boughtQty * profile.baseRatio * br.ratio;
@@ -192,7 +173,6 @@ function planSell(c: Ctx): Action | null {
     if (qty > 0) return { kind: "baseReduce", label: "底仓减仓", side: "sell", plannedUsdt: null, usdt: qty * input.price, qty, sellPct: qty / input.qty, limits: [], blocked: [], notes: [`价格 ≥ 均价 × ${br.mult} 且 RSI > ${br.rsi}、恐惧贪婪 ≥ ${cfg.fearGreed.overheat}`, ...notes] };
   }
 
-  // 止盈档位：取已到达的最高一档。看板读不到卖出记录，已经卖过的档位请自行忽略
   for (let i = profile.takeProfit.length - 1; i >= 0; i--) {
     const tp = profile.takeProfit[i];
     if (input.price < input.avgCost * tp.mult) continue;
@@ -201,15 +181,12 @@ function planSell(c: Ctx): Action | null {
     return { kind: "takeProfit", label: `止盈${i + 1}`, side: "sell", plannedUsdt: null, usdt: qty * input.price, qty, sellPct: qty / input.qty, limits: [], blocked: [], notes: [`价格 ≥ 均价 × ${tp.mult}（档位 ${i + 1}）；读不到卖出记录，已卖过的档位请忽略`, ...notes] };
   }
 
-  // 指标止盈：价格 > 均价，且 RSI 或恐惧贪婪过热
   if (input.price > input.avgCost && overheat && cycleQty > 0) {
     const qty = Math.min(cycleQty * cfg.indicatorProfit.sellRatio, cycleQty);
     const hot = [overheatRsi ? `周线 RSI ${weeklyRsi?.toFixed(0)} > ${cfg.rsi.overheat}` : null, overheatFg ? `恐惧贪婪 ${ctx.fearGreed} ≥ ${cfg.fearGreed.overheat}` : null].filter(Boolean).join("、");
     return { kind: "indicatorProfit", label: "指标止盈", side: "sell", plannedUsdt: null, usdt: qty * input.price, qty, sellPct: qty / input.qty, limits: [], blocked: [], notes: [hot, ...notes] };
   }
 
-  // 追踪止损：价格曾达到均价 × trailStart，自峰值回撤超过阈值
-  // 峰值 = 持仓后（第一笔买入所在周起）的最高周收盘价，不是历史最高价
   const firstBuy = Math.min(...input.buys.map((t) => t.time));
   const peak = Math.max(...input.weekly.filter((k) => k.t + WEEK > firstBuy).map((k) => k.c), input.price);
   if (peak >= input.avgCost * profile.trailStart) {
@@ -223,13 +200,6 @@ function planSell(c: Ctx): Action | null {
   return null;
 }
 
-/**
- * 买入类动作：头仓 / 补仓 / 备用金。
- * 通用门槛（任一不满足就挡住）：数据完整、BTC 状态可判、分数 ≥ 最低分、企稳项数够、不过热、
- * 山寨币在 BTC 熊市禁止新增、冷却期、山寨币数量上限。
- * 金额 = 表格计划金额 × BTC 状态系数，再被各项上限压低；读不到账户时只给方向，不给金额。
- * 表格里的「组合回撤警戒/熔断」需要净值历史峰值，看板没有这个数据，所以没有实现。
- */
 function planBuy(c: Ctx): Action {
   const { input, ctx, cfg, profile, group, score, stableCount, stabilized, overheat } = c;
   const blocked: string[] = [];
@@ -252,12 +222,10 @@ function planBuy(c: Ctx): Action {
   const holding = head !== null;
   if (!holding && group === "alt" && acc.known && acc.altHeldCount >= cfg.portfolio.altMaxCount) blocked.push(`山寨币已持有 ${acc.altHeldCount} 个，达到上限`);
 
-  // 决定这次是头仓、第几档补仓还是备用金
   let kind: "head" | "add" | "reserve" = "head";
   let label = "头仓";
   let planned = score >= profile.highScore && ctx.btcState !== "bear" ? profile.headHigh : profile.headNormal;
   if (head) {
-    // 补仓基准价取自头仓；已补几档 = 头仓之后的买入笔数（看板读不到你填的档位名称）
     const basePrice = head.basePrice;
     const filled = Math.min(all.length - 1 - head.index, profile.adds.length);
     if (filled < profile.adds.length) {
@@ -280,7 +248,6 @@ function planBuy(c: Ctx): Action {
   let amount = plannedUsdt;
   if (factor < 1) limits.push(`BTC ${ctx.btcState === "bear" ? "熊市" : "过渡市"}，金额 × ${factor}`);
 
-  // 币安现货买不到的品种（如原油）只给方向，不给金额，也不套用账户上限
   const sized = acc.known && !input.signalOnly;
   if (input.signalOnly) limits.push("币安现货没有该品种，只给信号，不给金额");
   if (sized) {
@@ -302,10 +269,6 @@ function planBuy(c: Ctx): Action {
   return { kind, label, side: "buy", plannedUsdt, usdt: sized ? amount : null, qty: sized ? amount / input.price : null, sellPct: null, limits, blocked: [], notes: [] };
 }
 
-
-
-
-/** 今日结论：卖出 > 强烈买入 > 加仓类 > 不宜操作。被风控挡住的「暂缓」不算信号。 */
 export function buildVerdict(signals: CoinSignal[]): Verdict {
   const actionable = (s: CoinSignal) => (s.tag === "暂缓" || s.tag === "观望" ? "none" : s.kind);
   const rank = (s: CoinSignal) => PRIORITY[actionable(s) as VerdictKind];
