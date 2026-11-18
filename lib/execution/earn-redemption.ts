@@ -46,6 +46,7 @@ export function allocateFlexibleEarnRedemption(
   positiveAmount(requiredUsdt, "待赎回金额");
   let remaining = Math.floor(requiredUsdt * 1e8) / 1e8;
   const allocations: EarnRedemptionAllocation[] = [];
+  const remainingReservations = { ...reservedByProduct };
   const eligible = positions
     .filter((row) => row.asset === "USDT")
     .sort((a, b) => String(a.productId ?? "").localeCompare(String(b.productId ?? "")));
@@ -58,9 +59,12 @@ export function allocateFlexibleEarnRedemption(
     positiveAmount(redeeming, "赎回中金额");
     positiveAmount(frozen, "冻结金额");
     if (redeeming + frozen > total + 1e-10) throw new Error("理财冻结/赎回中数量超过持仓总量");
-    const locallyReserved = row.productId ? (reservedByProduct[String(row.productId)] ?? 0) : 0;
+    const productKey = row.productId ? String(row.productId) : "";
+    const locallyReserved = productKey ? (remainingReservations[productKey] ?? 0) : 0;
     positiveAmount(locallyReserved, "本地已预留赎回金额");
-    const available = Math.max(0, total - redeeming - frozen - locallyReserved);
+    const reservedHere = Math.min(locallyReserved, total);
+    if (productKey) remainingReservations[productKey] = Math.max(0, locallyReserved - reservedHere);
+    const available = Math.max(0, total - redeeming - frozen - reservedHere);
     const take = Math.floor(Math.min(remaining, available) * 1e8) / 1e8;
     if (take <= 0) continue;
     if (!row.productId || !String(row.productId).trim()) {
@@ -158,6 +162,7 @@ export function availableFlexibleEarnUsdt(
   positions: SimpleEarnPositionRow[],
   reservedByProduct: Record<string, number> = {},
 ): number {
+  const remainingReservations = { ...reservedByProduct };
   return positions.filter((row) => row.asset === "USDT").reduce((total, row) => {
     const gross = Number(row.amount);
     const redeeming = Number(row.redeemingAmt ?? "0");
@@ -166,9 +171,12 @@ export function availableFlexibleEarnUsdt(
     positiveAmount(redeeming, "赎回中金额");
     positiveAmount(frozen, "冻结金额");
     if (redeeming + frozen > gross + 1e-10) throw new Error("理财冻结/赎回中数量超过持仓总量");
-    const locallyReserved = row.productId ? (reservedByProduct[String(row.productId)] ?? 0) : 0;
+    const productKey = row.productId ? String(row.productId) : "";
+    const locallyReserved = productKey ? (remainingReservations[productKey] ?? 0) : 0;
     positiveAmount(locallyReserved, "本地已预留赎回金额");
-    return total + Math.max(0, gross - redeeming - frozen - locallyReserved);
+    const reservedHere = Math.min(locallyReserved, gross);
+    if (productKey) remainingReservations[productKey] = Math.max(0, locallyReserved - reservedHere);
+    return total + Math.max(0, gross - redeeming - frozen - reservedHere);
   }, 0);
 }
 
