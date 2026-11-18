@@ -62,4 +62,18 @@ describe("待买订单与部分买入计划", () => {
   it("网络结果不确定时标记 reconcile_required，不能盲目重新下单", () => {
     expect(markOrderReconcileRequired(order, "request timeout").status).toBe("reconcile_required");
   });
+  it("rejects a buy intent without a valid frozen base ratio", () => {
+    expect(() => createQueuedBuy({
+      eventKey: "ETH:head:2026-W46",
+      symbol: "ETH",
+      quoteAsset: "USDT",
+      strategyLabel: "头仓",
+      plannedUsdt: 75,
+      referencePrice: 2000,
+      baseRatioAtSignal: 1.2,
+      createdAt: 1000,
+      strategyVersion: "V3.3",
+    }, 1000)).toThrow("历史底仓比例");
+  });
+
 });
