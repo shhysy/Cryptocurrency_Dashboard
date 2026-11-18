@@ -140,8 +140,8 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fresh Binance BUY signals are persisted as idempotent queue entries only.
-  // This deliberately does not submit any order to the exchange.
+  // Fresh Binance BUY signals are queued and SELL signals are reserved as guarded events.
+  // Neither path submits an order to the exchange.
   useEffect(() => {
     if (!directReady || data.source !== "binance" || data.stale) return;
     let cancelled = false;
