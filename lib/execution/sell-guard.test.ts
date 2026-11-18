@@ -52,7 +52,11 @@ describe("自动卖出幂等与仓位保护", () => {
       symbol: "ETH", kind: "indicator_profit", eventKey: "indicator-1",
       desiredQty: 0.08, cycleAvailableQty: 0.1, baseAvailableQty: 0.02, now: 30 * 864e5,
     }, state({ cycleInitialQty: 0.1, indicatorProfitSoldQty: 0.04 })))
-      .toMatchObject({ allowed: true, qty: 0.01 });
+      .toMatchObject({ allowed: true });
+    expect(guardSellIntent({
+      symbol: "ETH", kind: "indicator_profit", eventKey: "indicator-1",
+      desiredQty: 0.08, cycleAvailableQty: 0.1, baseAvailableQty: 0.02, now: 30 * 864e5,
+    }, state({ cycleInitialQty: 0.1, indicatorProfitSoldQty: 0.04 })).qty).toBeCloseTo(0.01, 12);
   });
 
   it("底仓减仓必须显式允许且只能发生一次", () => {
