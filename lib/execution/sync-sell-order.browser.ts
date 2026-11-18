@@ -137,6 +137,7 @@ export async function syncSellOrderFromBinance(
       ? (Number(snapshot.executedQty) + 1e-8 < Number(snapshot.origQty) ? "partially_filled" : "executed")
       : "reconcile_required",
     fillIds,
+    filledQty: Number(snapshot.executedQty),
     lastError: terminal ? null : "卖出订单仍未进入终态；已记录当前确认成交，继续只读对账",
     updatedAt: Date.now(),
   };
