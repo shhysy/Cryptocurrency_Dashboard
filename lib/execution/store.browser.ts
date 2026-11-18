@@ -636,7 +636,7 @@ export async function markTradeNotificationSent(id: string, now = Date.now()): P
         const current = request.result as TradeNotificationOutboxEvent | undefined;
         if (!current) { tx.abort(); return; }
         if (current.status === "sent") return;
-        store.put({ ...current, status: "sent", leaseUntil: null, sentAt: now, updatedAt: now, lastError: null });
+        store.put({ ...current, status: "sent", leaseUntil: null, nextAttemptAt: null, sentAt: now, updatedAt: now, lastError: null });
       };
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error ?? new Error("更新成交通知状态失败"));
@@ -668,6 +668,7 @@ export async function markTradeNotificationFailed(
           status: "failed",
           leaseUntil: null,
           attemptCount: current.attemptCount + 1,
+          nextAttemptAt: now + Math.min(60 * 60_000, 30_000 * (2 ** Math.min(current.attemptCount, 7))),
           updatedAt: now,
           lastError: reason.slice(0, 500),
         });
