@@ -194,7 +194,7 @@ export async function fetchSpotAssetBalance(asset: string): Promise<SpotAssetBal
  */
 export async function fetchSpotAndEarnUsdtBalances(): Promise<Pick<UsdtWalletBuckets,
   "spotFreeUsdt" | "spotLockedUsdt" | "flexibleEarnUsdt" |
-  "flexibleEarnRedeemingUsdt" | "lockedEarnUsdt" | "lockedEarnRedeemingUsdt">> {
+  "flexibleEarnRedeemingUsdt" | "flexibleEarnFrozenUsdt" | "lockedEarnUsdt" | "lockedEarnRedeemingUsdt">> {
   const account = await signedGet<{ balances: { asset: string; free: string; locked: string }[] }>(
     "/api/v3/account",
   );
@@ -229,6 +229,7 @@ export async function fetchSpotAndEarnUsdtBalances(): Promise<Pick<UsdtWalletBuc
     spotLockedUsdt,
     flexibleEarnUsdt: flexible.totalUsdt,
     flexibleEarnRedeemingUsdt: flexible.redeemingUsdt,
+    flexibleEarnFrozenUsdt: flexible.frozenUsdt,
     lockedEarnUsdt: locked.totalUsdt,
     lockedEarnRedeemingUsdt: locked.redeemingUsdt,
   };
