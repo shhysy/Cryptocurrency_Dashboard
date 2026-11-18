@@ -137,6 +137,24 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Fresh Binance BUY signals are persisted as idempotent queue entries only.
+  // This deliberately does not submit any order to the exchange.
+  useEffect(() => {
+    if (!directReady || data.source !== "binance" || data.stale) return;
+    let cancelled = false;
+    import("@/lib/execution/signal-queue")
+      .then(({ enqueueEligibleBuySignals }) => enqueueEligibleBuySignals(data))
+      .then((result) => {
+        if (!cancelled && result.created > 0) {
+          console.info("[buy-queue] 新增待买策略事件", result.created);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) console.warn("[buy-queue]", error);
+      });
+    return () => { cancelled = true; };
+  }, [data, directReady]);
+
   useEffect(() => {
     if (data.source !== "binance") return;
     const id = setInterval(() => refresh(), 60_000);
