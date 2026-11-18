@@ -293,7 +293,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
   if (fit) {
     return (
       <main className="mx-auto flex h-dvh w-full max-w-[1800px] flex-col gap-2 overflow-hidden px-4 py-2.5 lg:px-6">
-        <ExecutionBackground onChange={refreshQueue} />
+        <ExecutionBackground onChange={refreshQueue} data={data} />
         {header}
         {banner}
         <ScoreToast data={data} />
