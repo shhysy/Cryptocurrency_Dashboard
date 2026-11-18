@@ -88,3 +88,12 @@
 - `order-reconcile.ts`：拒绝没有真实成交数量或订单 ID 的异常 FILLED 快照。
 
 该同步函数目前需要显式调用，未接入 UI 或定时轮询；不发送订单、不撤单、不自动重试、不发邮件。BNB 等第三资产手续费当前会暂停自动记账，需后续补充可靠的历史换算。新增 `fill-reconcile.test.ts` 并扩展订单对账测试，但尚未运行本地测试/typecheck。实盘开关继续关闭。
+## 2026-11-18：策略信号自动入队与待买队列 UI
+
+- `lib/execution/signal-queue.ts`：仅将新鲜 Binance 数据、账户读取成功、无策略阻止的头仓/补仓/备用金 BUY 信号写入 IndexedDB。事件键由币种、策略档位和最近已完成周线时间构成，重复刷新不会重复入队。
+- `components/Dashboard.tsx`：浏览器直连模式成功刷新后调用入队模块；不在 mock、stale 或账户读取失败时入队。
+- `components/BuyQueue.tsx`：增加待买队列视图，显示计划/已成交/剩余金额和对账状态，支持 CSV 导出。
+- 修正策略金额逻辑中的重复变量声明，并补齐 `CoinCard.invested` 输出字段。
+- 新增 `signal-queue.test.ts`、`csv.test.ts`；CSV 文本字段增加公式注入防护。
+
+该阶段只完成策略信号到本地待买队列的自动化；**尚未向 Binance 提交订单**。自动买入 POST、自动卖出 POST、轮询、邮件通知、端到端测试均未完成。实盘开关继续关闭。
