@@ -104,8 +104,13 @@ export async function verifyCloudflareAccessJwt(
       false,
       ["verify"],
     );
-    const signed = new TextEncoder().encode(parts[0] + "." + parts[1]);
-    const signature = decodeBase64Url(parts[2]);
+    const signedBytes = new TextEncoder().encode(parts[0] + "." + parts[1]);
+    const signatureBytes = decodeBase64Url(parts[2]);
+    // Allocate owned ArrayBuffers to satisfy WebCrypto's non-shared BufferSource contract.
+    const signed = new ArrayBuffer(signedBytes.byteLength);
+    new Uint8Array(signed).set(signedBytes);
+    const signature = new ArrayBuffer(signatureBytes.byteLength);
+    new Uint8Array(signature).set(signatureBytes);
     const valid = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", publicKey, signature, signed);
     if (!valid) return { ok: false, reason: "Cloudflare Access JWT 签名验证失败" };
     return { ok: true, email: claims.email };
