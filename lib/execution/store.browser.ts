@@ -605,7 +605,6 @@ export async function enqueueEarnRedemptionIntents(
       let created = 0;
       let existing = 0;
       let fatal: Error | null = null;
-      let pending = intents.length;
       for (const intent of intents) {
         const request = store.get(intent.id);
         request.onsuccess = () => {
@@ -622,7 +621,6 @@ export async function enqueueEarnRedemptionIntents(
             store.add(intent);
             created += 1;
           }
-          pending -= 1;
         };
         request.onerror = () => {
           fatal = request.error ?? new Error("读取理财赎回意图失败");
