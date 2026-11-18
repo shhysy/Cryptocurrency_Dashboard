@@ -59,5 +59,9 @@ export interface DashboardData {
   market: { fearGreed: number | null; btcState: MarketState | null; accountKnown: boolean };
   config: {
     doubleLine: number;
+    /** 邮件/前端通知：核心组分数门槛 */
+    mailScoreCore: number;
+    /** 邮件/前端通知：山寨组分数门槛 */
+    mailScoreAlt: number;
   };
 }
