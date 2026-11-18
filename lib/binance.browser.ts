@@ -1,4 +1,4 @@
-import { splitSpotAccountUsdtBalances, type UsdtWalletBuckets } from "./execution/wallet-funds";
+import { sumSimpleEarnUsdtPositions, type SimpleEarnPositionPage, type UsdtWalletBuckets } from "./execution/wallet-funds";
 /**
  * 币安接口 · 浏览器直连版。
  *
@@ -188,16 +188,50 @@ export async function fetchSpotAssetBalance(asset: string): Promise<SpotAssetBal
   return { asset, free, locked, total: free + locked };
 }
 
-/** Read-only Spot account breakdown. LDUSDT is shown as a flexible-Earn voucher,
- * never merged into executable Spot free USDT. Funding and locked Earn are
- * intentionally not inferred from this Spot endpoint.
+/** Read Spot USDT and Simple Earn USDT Flexible/Locked positions using USER_DATA GETs only.
+ * Flexible Earn availability is shown separately; this function never redeems
+ * assets and does not claim that the API order endpoint can consume Earn directly.
  */
-export async function fetchSpotUsdtWalletBuckets(): Promise<Pick<UsdtWalletBuckets,
-  "spotFreeUsdt" | "spotLockedUsdt" | "flexibleEarnUsdt">> {
+export async function fetchSpotAndEarnUsdtBalances(): Promise<Pick<UsdtWalletBuckets,
+  "spotFreeUsdt" | "spotLockedUsdt" | "flexibleEarnUsdt" |
+  "flexibleEarnRedeemingUsdt" | "lockedEarnUsdt" | "lockedEarnRedeemingUsdt">> {
   const account = await signedGet<{ balances: { asset: string; free: string; locked: string }[] }>(
     "/api/v3/account",
   );
-  return splitSpotAccountUsdtBalances(account.balances);
+  const spot = account.balances.find((row) => row.asset === "USDT");
+  const spotFreeUsdt = Number(spot?.free ?? "0");
+  const spotLockedUsdt = Number(spot?.locked ?? "0");
+  if (![spotFreeUsdt, spotLockedUsdt].every((n) => Number.isFinite(n) && n >= 0)) {
+    throw new Error("Binance Spot USDT 余额无效");
+  }
+
+  const fetchEarnPositions = async (path: string): Promise<SimpleEarnPositionPage["rows"]> => {
+    const rows: SimpleEarnPositionPage["rows"] = [];
+    for (let current = 1; current <= 20; current++) {
+      const page = await signedGet<SimpleEarnPositionPage>(path, {
+        asset: "USDT", current, size: 100,
+      });
+      if (!Array.isArray(page.rows)) throw new Error("Binance Simple Earn 持仓响应格式无效");
+      rows.push(...page.rows);
+      if (rows.length >= page.total || page.rows.length < 100) break;
+    }
+    return rows;
+  };
+
+  const [flexibleRows, lockedRows] = await Promise.all([
+    fetchEarnPositions("/sapi/v1/simple-earn/flexible/position"),
+    fetchEarnPositions("/sapi/v1/simple-earn/locked/position"),
+  ]);
+  const flexible = sumSimpleEarnUsdtPositions(flexibleRows);
+  const locked = sumSimpleEarnUsdtPositions(lockedRows);
+  return {
+    spotFreeUsdt,
+    spotLockedUsdt,
+    flexibleEarnUsdt: flexible.totalUsdt,
+    flexibleEarnRedeemingUsdt: flexible.redeemingUsdt,
+    lockedEarnUsdt: locked.totalUsdt,
+    lockedEarnRedeemingUsdt: locked.redeemingUsdt,
+  };
 }
 
 /** 只返回现货账户 USDT 的 free 字段；不计 locked，不折算其他资产。 */
