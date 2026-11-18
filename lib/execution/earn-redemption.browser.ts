@@ -28,7 +28,7 @@ export async function prepareQueuedBuyEarnRedemption(input: {
   orderId: string;
   requestedUsdt: number;
 }): Promise<{
-  plan: ReturnType<typeof planSpotFirstBuyFunding>;
+  plan: ReturnType<typeof planSpotFirstBuyFunding> | null;
   intents: EarnRedemptionIntent[];
   createdIntents: number;
   existingIntents: number;
@@ -42,12 +42,7 @@ export async function prepareQueuedBuyEarnRedemption(input: {
   const priorActive = priorIntents.filter((intent) => ACTIVE_REDEMPTION_STATUSES.has(intent.status));
   if (priorActive.length > 0) {
     return {
-      plan: {
-        requestedUsdt: input.requestedUsdt,
-        spotToUseUsdt: 0,
-        flexibleEarnToRedeemUsdt: priorActive.reduce((sum, item) => sum + item.amountUsdt, 0),
-        unfundedUsdt: 0,
-      },
+      plan: null,
       intents: priorActive,
       createdIntents: 0,
       existingIntents: priorActive.length,
