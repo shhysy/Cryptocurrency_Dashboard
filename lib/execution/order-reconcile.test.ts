@@ -15,13 +15,15 @@ describe("Binance 订单对账与幂等 ID", () => {
       .not.toBe(clientOrderIdForEvent("BTC:head:2026-W46", 1));
   });
 
-  it("NEW 状态绝不允许重发", () => {
+  it("NEW 状态绝不允许重发，且累计成交字段必须为零", () => {
     expect(decideOrderReconciliation({ status: "NEW", executedQty: 0, cummulativeQuoteQty: 0, orderId: 1 }).action).toBe("wait");
+    expect(decideOrderReconciliation({ status: "NEW", executedQty: 0.001, cummulativeQuoteQty: 50, orderId: 1 }).action).toBe("manual_review");
   });
 
-  it("部分成交状态先入账，不能重发", () => {
+  it("部分成交状态先入账，不能重发，且必须有正的累计成交", () => {
     expect(decideOrderReconciliation({ status: "PARTIALLY_FILLED", executedQty: 0.001, cummulativeQuoteQty: 50, orderId: 1 }))
       .toMatchObject({ action: "apply_partial_then_wait", executedQty: 0.001, quoteQty: 50 });
+    expect(decideOrderReconciliation({ status: "PARTIALLY_FILLED", executedQty: 0, cummulativeQuoteQty: 0, orderId: 1 }).action).toBe("manual_review");
   });
 
   it("FILLED 状态必须包含真实成交数量和订单 ID", () => {
