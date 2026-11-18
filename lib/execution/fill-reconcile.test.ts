@@ -16,10 +16,11 @@ const fills: BinanceSpotTrade[] = [{
 }];
 
 describe("真实买入成交核对", () => {
-  it("核对订单累计成交并把基础币手续费换算为 USDT", () => {
+  it("基础币手续费只减少净持仓数量，不计入 USDT 支出", () => {
     const result = reconcileConfirmedBuyFills(order, fills, "BTC", "USDT");
     expect(result.complete).toBe(true);
-    expect(result.fills[0].commissionUsdt).toBeCloseTo(0.05);
+    expect(result.fills[0].commissionUsdt).toBe(0);
+    expect(result.quoteCommissionUsdt).toBe(0);
   });
 
   it("报价币手续费直接计入 USDT 成本", () => {
@@ -73,6 +74,17 @@ describe("真实卖出成交核对", () => {
     const { reconcileConfirmedSellFills } = await import("./fill-reconcile");
     expect(() => reconcileConfirmedSellFills(sellOrder, [{ ...sellFill, isBuyer: true }], "BTC", "USDT"))
       .toThrow("出现买入方向记录");
+  });
+
+
+  it("卖出基础币手续费不重复计入 USDT 手续费", async () => {
+    const { reconcileConfirmedSellFills } = await import("./fill-reconcile");
+    const result = reconcileConfirmedSellFills(sellOrder, [{
+      ...sellFill, commission: 0.0001, commissionAsset: "BTC",
+    }], "BTC", "USDT");
+    expect(result.complete).toBe(true);
+    expect(result.fills[0].commissionUsdt).toBe(0);
+    expect(result.quoteCommissionUsdt).toBe(0);
   });
 
   it("第三资产手续费不能被猜测", async () => {
