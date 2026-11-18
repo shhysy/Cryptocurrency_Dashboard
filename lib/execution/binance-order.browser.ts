@@ -57,9 +57,12 @@ export async function prepareQueuedBuyDryRun(
     throw new Error("单币剩余成本额度无效");
   }
 
+  const pair = order.symbol.endsWith(order.quoteAsset)
+    ? order.symbol
+    : `${order.symbol}${order.quoteAsset}`;
   const [freeUsdt, symbolInfo] = await Promise.all([
     dependencies.getFreeUsdt(),
-    dependencies.getSymbolFilters(order.symbol),
+    dependencies.getSymbolFilters(pair),
   ]);
   const rules = parseMarketRules(symbolInfo);
   const requestedUsdt = Math.min(order.remainingUsdt, remainingAssetCapUsdt);
@@ -73,7 +76,7 @@ export async function prepareQueuedBuyDryRun(
     submitted: false,
     queueOrderId: order.id,
     clientOrderId: clientOrderIdForEvent(order.eventKey, order.attemptCount),
-    symbol: order.symbol,
+    symbol: pair,
     plannedUsdt: order.remainingUsdt,
     remainingAssetCapUsdt,
     freeUsdt,
