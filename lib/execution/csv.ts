@@ -8,7 +8,7 @@ const columns: (keyof QueuedBuyOrder)[] = [
 function csvCell(value: unknown): string {
   let raw = value == null ? "" : String(value);
   // Neutralize spreadsheet formula injection in user-controlled text fields.
-  if (/^[=+@\\t\\r-]/.test(raw)) raw = "'" + raw;
+  if (/^[=+@\t\r-]/.test(raw)) raw = "'" + raw;
   return `"${raw.replace(/"/g, '""')}"`;
 }
 
