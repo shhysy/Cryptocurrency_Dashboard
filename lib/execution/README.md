@@ -168,7 +168,8 @@
 - `wallet-funds.ts` 提供 Spot 优先资金计划；`earn-redemption.ts` 按 Flexible productId 分配差额、生成稳定赎回意图 ID，并校验状态迁移。
 - IndexedDB 升级到 v4，新增 `earn-redemption-intents`，赎回意图 add-if-absent，重复刷新复用已有意图，不重置状态、不擅自改变金额。
 - `earn-redemption.browser.ts` 读取现货余额、Flexible 持仓、其他买单活动预留和其他赎回意图，计算本订单的资金计划。
-- `binance.browser.ts` 新增 Flexible 持仓 productId 读取和赎回历史只读查询。
+- `binance.browser.ts` 按 Binance 实际 Flexible position 字段 `totalAmount` / `productId` / `canRedeem` / `collateralAmount` 读取并归一化；Locked position 使用 `amount` / `redeemingAmt`；另有赎回历史只读查询。
+- Spot 账户中的 `LD...` 资产代码不再猜测映射成基础币；Simple Earn 持仓以专用 position API 为准。
 - `BuyQueue.tsx` 新增“资金来源规划”，展示 Spot 使用金额、Flexible 计划赎回金额和未满足金额。
 - 赎回只有在精确匹配 Binance redemptionId、USDT、金额、SPOT 目的账户，并且 Spot free 相对赎回前基线增加足额后，才标记到账。
 - 请求超时进入 `reconcile_required`；没有 redemptionId 时不允许盲目重发。Locked Earn 永远不进入自动赎回计划。
