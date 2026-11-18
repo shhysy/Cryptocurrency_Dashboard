@@ -22,7 +22,7 @@ const money = (value: number) =>
 
 const qty = (value: number) => value.toPrecision(8).replace(/\.?0+$/, "");
 
-export default function BuyQueue({ data }: { data: DashboardData }) {
+export default function BuyQueue({ data, refreshKey }: { data: DashboardData; refreshKey: number }) {
   const [orders, setOrders] = useState<QueuedBuyOrder[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState<Record<string, boolean>>({});
@@ -42,7 +42,7 @@ export default function BuyQueue({ data }: { data: DashboardData }) {
         if (active) setError(e instanceof Error ? e.message : "读取待买队列失败");
       });
     return () => { active = false; };
-  }, [data.updatedAt]);
+  }, [data, refreshKey]);
 
   const runDryRun = async (order: QueuedBuyOrder, remainingCapUsdt: number) => {
     setPreviewLoading((current) => ({ ...current, [order.id]: true }));
