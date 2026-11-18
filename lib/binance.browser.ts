@@ -213,6 +213,63 @@ interface RawTrade {
   isBuyer: boolean;
 }
 
+export interface BinanceSpotOrderSnapshot {
+  symbol: string;
+  orderId: number;
+  clientOrderId: string;
+  status: "NEW" | "PARTIALLY_FILLED" | "FILLED" | "CANCELED" | "REJECTED" | "EXPIRED";
+  origQty: string;
+  executedQty: string;
+  cummulativeQuoteQty: string;
+  time: number;
+  updateTime: number;
+}
+
+/** Read-only order lookup. Use origClientOrderId after a timeout before considering any retry. */
+export async function fetchSpotOrderByClientId(symbol: string, origClientOrderId: string): Promise<BinanceSpotOrderSnapshot> {
+  if (!symbol || !origClientOrderId) throw new Error("查询订单缺少交易对或客户端订单 ID");
+  return signedGet<BinanceSpotOrderSnapshot>("/api/v3/order", { symbol, origClientOrderId });
+}
+
+export interface BinanceSpotTrade {
+  id: number;
+  orderId: number;
+  symbol: string;
+  price: number;
+  qty: number;
+  quoteQty: number;
+  commission: number;
+  commissionAsset: string;
+  time: number;
+  isBuyer: boolean;
+}
+
+/** Read-only fill history for both BUY and SELL; fill IDs are unique within a symbol. */
+export async function fetchSpotTrades(symbol: string, maxPages = 5): Promise<BinanceSpotTrade[]> {
+  if (!symbol || !Number.isInteger(maxPages) || maxPages < 1 || maxPages > 20) {
+    throw new Error("成交查询参数无效");
+  }
+  const all: BinanceSpotTrade[] = [];
+  let fromId: number | undefined;
+  for (let page = 0; page < maxPages; page++) {
+    const rows = await signedGet<{
+      id: number; orderId: number; price: string; qty: string; quoteQty: string;
+      commission: string; commissionAsset: string; time: number; isBuyer: boolean;
+    }[]>("/api/v3/myTrades", {
+      symbol, limit: 1000, ...(fromId !== undefined ? { fromId } : {}),
+    });
+    all.push(...rows.map((t) => ({
+      id: t.id, orderId: t.orderId, symbol,
+      price: Number(t.price), qty: Number(t.qty), quoteQty: Number(t.quoteQty),
+      commission: Number(t.commission), commissionAsset: t.commissionAsset,
+      time: t.time, isBuyer: t.isBuyer,
+    })));
+    if (rows.length < 1000) break;
+    fromId = rows[rows.length - 1].id + 1;
+  }
+  return all;
+}
+
 export async function fetchBuyTrades(base: string, quote: string): Promise<Trade[]> {
   const pair = base + quote;
   const all: RawTrade[] = [];
