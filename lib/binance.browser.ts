@@ -235,6 +235,68 @@ export async function fetchSpotAndEarnUsdtBalances(): Promise<Pick<UsdtWalletBuc
   };
 }
 
+export interface FlexibleEarnRedemptionRecord {
+  amount?: string;
+  asset?: string;
+  time?: number;
+  projectId?: string;
+  redeemId?: number | string;
+  destAccount?: string;
+  status?: string;
+}
+
+/** Read all USDT Flexible Earn positions, retaining product IDs for a future exact redemption plan. */
+export async function fetchFlexibleEarnUsdtPositions(): Promise<SimpleEarnPositionPage["rows"]> {
+  const rows: SimpleEarnPositionPage["rows"] = [];
+  for (let current = 1; current <= 20; current++) {
+    const page = await signedGet<SimpleEarnPositionPage>(
+      "/sapi/v1/simple-earn/flexible/position",
+      { asset: "USDT", current, size: 100 },
+    );
+    if (!Array.isArray(page.rows)) throw new Error("Binance Simple Earn 活期持仓响应格式无效");
+    rows.push(...page.rows);
+    if (rows.length >= page.total || page.rows.length < 100) break;
+  }
+  return rows;
+}
+
+/**
+ * Read-only redemption history lookup. A returned record is evidence of a
+ * redemption request, not by itself proof that funds have reached Spot.
+ */
+export async function fetchFlexibleEarnRedemptionRecords(input: {
+  redeemId?: string;
+  startTime: number;
+  endTime?: number;
+}): Promise<FlexibleEarnRedemptionRecord[]> {
+  if (!Number.isFinite(input.startTime) || input.startTime <= 0) {
+    throw new Error("理财赎回历史查询起始时间无效");
+  }
+  if (input.endTime !== undefined &&
+      (!Number.isFinite(input.endTime) || input.endTime < input.startTime)) {
+    throw new Error("理财赎回历史查询结束时间无效");
+  }
+  const rows: FlexibleEarnRedemptionRecord[] = [];
+  for (let current = 1; current <= 20; current++) {
+    const params: Record<string, string | number> = {
+      asset: "USDT",
+      startTime: input.startTime,
+      current,
+      size: 100,
+    };
+    if (input.endTime !== undefined) params.endTime = input.endTime;
+    if (input.redeemId) params.redeemId = input.redeemId;
+    const page = await signedGet<{ total: number; rows: FlexibleEarnRedemptionRecord[] }>(
+      "/sapi/v1/simple-earn/flexible/history/redemptionRecord",
+      params,
+    );
+    if (!Array.isArray(page.rows)) throw new Error("Binance Simple Earn 赎回历史响应格式无效");
+    rows.push(...page.rows);
+    if (rows.length >= page.total || page.rows.length < 100) break;
+  }
+  return rows;
+}
+
 /** 只返回现货账户 USDT 的 free 字段；不计 locked，不折算其他资产。 */
 export async function fetchFreeUsdtBalance(): Promise<number> {
   const acc = await signedGet<{ balances: { asset: string; free: string; locked: string }[] }>("/api/v3/account");
