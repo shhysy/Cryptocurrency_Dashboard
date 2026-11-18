@@ -75,7 +75,11 @@ export function allocateFlexibleEarnRedemption(
     if (remaining <= 1e-8) break;
   }
   if (remaining > 1e-8) throw new Error(`活期理财可赎回余额不足，尚缺 ${remaining.toFixed(8)} USDT`);
-  return allocations;
+  const combined = new Map<string, number>();
+  for (const allocation of allocations) {
+    combined.set(allocation.productId, (combined.get(allocation.productId) ?? 0) + allocation.amountUsdt);
+  }
+  return Array.from(combined, ([productId, amountUsdt]) => ({ productId, amountUsdt }));
 }
 
 /** Stable per-order/product key. Rebuilding the same plan cannot create a second intent. */
