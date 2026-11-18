@@ -52,3 +52,13 @@ describe("trade fill notification outbox", () => {
     expect(() => buildTradeFillNotificationEvent({ ...fill, fillId: "" })).toThrow();
   });
 });
+
+describe("confirmed SELL fill notification", () => {
+  it("creates a SELL event from an exchange-confirmed sell fill", () => {
+    const sellFill: ExecutionFill = { ...fill, side: "SELL", fillId: "9001" };
+    const event = buildTradeFillNotificationEvent(sellFill, 123);
+    expect(event.side).toBe("SELL");
+    expect(event.id).toBe("trade-fill:BTCUSDT:9001");
+    expect(event.type).toBe("confirmed_trade_fill");
+  });
+});
