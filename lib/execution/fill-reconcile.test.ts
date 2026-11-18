@@ -49,3 +49,42 @@ describe("真实买入成交核对", () => {
     expect(result.fills).toHaveLength(0);
   });
 });
+
+describe("真实卖出成交核对", () => {
+  const sellOrder = { ...order, orderId: 77 };
+  const sellFill: BinanceSpotTrade = {
+    ...fills[0],
+    id: 9,
+    orderId: 77,
+    isBuyer: false,
+    commission: 0.1,
+    commissionAsset: "USDT",
+  };
+
+  it("核对卖出订单累计成交并保留 USDT 手续费", async () => {
+    const { reconcileConfirmedSellFills } = await import("./fill-reconcile");
+    const result = reconcileConfirmedSellFills(sellOrder, [sellFill], "BTC", "USDT");
+    expect(result.complete).toBe(true);
+    expect(result.fills[0].side).toBe("SELL");
+    expect(result.quoteCommissionUsdt).toBeCloseTo(0.1);
+  });
+
+  it("拒绝卖出订单中出现买入方向成交", async () => {
+    const { reconcileConfirmedSellFills } = await import("./fill-reconcile");
+    expect(() => reconcileConfirmedSellFills(sellOrder, [{ ...sellFill, isBuyer: true }], "BTC", "USDT"))
+      .toThrow("出现买入方向记录");
+  });
+
+  it("第三资产手续费不能被猜测", async () => {
+    const { reconcileConfirmedSellFills } = await import("./fill-reconcile");
+    expect(() => reconcileConfirmedSellFills(sellOrder, [{
+      ...sellFill, commission: 0.01, commissionAsset: "BNB",
+    }], "BTC", "USDT")).toThrow("无法可靠换算为 USDT");
+  });
+
+  it("逐笔成交与订单累计值不一致时不确认", async () => {
+    const { reconcileConfirmedSellFills } = await import("./fill-reconcile");
+    const result = reconcileConfirmedSellFills(sellOrder, [], "BTC", "USDT");
+    expect(result.complete).toBe(false);
+  });
+});
