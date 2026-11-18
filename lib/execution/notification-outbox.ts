@@ -24,6 +24,17 @@ export interface TradeNotificationOutboxEvent {
   sentAt: number | null;
 }
 
+/** Whether an outbox event may be claimed by a dispatcher at the supplied time. */
+export function isTradeNotificationClaimable(
+  event: Pick<TradeNotificationOutboxEvent, "status" | "leaseUntil">,
+  now: number,
+): boolean {
+  if (!Number.isSafeInteger(now) || now <= 0) return false;
+  return event.status === "pending" ||
+    event.status === "failed" ||
+    (event.status === "sending" && (event.leaseUntil ?? 0) <= now);
+}
+
 /**
  * Build a deterministic notification event only from a validated exchange fill.
  * The event contains execution facts, never API credentials or account balances.
