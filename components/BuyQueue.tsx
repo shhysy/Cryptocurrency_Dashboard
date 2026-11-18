@@ -6,6 +6,9 @@ import type { QueuedBuyOrder } from "@/lib/execution/types";
 import { listBuyOrders } from "@/lib/execution/store.browser";
 import { downloadQueuedOrdersCsv } from "@/lib/execution/csv";
 import { prepareQueuedBuyDryRun, type BuyDryRunResult } from "@/lib/execution/binance-order.browser";
+import { prepareQueuedBuyEarnRedemption } from "@/lib/execution/earn-redemption.browser";
+import type { BuyFundingPlan } from "@/lib/execution/wallet-funds";
+import type { EarnRedemptionIntent } from "@/lib/execution/earn-redemption";
 import { strategyConfig } from "@/strategy.config";
 
 const STATUS: Record<QueuedBuyOrder["status"], string> = {
@@ -28,12 +31,18 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
   const [previewLoading, setPreviewLoading] = useState<Record<string, boolean>>({});
   const [previews, setPreviews] = useState<Record<string, BuyDryRunResult>>({});
   const [previewErrors, setPreviewErrors] = useState<Record<string, string>>({});
+  const [fundingLoading, setFundingLoading] = useState<Record<string, boolean>>({});
+  const [fundingPlans, setFundingPlans] = useState<Record<string, { plan: BuyFundingPlan | null; intents: EarnRedemptionIntent[] }>>({});
+  const [fundingErrors, setFundingErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let active = true;
     setPreviews({});
     setPreviewErrors({});
     setPreviewLoading({});
+    setFundingLoading({});
+    setFundingPlans({});
+    setFundingErrors({});
     listBuyOrders()
       .then((rows) => {
         if (active) {
@@ -63,6 +72,28 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
     }
   };
 
+  const planFunding = async (order: QueuedBuyOrder) => {
+    setFundingLoading((current) => ({ ...current, [order.id]: true }));
+    setFundingErrors((current) => ({ ...current, [order.id]: "" }));
+    try {
+      const result = await prepareQueuedBuyEarnRedemption({
+        orderId: order.id,
+        requestedUsdt: order.remainingUsdt,
+      });
+      setFundingPlans((current) => ({
+        ...current,
+        [order.id]: { plan: result.plan, intents: result.intents },
+      }));
+    } catch (e) {
+      setFundingErrors((current) => ({
+        ...current,
+        [order.id]: e instanceof Error ? e.message : "资金来源规划失败",
+      }));
+    } finally {
+      setFundingLoading((current) => ({ ...current, [order.id]: false }));
+    }
+  };
+
   const openCount = orders.filter((order) =>
     order.status === "pending" || order.status === "partially_filled" || order.status === "reconcile_required"
   ).length;
@@ -72,7 +103,7 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
       <div className="flex items-center justify-between gap-2">
         <div>
           <h3 className="text-sm font-semibold text-fg">待买队列</h3>
-          <p className="mt-0.5 text-[11px] text-mute">策略信号已入队；预检只读取 Binance，不会提交订单。</p>
+          <p className="mt-0.5 text-[11px] text-mute">策略信号已入队；资金规划和预检只读取 Binance，不会赎回理财或提交订单。</p>
         </div>
         <button
           type="button"
@@ -127,15 +158,43 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
                 </div>
                 <div className="mt-2 flex items-center justify-between gap-2">
                   <span className="text-[10px] text-mute">单币剩余额度 {money(remainingCapUsdt)} USDT</span>
-                  <button
-                    type="button"
-                    disabled={!canPreview || previewLoading[order.id]}
-                    onClick={() => void runDryRun(order, remainingCapUsdt)}
-                    className="rounded-full border border-gold/40 px-3 py-1 text-[10px] text-gold transition hover:bg-gold/10 disabled:opacity-40"
-                  >
-                    {previewLoading[order.id] ? "预检中…" : "只读预检"}
-                  </button>
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      disabled={!canPreview || fundingLoading[order.id]}
+                      onClick={() => void planFunding(order)}
+                      className="rounded-full border border-line px-3 py-1 text-[10px] text-sub transition hover:text-fg disabled:opacity-40"
+                    >
+                      {fundingLoading[order.id] ? "读取中…" : "资金来源规划"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!canPreview || previewLoading[order.id]}
+                      onClick={() => void runDryRun(order, remainingCapUsdt)}
+                      className="rounded-full border border-gold/40 px-3 py-1 text-[10px] text-gold transition hover:bg-gold/10 disabled:opacity-40"
+                    >
+                      {previewLoading[order.id] ? "预检中…" : "只读预检"}
+                    </button>
+                  </div>
                 </div>
+                {fundingPlans[order.id] ? (
+                  <div className="mt-2 rounded-lg border border-line bg-panel/70 p-2 text-[11px]">
+                    <p className="font-medium text-fg">Spot 优先 · Simple Earn 活期补足</p>
+                    {fundingPlans[order.id].plan ? (
+                      <>
+                        <p className="mt-1 text-sub">现货计划使用：{money(fundingPlans[order.id].plan!.spotToUseUsdt)} USDT</p>
+                        <p className="text-sub">活期理财计划赎回：{money(fundingPlans[order.id].plan!.flexibleEarnToRedeemUsdt)} USDT</p>
+                        <p className="text-sub">仍未满足：{money(fundingPlans[order.id].plan!.unfundedUsdt)} USDT</p>
+                      </>
+                    ) : (
+                      <p className="mt-1 text-sub">该订单已有赎回意图，沿用现有记录，不重复生成赎回计划。</p>
+                    )}
+                    {fundingPlans[order.id].intents.length > 0 ? (
+                      <p className="mt-1 text-sub">已保存 {fundingPlans[order.id].intents.length} 条本地赎回意图；尚未向 Binance 发起赎回。</p>
+                    ) : null}
+                  </div>
+                ) : null}
+                {fundingErrors[order.id] ? <p className="mt-2 text-[10px] text-warn">{fundingErrors[order.id]}</p> : null}
                 {preview ? (
                   <div className="mt-2 rounded-lg border border-line bg-panel/70 p-2 text-[11px]">
                     <div className="flex items-center justify-between">
