@@ -99,3 +99,13 @@
 **尚未完成：** 当前没有同源 Outbox dispatcher，也没有已验证的用户登录/Cloudflare Access 身份验证。不能只凭 CORS 或 Origin 保护公开 API，因此本阶段没有开放浏览器到 Worker 的投递链路，也没有部署 Worker。正式接入前必须先完成服务端身份验证和转发路由，并确认仅能转发本地 Outbox 事件。
 
 **幂等限制：** KV 是最终一致性存储，普通 KV 的先查后写不是原子锁；Resend Idempotency-Key 可降低重复发送风险，但不能宣称严格 exactly-once。若需要严格的并发事件 claim，应在正式启用前改用 Durable Object。
+
+## 第九阶段：卖出成交核对与原子入账基础
+
+- `fill-reconcile.ts` 新增 `reconcileConfirmedSellFills`：核对 SELL 订单方向、交易对、订单 ID、逐笔成交量/金额与 Binance 累计成交值。
+- SELL 手续费为 USDT 或基础币时可确定性换算；BNB 等第三资产手续费仍暂停自动记账，不猜历史汇率。
+- 新增 `recordConfirmedSellFill`：在同一个 IndexedDB readwrite 事务内完成 SELL fill 唯一键、成交台账与成交通知 Outbox 写入；不会修改买入队列或买入资金预留。
+- 买入和卖出成交共用统一的 `FillReconciliation` 类型；保留旧的 `BuyFillReconciliation` 类型别名以兼容买入同步模块。
+- 新增 SELL 成交核对测试和 SELL Outbox 事件测试。
+
+**当前边界：** 这一步只建立 SELL 成交核对与入账基础函数；尚未建立卖单提交、按订单 ID 的卖出同步调度、卖出事件自动完成状态联动，也没有持仓成本/实现盈亏计算。不能将 SELL fill 入账函数视为自动卖出已经完成。
