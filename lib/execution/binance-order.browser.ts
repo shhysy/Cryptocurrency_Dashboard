@@ -151,18 +151,40 @@ export async function reserveQueuedBuyFundsDryRun(
   const pair = order.symbol.endsWith(order.quoteAsset)
     ? order.symbol
     : `${order.symbol}${order.quoteAsset}`;
-  const [freeUsdt, symbolInfo] = await Promise.all([
+  const [freeUsdt, symbolInfo, reservations] = await Promise.all([
     dependencies.getFreeUsdt(),
     dependencies.getSymbolFilters(pair),
+    dependencies.getReservations?.() ?? listBuyFundsReservations(),
   ]);
   const rules = parseMarketRules(symbolInfo);
   const requestedUsdt = Math.min(order.remainingUsdt, remainingAssetCapUsdt);
-  if (rules.status !== "TRADING" || rules.quoteAsset !== "USDT") {
+  const reservationPlan = planBuyFundsReservation({
+    orderId: order.id,
+    requestedUsdt,
+    observedFreeUsdt: freeUsdt,
+    activeReservations: reservations,
+    minNotionalUsdt: rules.minNotional,
+  });
+  if (!reservationPlan.ok) {
     return {
       mode: BINANCE_ORDER_MODE, submitted: false, queueOrderId: order.id,
       symbol: pair, requestedUsdt, observedFreeUsdt: freeUsdt, reservedUsdt: 0,
       remainingPlannedUsdt: order.remainingUsdt, ok: false,
-      reason: rules.status !== "TRADING" ? "交易对当前不可交易" : "报价资产不是 USDT",
+      reason: reservationPlan.reason,
+    };
+  }
+  const preflight = preflightMarketBuy(
+    rules,
+    reservationPlan.reserveUsdt,
+    reservationPlan.availableUsdt,
+    order.referencePrice,
+  );
+  if (!preflight.ok) {
+    return {
+      mode: BINANCE_ORDER_MODE, submitted: false, queueOrderId: order.id,
+      symbol: pair, requestedUsdt, observedFreeUsdt: freeUsdt, reservedUsdt: 0,
+      remainingPlannedUsdt: order.remainingUsdt, ok: false,
+      reason: preflight.reason,
     };
   }
   const result = await reserveBuyFunds({
