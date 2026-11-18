@@ -169,6 +169,21 @@ export async function syncBuyOrderFromBinance(
     };
   }
 
+  const exchangeTerminal = ["FILLED", "CANCELED", "EXPIRED", "REJECTED"].includes(snapshot.status);
+  if (!exchangeTerminal) {
+    const held = await markBuyOrderReconcileRequired(
+      current.id,
+      `Binance 订单仍处于 ${snapshot.status}，已记录当前成交但禁止创建下一次 attempt；继续等待终态`,
+    );
+    return {
+      action: snapshot.status === "PARTIALLY_FILLED" ? "partial" : "wait",
+      newlyRecordedFills,
+      orderStatus: snapshot.status,
+      remainingUsdt: held.remainingUsdt,
+      reason: "原 Binance 订单尚未终态，待买队列保持对账锁定，不能提交第二笔订单",
+    };
+  }
+
   current = await markBuyOrderReconciled(current.id);
   return {
     action: snapshot.status === "FILLED" ? "complete" : "partial",
