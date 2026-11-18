@@ -124,10 +124,13 @@ export async function recordConfirmedBuyFill(
           // If this attempt has a local USDT reservation, consume it in the
           // same transaction as the unique fill and queue/ledger update.
           if (currentReservation?.status === "active") {
-            const remaining = remainingReservationAfterFill(currentReservation, confirmedSpendUsdt);
+            const cumulativeSpendUsdt = (currentReservation.consumedUsdt ?? 0) + confirmedSpendUsdt;
+            const remaining = remainingReservationAfterFill(currentReservation, cumulativeSpendUsdt);
             reservations.put({
               ...currentReservation,
               reservedUsdt: remaining,
+              originalReservedUsdt: currentReservation.originalReservedUsdt ?? currentReservation.reservedUsdt,
+              consumedUsdt: cumulativeSpendUsdt,
               status: remaining <= 1e-8 ? "released" : "active",
               updatedAt: Date.now(),
               releaseReason: remaining <= 1e-8 ? "已由真实成交完全消耗" : null,
