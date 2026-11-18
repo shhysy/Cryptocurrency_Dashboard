@@ -69,7 +69,9 @@ export function buildSellEventReservations(
       )
       .reduce((sum, event) => sum + event.requestedQty, 0);
     const indicatorEvents = activeEvents.filter((event) => event.kind === "indicator_profit");
-    const indicatorProfitSoldQty = indicatorEvents.reduce((sum, event) => sum + event.requestedQty, 0);
+    const indicatorProfitSoldQty = indicatorEvents.reduce((sum, event) => sum + (event.status === "pending" || event.status === "reconcile_required"
+        ? event.requestedQty
+        : (event.filledQty ?? event.requestedQty)), 0);
     const lastIndicatorProfitAt = indicatorEvents.length
       ? Math.max(...indicatorEvents.map((event) => event.updatedAt))
       : null;
