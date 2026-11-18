@@ -11,6 +11,16 @@ import type { BuyFundingPlan } from "@/lib/execution/wallet-funds";
 import type { EarnRedemptionIntent } from "@/lib/execution/earn-redemption";
 import { strategyConfig } from "@/strategy.config";
 
+const EARN_REDEMPTION_STATUS: Record<EarnRedemptionIntent["status"], string> = {
+  planned: "待赎回（未提交）",
+  submitting: "正在提交",
+  submitted: "已提交",
+  redeeming: "赎回处理中",
+  credited: "已到账",
+  reconcile_required: "需人工核对",
+  failed: "赎回失败",
+};
+
 const STATUS: Record<QueuedBuyOrder["status"], string> = {
   pending: "待执行",
   partially_filled: "部分成交",
@@ -190,7 +200,14 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
                       <p className="mt-1 text-sub">该订单已有赎回意图，沿用现有记录，不重复生成赎回计划。</p>
                     )}
                     {fundingPlans[order.id].intents.length > 0 ? (
-                      <p className="mt-1 text-sub">已保存 {fundingPlans[order.id].intents.length} 条本地赎回意图；尚未向 Binance 发起赎回。</p>
+                      <div className="mt-1 space-y-1">
+                        <p className="text-sub">本地赎回意图状态（不会自动重发）：</p>
+                        {fundingPlans[order.id].intents.map((intent) => (
+                          <p key={intent.id} className="text-sub">
+                            {intent.productId} · {money(intent.amountUsdt)} USDT · {EARN_REDEMPTION_STATUS[intent.status]}
+                          </p>
+                        ))}
+                      </div>
                     ) : null}
                   </div>
                 ) : null}
