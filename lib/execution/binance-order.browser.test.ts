@@ -76,6 +76,8 @@ describe("Binance buy execution adapter safety boundary", () => {
       orderId: "queue-eth-2",
       symbol: "ETHUSDT",
       reservedUsdt: 40,
+      originalReservedUsdt: 40,
+      consumedUsdt: 0,
       status: "active",
       createdAt: 1,
       updatedAt: 1,
