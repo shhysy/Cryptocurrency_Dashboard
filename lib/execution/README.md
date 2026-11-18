@@ -160,3 +160,19 @@
 - 新增测试覆盖交易所余额多出、本地账本数量多出、交易所余额字段内部不一致和数量匹配。
 
 **安全边界：** 报告不会把余额差额自动记成买入、卖出或转账，不会改变成本、底仓或周期仓，也不会自动修复任何记录。只有 `status=matched` 才表示数量层面一致；真正的卖出预检仍走原有严格核对函数，报告本身不授权下单。
+
+
+## 第十四阶段：USDT 多账户分层（只读基础）
+
+- 新增 `wallet-funds.ts`，明确区分 Spot free/locked、Flexible Earn、Locked Earn、Funding、其他账户和本地待买预留。
+- 只有 `spotFreeUsdt - activeBuyReservationsUsdt` 是现货买入资金规划可使用的余额；Earn、Funding 和其他账户余额不会自动并入。
+- 新增 `splitSpotAccountUsdtBalances`，将 Spot `USDT` 与 Spot API 返回的 `LDUSDT` 活期理财凭证拆开，防止把 LDUSDT 当成可直接下单的 USDT。
+- 新增浏览器只读接口 `fetchSpotUsdtWalletBuckets`，读取 Spot account 中 USDT 与 LDUSDT 的分项余额。
+- 账户余额 UI 文案明确当前覆盖范围，避免将 Spot + 可识别 LD 凭证误称为完整 Binance 全账户资产。
+- 测试覆盖账户分类、预留扣减、Earn/Funding 不可直接用于 Spot 买入、异常余额拒绝。
+
+**当前限制与后续工作：**
+- Funding 账户、全部 Simple Earn Flexible/Locked 持仓暂未接入读取；目前对应分项必须保持未读取/未知，不能默认当作 0 后宣称账户总资产完整。
+- 本阶段没有赎回理财、账户划转、申购或其他 POST 操作。即使某些 Flexible 产品支持快速赎回，也必须先显式赎回并确认资金实际到达 Spot free，才能进入买入资金计算。
+- 买入资金执行器仍只读取 Spot `USDT.free`，没有变化；不使用 Earn/Funding 余额补足部分买入。
+- 后续接入 Funding 和 Simple Earn 只读 API 时，分别展示可用、锁定、赎回中/等待状态；不可赎回或赎回未完成的金额不得算入 Spot 可用资金。
