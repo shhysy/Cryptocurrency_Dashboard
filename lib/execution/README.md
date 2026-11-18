@@ -203,3 +203,7 @@
 - `ExecutionBackground` 在看板打开且标签页可见时每 30 秒尝试投递。
 - 需要配置 Cloudflare Access、应用服务端环境变量并部署 Worker；未配置时接口 fail-closed，不会把 HMAC Secret 暴露给浏览器。
 - 详细部署要求见 `workers/TRADE_FILL_EMAIL_SETUP.md`。
+
+## 第十八阶段：自动执行周期
+
+`ExecutionBackground` 已提升到 Dashboard 根级，并包含受开关控制的 BUY / SELL / Flexible Earn 资金调度周期。三个实盘开关均为 `false`，当前只会自动对账和投递邮件，不会发出交易/赎回 POST。详细规则见 [PHASE_18.md](./PHASE_18.md)。
