@@ -57,6 +57,18 @@ describe("Binance buy execution adapter safety boundary", () => {
     expect(LIVE_ORDER_SUBMISSION_ENABLED).toBe(false);
   });
 
+
+  it("adds the USDT quote asset when the queue stores a base-asset symbol", async () => {
+    const getSymbolFilters = vi.fn().mockResolvedValue(filters);
+    const result = await prepareQueuedBuyDryRun(
+      { ...order, symbol: "BTC" },
+      1000,
+      { getFreeUsdt: vi.fn().mockResolvedValue(50), getSymbolFilters },
+    );
+    expect(getSymbolFilters).toHaveBeenCalledWith("BTCUSDT");
+    expect(result.symbol).toBe("BTCUSDT");
+  });
+
   it("respects the remaining per-asset cost cap", async () => {
     const result = await prepareQueuedBuyDryRun(order, 30, {
       getFreeUsdt: vi.fn().mockResolvedValue(100),
