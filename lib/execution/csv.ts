@@ -1,7 +1,7 @@
 import type { QueuedBuyOrder } from "./types";
 
 const columns: (keyof QueuedBuyOrder)[] = [
-  "id", "symbol", "quoteAsset", "strategyLabel", "plannedUsdt", "filledUsdt",
+  "id", "eventKey", "symbol", "quoteAsset", "strategyLabel", "plannedUsdt", "filledUsdt",
   "remainingUsdt", "status", "referencePrice", "createdAt", "updatedAt", "lastError",
 ];
 
