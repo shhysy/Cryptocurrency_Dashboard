@@ -8,6 +8,7 @@ const order = createQueuedBuy({
   strategyLabel: "头仓",
   plannedUsdt: 100,
   referencePrice: 50000,
+  baseRatioAtSignal: 0.4,
   createdAt: 1000,
   strategyVersion: "V3.3",
 }, 1000);
