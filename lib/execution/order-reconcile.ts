@@ -27,7 +27,9 @@ export function decideOrderReconciliation(snapshot: ExchangeOrderSnapshot | null
     case "PARTIALLY_FILLED":
       return { action: "apply_partial_then_wait", executedQty: snapshot.executedQty, quoteQty: snapshot.cummulativeQuoteQty };
     case "FILLED":
-      return { action: "complete", executedQty: snapshot.executedQty, quoteQty: snapshot.cummulativeQuoteQty };
+      return snapshot.executedQty > 0 && snapshot.orderId !== null
+        ? { action: "complete", executedQty: snapshot.executedQty, quoteQty: snapshot.cummulativeQuoteQty }
+        : { action: "manual_review", reason: "FILLED 订单缺少有效成交数量或订单 ID" };
     case "CANCELED":
     case "EXPIRED":
       return snapshot.executedQty > 0
