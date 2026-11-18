@@ -698,3 +698,65 @@ export async function listEarnRedemptionIntents(
     db.close();
   }
 }
+
+
+/**
+ * After a matching Earn redemption is confirmed credited to Spot, expand this
+ * order's local Spot reservation from the newly observed free balance. This is
+ * the only path that may enlarge an existing reservation; previews never do.
+ */
+export async function topUpBuyFundsReservationAfterEarnCredit(input: {
+  orderId: string;
+  symbol: string;
+  requestedRemainingUsdt: number;
+  observedFreeUsdt: number;
+  now?: number;
+}): Promise<BuyFundsReservation | null> {
+  if (!input.orderId || !input.symbol ||
+      ![input.requestedRemainingUsdt, input.observedFreeUsdt].every(Number.isFinite) ||
+      input.requestedRemainingUsdt < 0 || input.observedFreeUsdt < 0) {
+    throw new Error("理财到账后的资金预留参数无效");
+  }
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(RESERVATIONS, "readwrite");
+      const store = tx.objectStore(RESERVATIONS);
+      const getAll = store.getAll();
+      let result: BuyFundsReservation | null = null;
+      let fatal: Error | null = null;
+      getAll.onsuccess = () => {
+        const all = getAll.result as BuyFundsReservation[];
+        const current = all.find((item) => item.orderId === input.orderId);
+        const otherReserved = all
+          .filter((item) => item.status === "active" && item.orderId !== input.orderId)
+          .reduce((sum, item) => sum + Math.max(0, item.reservedUsdt), 0);
+        const available = Math.max(0, input.observedFreeUsdt - otherReserved);
+        const remainingToReserve = Math.min(input.requestedRemainingUsdt, available);
+        if (remainingToReserve <= 1e-8) {
+          result = current ?? null;
+          return;
+        }
+        const consumedUsdt = current?.consumedUsdt ?? 0;
+        result = {
+          orderId: input.orderId,
+          symbol: input.symbol,
+          reservedUsdt: remainingToReserve,
+          originalReservedUsdt: consumedUsdt + remainingToReserve,
+          consumedUsdt,
+          status: "active",
+          createdAt: current?.createdAt ?? (input.now ?? Date.now()),
+          updatedAt: input.now ?? Date.now(),
+          releaseReason: null,
+        };
+        store.put(result);
+      };
+      getAll.onerror = () => { fatal = getAll.error ?? new Error("读取资金预留失败"); tx.abort(); };
+      tx.oncomplete = () => resolve(result);
+      tx.onerror = () => reject(fatal ?? tx.error ?? new Error("理财到账后扩展资金预留失败"));
+      tx.onabort = () => reject(fatal ?? tx.error ?? new Error("理财到账后扩展资金预留事务中止"));
+    });
+  } finally {
+    db.close();
+  }
+}
