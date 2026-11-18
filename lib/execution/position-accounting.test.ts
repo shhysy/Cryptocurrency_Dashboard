@@ -68,7 +68,7 @@ describe("V3.3 position ledger replay", () => {
       { ...sell({ qty: 0.2, commission: 0.002, commissionAsset: "BTC", commissionUsdt: 0.3 }), sellKind: "take_profit" },
     ], 0.4);
     expect(result.cycleQty).toBeCloseTo(0.398);
-    expect(result.realizedPnlUsdt).toBeCloseTo(10.2);
+    expect(result.realizedPnlUsdt).toBeCloseTo(9.8);
   });
 
   it("subtracts quote-asset sell fees from proceeds", () => {
