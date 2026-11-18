@@ -191,8 +191,12 @@ export async function recordConfirmedBuyFill(
  */
 export async function recordConfirmedSellFill(
   fill: ExecutionFill,
+  sellKind: NonNullable<TradeLedgerEntry["sellKind"]>,
 ): Promise<{ recorded: boolean; ledger: TradeLedgerEntry }> {
   if (fill.side !== "SELL") throw new Error("卖出成交记账函数只接受 SELL 成交");
+  if (!["take_profit", "indicator_profit", "trail_stop", "base_reduce"].includes(sellKind)) {
+    throw new Error("卖出成交缺少有效的周期仓/底仓事件类型");
+  }
   if (!fill.fillId || !fill.symbol || !fill.orderId) throw new Error("卖出成交记录缺少交易所标识");
   const db = await openDb();
   const id = fillKey(fill);
@@ -206,7 +210,7 @@ export async function recordConfirmedSellFill(
       let result: { recorded: boolean; ledger: TradeLedgerEntry } | undefined;
       let fatal: Error | null = null;
       getFill.onsuccess = () => {
-        const ledger: TradeLedgerEntry = { ...fill, id, realizedPnlUsdt: null };
+        const ledger: TradeLedgerEntry = { ...fill, id, realizedPnlUsdt: null, sellKind };
         if (getFill.result) {
           result = { recorded: false, ledger };
           return;
