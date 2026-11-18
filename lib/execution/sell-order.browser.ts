@@ -46,7 +46,7 @@ export function prepareQueuedSellDryRun(input: {
   if (!["take_profit", "indicator_profit", "trail_stop", "base_reduce"].includes(event.kind)) {
     throw new Error("该卖出事件类型尚未纳入自动卖出预检");
   }
-  if (event.symbol !== rules.symbol) {
+  if (event.symbol !== rules.symbol && event.symbol !== rules.baseAsset) {
     throw new Error("卖出事件交易对与 Binance 交易规则不一致");
   }
   const finalRequestedQty = event.kind === "base_reduce"
@@ -73,7 +73,7 @@ export function prepareQueuedSellDryRun(input: {
     mode: SELL_ORDER_MODE,
     submitted: false,
     eventKey: event.eventKey,
-    symbol: event.symbol,
+    symbol: rules.symbol,
     eventKind: event.kind,
     requestedQty: event.requestedQty,
     executableQty,
