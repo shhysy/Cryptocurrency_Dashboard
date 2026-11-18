@@ -49,7 +49,8 @@ export function guardSellIntent(request: SellGuardRequest, state: SellGuardState
   }
   let available = Math.max(0, request.cycleAvailableQty);
   if (request.kind === "base_reduce" && request.allowBaseReduction) {
-    available = Math.max(0, request.baseAvailableQty);
+    // V3.3 base reduction sells at most 50% of the remaining protected base in one event.
+    available = Math.max(0, request.baseAvailableQty * 0.5);
   }
   let qty = Math.min(request.desiredQty, available);
   if (request.kind === "indicator_profit") {
