@@ -120,3 +120,29 @@ export function planSpotFirstBuyFunding(
     unfundedUsdt: Math.max(0, shortfall - flexibleEarnToRedeemUsdt),
   };
 }
+
+
+/** Normalize Binance Flexible position API fields into the internal redemption model. */
+export function normalizeFlexibleEarnPosition(row: {
+  asset: string;
+  productId?: string;
+  totalAmount: string;
+  canRedeem?: boolean;
+  collateralAmount?: string;
+}): SimpleEarnPositionRow {
+  const total = Number(row.totalAmount);
+  const collateral = Number(row.collateralAmount ?? "0");
+  if (!Number.isFinite(total) || total < 0 ||
+      !Number.isFinite(collateral) || collateral < 0 || collateral > total) {
+    throw new Error("Binance Simple Earn 活期持仓金额无效");
+  }
+  // Unknown canRedeem is treated as non-redeemable (fail closed).
+  const frozen = row.canRedeem === true ? collateral : total;
+  return {
+    asset: row.asset,
+    productId: row.productId,
+    amount: row.totalAmount,
+    redeemingAmt: "0",
+    freezeAmount: String(frozen),
+  };
+}
