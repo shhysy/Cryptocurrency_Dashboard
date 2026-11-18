@@ -278,6 +278,62 @@ export async function markBuyOrderReconcileRequired(
   }
 }
 
+/**
+ * Claim one buy attempt before sending its POST. The same IndexedDB transaction
+ * moves the order into reconciliation hold and increments the attempt counter.
+ * A second tab cannot claim the same queued order while the first POST is in flight.
+ */
+export async function claimBuyOrderSubmission(
+  orderId: string,
+  now = Date.now(),
+): Promise<{ order: QueuedBuyOrder; attempt: number }> {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(ORDERS, "readwrite");
+      const store = tx.objectStore(ORDERS);
+      const request = store.get(orderId);
+      let result: { order: QueuedBuyOrder; attempt: number } | undefined;
+      let fatal: Error | null = null;
+      request.onsuccess = () => {
+        const current = request.result as QueuedBuyOrder | undefined;
+        if (!current) {
+          fatal = new Error("待买订单不存在");
+          tx.abort();
+          return;
+        }
+        if (current.status !== "pending" && current.status !== "partially_filled") {
+          fatal = new Error(`待买订单状态为 ${current.status}，禁止重复提交；请先对账`);
+          tx.abort();
+          return;
+        }
+        if (!Number.isInteger(current.attemptCount) || current.attemptCount < 0) {
+          fatal = new Error("待买订单 attemptCount 无效，必须人工核对");
+          tx.abort();
+          return;
+        }
+        const attempt = current.attemptCount;
+        const order: QueuedBuyOrder = {
+          ...current,
+          status: "reconcile_required",
+          attemptCount: attempt + 1,
+          lastAttemptAt: now,
+          lastError: "买单提交状态待交易所对账；禁止再次提交",
+          updatedAt: now,
+        };
+        store.put(order);
+        result = { order, attempt };
+      };
+      request.onerror = () => { fatal = request.error ?? new Error("读取待买订单失败"); tx.abort(); };
+      tx.oncomplete = () => result ? resolve(result) : reject(new Error("买单提交领取未完成"));
+      tx.onerror = () => reject(fatal ?? tx.error ?? new Error("领取买单提交权失败"));
+      tx.onabort = () => reject(fatal ?? tx.error ?? new Error("买单提交领取事务中止"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
 /** Clear a prior reconciliation hold only after a complete, matching exchange snapshot. */
 export async function markBuyOrderReconciled(orderId: string): Promise<QueuedBuyOrder> {
   const db = await openDb();
