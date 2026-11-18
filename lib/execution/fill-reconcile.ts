@@ -8,12 +8,14 @@ export interface FillOrderSnapshot {
   cummulativeQuoteQty: number;
 }
 
-export interface BuyFillReconciliation {
+export interface FillReconciliation {
   complete: boolean;
   fills: ExecutionFill[];
   quoteCommissionUsdt: number;
   reason: string | null;
 }
+
+export type BuyFillReconciliation = FillReconciliation;
 
 const EPSILON = 1e-8;
 
@@ -27,7 +29,7 @@ export function reconcileConfirmedBuyFills(
   trades: BinanceSpotTrade[],
   baseAsset: string,
   quoteAsset: string,
-): BuyFillReconciliation {
+): FillReconciliation {
   if (!order.symbol || !Number.isSafeInteger(order.orderId) || order.orderId <= 0 ||
       ![order.executedQty, order.cummulativeQuoteQty].every(Number.isFinite) ||
       order.executedQty < 0 || order.cummulativeQuoteQty < 0) {
@@ -94,7 +96,7 @@ export function reconcileConfirmedSellFills(
   trades: BinanceSpotTrade[],
   baseAsset: string,
   quoteAsset: string,
-): BuyFillReconciliation {
+): FillReconciliation {
   if (!order.symbol || !Number.isSafeInteger(order.orderId) || order.orderId <= 0 ||
       ![order.executedQty, order.cummulativeQuoteQty].every(Number.isFinite) ||
       order.executedQty < 0 || order.cummulativeQuoteQty < 0) {
