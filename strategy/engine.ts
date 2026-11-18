@@ -245,7 +245,6 @@ function planBuy(c: Ctx): Action {
   const factor = ctx.btcState === "bear" ? profile.bearFactor : ctx.btcState === "transition" ? profile.transitionFactor : 1;
   const plannedUsdt = planned * factor;
   const limits: string[] = [];
-  let amount = plannedUsdt;
   if (factor < 1) limits.push(`BTC ${ctx.btcState === "bear" ? "熊市" : "过渡市"}，金额 × ${factor}`);
 
   // 固定额度策略：不按账户净值、现金比例、核心/山寨组合占比或单周净值限额缩减。
