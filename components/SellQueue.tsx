@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { listSellEvents, type SellEventRecord } from "@/lib/execution/sell-store.browser";
 import { syncSellOrderFromBinance } from "@/lib/execution/sync-sell-order.browser";
+import { LIVE_SPOT_SELL_SUBMISSION_ENABLED } from "@/lib/binance.browser";
+import { submitQueuedSellEvent } from "@/lib/execution/sell-order-submit.browser";
 
 const STATUS: Record<SellEventRecord["status"], string> = {
   pending: "待执行",
@@ -25,6 +27,8 @@ export default function SellQueue({ refreshKey }: { refreshKey: number }) {
   const [error, setError] = useState<string | null>(null);
   const [syncLoading, setSyncLoading] = useState<Record<string, boolean>>({});
   const [syncMessages, setSyncMessages] = useState<Record<string, string>>({});
+  const [submitLoading, setSubmitLoading] = useState<Record<string, boolean>>({});
+  const [submitMessages, setSubmitMessages] = useState<Record<string, string>>({});
   const sellSyncInFlight = useRef(new Set<string>());
 
   useEffect(() => {
@@ -114,6 +118,26 @@ export default function SellQueue({ refreshKey }: { refreshKey: number }) {
     }
   };
 
+  const submitSell = async (event: SellEventRecord) => {
+    setSubmitLoading((current) => ({ ...current, [event.eventKey]: true }));
+    setSubmitMessages((current) => ({ ...current, [event.eventKey]: "" }));
+    try {
+      const result = await submitQueuedSellEvent(event.eventKey);
+      setSubmitMessages((current) => ({
+        ...current,
+        [event.eventKey]: result.reason ?? (result.submitted ? "卖单已提交，等待对账" : "卖单未提交"),
+      }));
+      setEvents(await listSellEvents());
+    } catch (e) {
+      setSubmitMessages((current) => ({
+        ...current,
+        [event.eventKey]: e instanceof Error ? e.message : "卖单提交失败",
+      }));
+    } finally {
+      setSubmitLoading((current) => ({ ...current, [event.eventKey]: false }));
+    }
+  };
+
   const openCount = events.filter((event) =>
     event.status === "pending" || event.status === "reconcile_required"
   ).length;
@@ -150,6 +174,20 @@ export default function SellQueue({ refreshKey }: { refreshKey: number }) {
                 <div><p className="text-mute">已确认成交笔数</p><p className="num text-fg">{event.fillIds.length}</p></div>
               </div>
               {event.lastError ? <p className="mt-2 text-[10px] text-warn">{event.lastError}</p> : null}
+              {event.status === "pending" ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!LIVE_SPOT_SELL_SUBMISSION_ENABLED || Boolean(submitLoading[event.eventKey])}
+                    onClick={() => void submitSell(event)}
+                    className="rounded-full border border-line px-3 py-1 text-[10px] text-sub hover:text-fg disabled:opacity-40"
+                    title="实盘卖出开关关闭时不可用"
+                  >
+                    {submitLoading[event.eventKey] ? "提交中…" : LIVE_SPOT_SELL_SUBMISSION_ENABLED ? "执行卖出" : "实盘卖出未启用"}
+                  </button>
+                  {submitMessages[event.eventKey] ? <p className="text-[10px] text-mute">{submitMessages[event.eventKey]}</p> : null}
+                </div>
+              ) : null}
               {event.status === "reconcile_required" && (event.clientOrderId || event.exchangeOrderId) ? (
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <button
