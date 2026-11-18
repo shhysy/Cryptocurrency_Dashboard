@@ -271,6 +271,14 @@ export async function fetchSpotTradesForOrder(symbol: string, orderId: number): 
   return all;
 }
 
+/** Read-only order lookup by Binance exchange order ID (used for SELL reconciliation). */
+export async function fetchSpotOrderById(symbol: string, orderId: number): Promise<BinanceSpotOrderSnapshot> {
+  if (!symbol || !Number.isSafeInteger(orderId) || orderId <= 0) {
+    throw new Error("查询订单缺少有效交易对或 Binance 订单 ID");
+  }
+  return signedGet<BinanceSpotOrderSnapshot>("/api/v3/order", { symbol, orderId });
+}
+
 /** Read-only fill history for both BUY and SELL; fill IDs are unique within a symbol. */
 export async function fetchSpotTrades(symbol: string, maxPages = 5): Promise<BinanceSpotTrade[]> {
   if (!symbol || !Number.isInteger(maxPages) || maxPages < 1 || maxPages > 20) {
