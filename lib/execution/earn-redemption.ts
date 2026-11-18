@@ -15,6 +15,7 @@ export interface EarnRedemptionIntent {
   productId: string;
   asset: "USDT";
   amountUsdt: number;
+  spotFreeBeforeUsdt: number | null;
   status: EarnRedemptionStatus;
   redemptionId: string | null;
   createdAt: number;
@@ -49,6 +50,7 @@ function stableHash(value: string): string {
 export function allocateFlexibleEarnRedemption(
   requiredUsdt: number,
   positions: SimpleEarnPositionRow[],
+  reservedByProduct: Record<string, number> = {},
 ): EarnRedemptionAllocation[] {
   positiveAmount(requiredUsdt, "待赎回金额");
   let remaining = Math.floor(requiredUsdt * 1e8) / 1e8;
@@ -65,7 +67,9 @@ export function allocateFlexibleEarnRedemption(
     positiveAmount(redeeming, "赎回中金额");
     positiveAmount(frozen, "冻结金额");
     if (redeeming + frozen > total + 1e-10) throw new Error("理财冻结/赎回中数量超过持仓总量");
-    const available = Math.max(0, total - redeeming - frozen);
+    const locallyReserved = row.productId ? (reservedByProduct[String(row.productId)] ?? 0) : 0;
+    positiveAmount(locallyReserved, "本地已预留赎回金额");
+    const available = Math.max(0, total - redeeming - frozen - locallyReserved);
     const take = Math.floor(Math.min(remaining, available) * 1e8) / 1e8;
     if (take <= 0) continue;
     if (!row.productId || !String(row.productId).trim()) {
@@ -84,9 +88,12 @@ export function createEarnRedemptionIntents(input: {
   orderId: string;
   allocations: EarnRedemptionAllocation[];
   now?: number;
+  spotFreeBeforeUsdt?: number;
 }): EarnRedemptionIntent[] {
   if (!input.orderId.trim()) throw new Error("赎回计划缺少待买订单 ID");
   const now = input.now ?? Date.now();
+  const spotFreeBeforeUsdt = input.spotFreeBeforeUsdt === undefined
+    ? null : positiveAmount(input.spotFreeBeforeUsdt, "赎回前现货 USDT");
   return input.allocations.map((allocation) => {
     positiveAmount(allocation.amountUsdt, "赎回金额");
     if (!allocation.productId.trim() || allocation.amountUsdt <= 0) {
@@ -99,6 +106,7 @@ export function createEarnRedemptionIntents(input: {
       productId: allocation.productId,
       asset: "USDT",
       amountUsdt: allocation.amountUsdt,
+      spotFreeBeforeUsdt,
       status: "planned",
       redemptionId: null,
       createdAt: now,
@@ -152,4 +160,24 @@ export function markEarnRedemptionAmbiguous(
     { lastError: reason.slice(0, 500) },
     now,
   );
+}
+
+
+/** Sum eligible Flexible Earn USDT after exchange locks and local pending redemption intents. */
+export function availableFlexibleEarnUsdt(
+  positions: SimpleEarnPositionRow[],
+  reservedByProduct: Record<string, number> = {},
+): number {
+  return positions.filter((row) => row.asset === "USDT").reduce((total, row) => {
+    const gross = Number(row.amount);
+    const redeeming = Number(row.redeemingAmt ?? "0");
+    const frozen = Number(row.freezeAmount ?? "0");
+    positiveAmount(gross, "理财持仓");
+    positiveAmount(redeeming, "赎回中金额");
+    positiveAmount(frozen, "冻结金额");
+    if (redeeming + frozen > gross + 1e-10) throw new Error("理财冻结/赎回中数量超过持仓总量");
+    const locallyReserved = row.productId ? (reservedByProduct[String(row.productId)] ?? 0) : 0;
+    positiveAmount(locallyReserved, "本地已预留赎回金额");
+    return total + Math.max(0, gross - redeeming - frozen - locallyReserved);
+  }, 0);
 }
