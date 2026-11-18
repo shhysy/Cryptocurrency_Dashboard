@@ -10,6 +10,18 @@ import {
 } from "./earn-redemption";
 
 describe("Simple Earn redemption intent", () => {
+  it("applies a product reservation only once when the API returns multiple position rows", () => {
+    const positions = [
+      { asset: "USDT", productId: "same-product", amount: "40" },
+      { asset: "USDT", productId: "same-product", amount: "60" },
+    ];
+    expect(availableFlexibleEarnUsdt(positions, { "same-product": 50 })).toBe(50);
+    expect(allocateFlexibleEarnRedemption(50, positions, { "same-product": 50 })).toEqual([
+      { productId: "same-product", amountUsdt: 10 },
+      { productId: "same-product", amountUsdt: 40 },
+    ]);
+  });
+
   it("subtracts existing local redemption reservations before allocating another order", () => {
     const positions = [
       { asset: "USDT", productId: "p1", amount: "100", redeemingAmt: "0", freezeAmount: "0" },
