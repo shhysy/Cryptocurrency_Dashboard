@@ -1,17 +1,32 @@
 "use client";
 
 import { useEffect } from "react";
+import type { DashboardData } from "@/lib/types";
+import { strategyConfig } from "@/strategy.config";
 import { listBuyOrders } from "@/lib/execution/store.browser";
 import { listSellEvents } from "@/lib/execution/sell-store.browser";
 import { syncBuyOrderFromBinance } from "@/lib/execution/sync-buy-order.browser";
 import { syncSellOrderFromBinance } from "@/lib/execution/sync-sell-order.browser";
 import { dispatchPendingTradeNotifications } from "@/lib/execution/notification-dispatch.browser";
+import {
+  LIVE_EARN_REDEMPTION_ENABLED,
+  LIVE_SPOT_ORDER_SUBMISSION_ENABLED,
+  LIVE_SPOT_SELL_SUBMISSION_ENABLED,
+} from "@/lib/binance.browser";
+import { prepareQueuedBuyDryRun } from "@/lib/execution/binance-order.browser";
+import { submitQueuedBuyOrder } from "@/lib/execution/buy-order-submit.browser";
+import {
+  prepareQueuedBuyEarnRedemption,
+  reconcileEarnRedemptionIntent,
+  submitPlannedEarnRedemption,
+} from "@/lib/execution/earn-redemption.browser";
+import { submitQueuedSellEvent } from "@/lib/execution/sell-order-submit.browser";
 
 /**
  * Dashboard-level background reconciler. It remains mounted even when the
  * queue tab is not selected. It is read-only and never submits/cancels orders.
  */
-export default function ExecutionBackground({ onChange }: { onChange: () => void }) {
+export default function ExecutionBackground({ onChange, data }: { onChange: () => void; data: DashboardData }) {
   useEffect(() => {
     let active = true;
     let running = false;
@@ -56,6 +71,72 @@ export default function ExecutionBackground({ onChange }: { onChange: () => void
             inFlight.delete(key);
           }
         }
+        // Live execution is deliberately gated by independent, compile-time
+        // switches. All three switches remain false in the checked-in build.
+        if (active && data.source === "binance" && !data.stale && data.market.accountKnown) {
+          if (LIVE_SPOT_ORDER_SUBMISSION_ENABLED) {
+            const queuedBuys = await listBuyOrders();
+            for (const order of queuedBuys) {
+              if (!active) return;
+              if (order.status !== "pending" && order.status !== "partially_filled") continue;
+              const coin = data.coins.find((item) =>
+                item.symbol === order.symbol || item.symbol + order.quoteAsset === order.symbol
+              );
+              if (!coin) continue;
+              const capUsdt = strategyConfig.profiles[coin.signal.group].capUsdt;
+              const remainingCapUsdt = Math.max(0, capUsdt - (coin.invested ?? 0));
+              if (remainingCapUsdt <= 1e-8) continue;
+
+              try {
+                if (LIVE_EARN_REDEMPTION_ENABLED) {
+                  const funding = await prepareQueuedBuyEarnRedemption({
+                    orderId: order.id,
+                    requestedUsdt: Math.min(order.remainingUsdt, remainingCapUsdt),
+                    symbol: order.symbol,
+                    quoteAsset: order.quoteAsset,
+                  });
+                  if (funding.intents.length > 0) {
+                    for (const intent of funding.intents) {
+                      if (!active) return;
+                      if (intent.status === "planned") {
+                        await submitPlannedEarnRedemption(intent.id);
+                        changed = true;
+                      } else if (["submitting", "submitted", "redeeming", "reconcile_required"].includes(intent.status)) {
+                        const result = await reconcileEarnRedemptionIntent(intent);
+                        if (result.outcome !== "waiting") changed = true;
+                      }
+                    }
+                    // Do not buy against a balance snapshot taken before redemption.
+                    break;
+                  }
+                }
+
+                const preview = await prepareQueuedBuyDryRun(order, remainingCapUsdt);
+                if (preview.ok && preview.executableUsdt > 0) {
+                  await submitQueuedBuyOrder(order.id, remainingCapUsdt);
+                  changed = true;
+                  break;
+                }
+              } catch (error) {
+                console.warn("[execution-submit] BUY blocked", order.id, error);
+              }
+            }
+          }
+
+          if (LIVE_SPOT_SELL_SUBMISSION_ENABLED) {
+            const queuedSells = await listSellEvents();
+            const event = queuedSells.find((item) => item.status === "pending");
+            if (event) {
+              try {
+                await submitQueuedSellEvent(event.eventKey);
+                changed = true;
+              } catch (error) {
+                console.warn("[execution-submit] SELL blocked", event.eventKey, error);
+              }
+            }
+          }
+        }
+
         const notifications = await dispatchPendingTradeNotifications();
         if (notifications.sent > 0) changed = true;
         if (notifications.failed > 0) {
