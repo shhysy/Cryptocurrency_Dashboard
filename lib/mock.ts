@@ -84,7 +84,7 @@ const CALM: Record<string, KF> = {
 };
 
 // BTC 先跌到 MA200 下方，再在最后一周反弹：RSI 低、价格位置得分高、企稳三项基本满足
-const BTC_BOTTOM: KF = [[208, 150], [222, 172], [236, 150], [246, 118], [252, 96], [258, 101], [259, 110]];
+const BTC_BOTTOM: KF = [[208, 150], [222, 172], [236, 150], [246, 118], [252, 90], [258, 70], [259, 80]];
 
 // strong：跌得更深，RSI 压到 30 以下，价格位置拿满 45 分
 const BTC_DEEP: KF = [[208, 150], [222, 172], [236, 150], [246, 100], [252, 72], [258, 78], [259, 90]];
@@ -98,7 +98,7 @@ const FOCUS: Record<Scenario, Record<string, KF>> = {
 };
 
 // 各场景的恐惧贪婪指数（示例值）：accumulate 情绪中性偏恐惧，strong 极度恐惧，sell 极度贪婪
-const FEAR_GREED: Record<Scenario, number> = { none: 55, accumulate: 38, strong: 20, sell: 85 };
+const FEAR_GREED: Record<Scenario, number> = { none: 55, accumulate: 38, strong: 10, sell: 85 };
 
 const SCALE: Record<string, number> = { BTC: 400, ETH: 26, BNB: 3.2, UNI: 0.05, PAXG: 14, CL: 0.5 };
 const SEED: Record<string, number> = { BTC: 11, ETH: 22, BNB: 44, UNI: 55, PAXG: 77, CL: 88 };
