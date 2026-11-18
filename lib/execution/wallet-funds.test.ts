@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  normalizeFlexibleEarnPosition,
   planSpotFirstBuyFunding,
   sumSimpleEarnUsdtPositions,
   summarizeUsdtWallets,
@@ -85,5 +86,40 @@ describe("Spot-first USDT funding", () => {
   it("rejects invalid planning amounts", () => {
     expect(() => planSpotFirstBuyFunding(-1, 0, 0)).toThrow("非负有限数值");
     expect(() => planSpotFirstBuyFunding(10, Number.NaN, 0)).toThrow("非负有限数值");
+  });
+});
+
+
+describe("Binance Flexible Earn position normalization", () => {
+  it("uses the documented totalAmount/productId/canRedeem fields", () => {
+    expect(normalizeFlexibleEarnPosition({
+      asset: "USDT",
+      productId: "flex-usdt-1",
+      totalAmount: "100",
+      canRedeem: true,
+      collateralAmount: "15",
+    })).toEqual({
+      asset: "USDT",
+      productId: "flex-usdt-1",
+      amount: "100",
+      redeemingAmt: "0",
+      freezeAmount: "15",
+    });
+  });
+
+  it("fails closed when canRedeem is false or missing", () => {
+    expect(normalizeFlexibleEarnPosition({
+      asset: "USDT", productId: "flex-locked", totalAmount: "40", canRedeem: false,
+    }).freezeAmount).toBe("40");
+    expect(normalizeFlexibleEarnPosition({
+      asset: "USDT", productId: "flex-unknown", totalAmount: "40",
+    }).freezeAmount).toBe("40");
+  });
+
+  it("rejects invalid collateral amounts", () => {
+    expect(() => normalizeFlexibleEarnPosition({
+      asset: "USDT", productId: "flex-invalid", totalAmount: "10",
+      canRedeem: true, collateralAmount: "11",
+    })).toThrow("持仓金额无效");
   });
 });
