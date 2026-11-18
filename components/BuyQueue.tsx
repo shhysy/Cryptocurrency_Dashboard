@@ -82,54 +82,6 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
     return () => { active = false; };
   }, [data, refreshKey]);
 
-  // Reconcile submitted/ambiguous attempts while the dashboard is open.
-  // This is read-only: it never creates a new order or repeats a POST.
-  useEffect(() => {
-    let active = true;
-    let running = false;
-    const reconcileOpenAttempts = async () => {
-      if (running) return;
-      running = true;
-      try {
-        const rows = await listBuyOrders();
-        for (const order of rows) {
-          if (!active) break;
-          if (order.status !== "reconcile_required" || order.attemptCount <= 0) continue;
-          if (buySyncInFlight.current.has(order.id)) continue;
-          buySyncInFlight.current.add(order.id);
-          setBuySyncLoading((current) => ({ ...current, [order.id]: true }));
-          try {
-            const attempt = order.attemptCount - 1;
-            const result = await syncBuyOrderFromBinance(order.id, attempt);
-            setBuySyncMessages((current) => ({
-              ...current,
-              [order.id]: result.reason ?? `自动对账：${result.action}；新增成交 ${result.newlyRecordedFills} 笔`,
-            }));
-          } catch (e) {
-            setBuySyncMessages((current) => ({
-              ...current,
-              [order.id]: e instanceof Error ? e.message : "自动买单对账失败",
-            }));
-          } finally {
-            buySyncInFlight.current.delete(order.id);
-            setBuySyncLoading((current) => ({ ...current, [order.id]: false }));
-          }
-        }
-        if (active) setOrders(await listBuyOrders());
-      } catch (e) {
-        if (active) setError(e instanceof Error ? e.message : "自动刷新买单对账失败");
-      } finally {
-        running = false;
-      }
-    };
-    const timer = window.setInterval(() => { void reconcileOpenAttempts(); }, 30_000);
-    void reconcileOpenAttempts();
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [refreshKey]);
-
   const runDryRun = async (order: QueuedBuyOrder, remainingCapUsdt: number) => {
     setPreviewLoading((current) => ({ ...current, [order.id]: true }));
     setPreviewErrors((current) => ({ ...current, [order.id]: "" }));
