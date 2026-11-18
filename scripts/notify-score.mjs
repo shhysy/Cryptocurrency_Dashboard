@@ -2,7 +2,7 @@
  * 分数达标邮件通知（QQ 邮箱 SMTP）。
  *
  * 用法：
- *   1. 复制 .env.example 为 .env，填写 SMTP_*、币安 Key 等
+ *   1. 在项目根目录编辑唯一的 .env（填写 SMTP_*、币安 Key 等）
  *   2. 本机先 npm run dev
  *   3. npm run notify
  *
@@ -18,9 +18,8 @@ const root = resolve(__dirname, "..");
 
 function loadEnv() {
   const out = { ...process.env };
-  for (const name of [".env", ".env.local"]) {
-    const p = resolve(root, name);
-    if (!existsSync(p)) continue;
+  const p = resolve(root, ".env");
+  if (existsSync(p)) {
     for (const line of readFileSync(p, "utf8").split(/\r?\n/)) {
       if (!line || line.startsWith("#") || !line.includes("=")) continue;
       const i = line.indexOf("=");
@@ -201,7 +200,6 @@ function pickHits(data) {
 
 /** 邮件正文模板：中文名 + 代码 + 具体分数 */
 function buildMail(hits) {
-  // 主题：比特币 62分、以太坊 58分
   const subjectBits = hits.map((h) => `${h.name} ${h.score}分`);
   const subject = `【信号看板】${subjectBits.join("、")}`;
 
@@ -231,7 +229,6 @@ function buildMail(hits) {
       .join("\n");
   });
 
-  // 摘要表：名称 | 代码 | 分数
   const summaryLines = hits.map(
     (h) => `  ${h.name}（${h.symbol}）  ${h.score} 分（门槛 ${h.minScore}）`,
   );
