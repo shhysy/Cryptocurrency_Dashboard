@@ -33,7 +33,7 @@ export async function syncSellOrderFromBinance(
   if (!/^[A-Z0-9]{2,20}$/.test(quoteAsset)) throw new Error("报价资产格式无效");
 
   const events = await listSellEvents();
-  const event = events.find((item) => item.eventKey === eventKey);
+  let event = events.find((item) => item.eventKey === eventKey);
   if (!event) throw new Error("找不到待对账卖出事件");
   if (event.status !== "pending" && event.status !== "reconcile_required") {
     throw new Error(`卖出事件状态为 ${event.status}，不允许对账`);
@@ -64,7 +64,7 @@ export async function syncSellOrderFromBinance(
       if (snapshot.clientOrderId !== event.clientOrderId) {
         throw new Error("Binance 返回的 clientOrderId 与本地卖出事件不一致");
       }
-      await bindSellEventToExchangeOrder(event.eventKey, String(snapshot.orderId));
+      event = await bindSellEventToExchangeOrder(event.eventKey, String(snapshot.orderId));
     } else {
       throw new Error("卖出事件缺少可用订单标识");
     }
