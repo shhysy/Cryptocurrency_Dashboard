@@ -1,5 +1,6 @@
 import {
   fetchSpotOrderById,
+  fetchSpotOrderByClientId,
   fetchSpotTradesForOrder,
 } from "../binance.browser";
 import { decideOrderReconciliation } from "./order-reconcile";
@@ -7,6 +8,7 @@ import { reconcileConfirmedSellFills } from "./fill-reconcile";
 import { recordConfirmedSellFill } from "./store.browser";
 import {
   listSellEvents,
+  bindSellEventToExchangeOrder,
   updateSellEvent,
   type SellEventRecord,
 } from "./sell-store.browser";
@@ -36,36 +38,46 @@ export async function syncSellOrderFromBinance(
   if (event.status !== "pending" && event.status !== "reconcile_required") {
     throw new Error(`卖出事件状态为 ${event.status}，不允许对账`);
   }
-  if (!event.exchangeOrderId || !/^[0-9]{1,32}$/.test(event.exchangeOrderId)) {
+  if ((!event.exchangeOrderId || !/^[0-9]{1,32}$/.test(event.exchangeOrderId)) &&
+      !event.clientOrderId) {
     return {
       action: "manual_review",
       newlyRecordedFills: 0,
       orderStatus: null,
-      reason: "卖出事件尚未绑定 Binance 订单 ID；当前没有卖单提交器，不能猜测订单",
+      reason: "卖出事件缺少 Binance 订单 ID 和 clientOrderId；无法安全对账",
     };
   }
 
   const pair = event.symbol.endsWith(quoteAsset) ? event.symbol : event.symbol + quoteAsset;
   const baseAsset = pair.slice(0, pair.length - quoteAsset.length);
-  const numericOrderId = Number(event.exchangeOrderId);
-  if (!Number.isSafeInteger(numericOrderId) || numericOrderId <= 0) {
-    return {
-      action: "manual_review", newlyRecordedFills: 0, orderStatus: null,
-      reason: "本地绑定的 Binance 订单 ID 无效",
-    };
-  }
 
   let snapshot;
   try {
-    snapshot = await fetchSpotOrderById(pair, numericOrderId);
+    if (event.exchangeOrderId && /^[0-9]{1,32}$/.test(event.exchangeOrderId)) {
+      const numericOrderId = Number(event.exchangeOrderId);
+      if (!Number.isSafeInteger(numericOrderId) || numericOrderId <= 0) {
+        throw new Error("本地绑定的 Binance 订单 ID 无效");
+      }
+      snapshot = await fetchSpotOrderById(pair, numericOrderId);
+    } else if (event.clientOrderId) {
+      snapshot = await fetchSpotOrderByClientId(pair, event.clientOrderId);
+      if (snapshot.clientOrderId !== event.clientOrderId) {
+        throw new Error("Binance 返回的 clientOrderId 与本地卖出事件不一致");
+      }
+      await bindSellEventToExchangeOrder(event.eventKey, String(snapshot.orderId));
+    } else {
+      throw new Error("卖出事件缺少可用订单标识");
+    }
   } catch (error) {
     const reason = error instanceof Error ? error.message : "查询 Binance 卖出订单失败";
     await updateSellEvent({ ...event, status: "reconcile_required", lastError: reason, updatedAt: Date.now() });
     return { action: "manual_review", newlyRecordedFills: 0, orderStatus: null, reason };
   }
 
-  if (snapshot.symbol !== pair || String(snapshot.orderId) !== event.exchangeOrderId) {
-    const reason = "Binance 返回的交易对或订单 ID 与本地卖出事件不一致";
+  if (snapshot.symbol !== pair ||
+      (event.exchangeOrderId && String(snapshot.orderId) !== event.exchangeOrderId) ||
+      (event.clientOrderId && snapshot.clientOrderId !== event.clientOrderId)) {
+    const reason = "Binance 返回的交易对、订单 ID 或 clientOrderId 与本地卖出事件不一致";
     await updateSellEvent({ ...event, status: "reconcile_required", lastError: reason, updatedAt: Date.now() });
     return { action: "manual_review", newlyRecordedFills: 0, orderStatus: snapshot.status, reason };
   }
