@@ -136,8 +136,9 @@ describe("position reconciliation diagnostics", () => {
     });
     expect(report).toMatchObject({
       status: "exchange_higher", ledgerQty: 1, exchangeTotalQty: 1.1,
-      deltaQty: 0.1, canSell: false,
+      canSell: false,
     });
+    expect(report.deltaQty).toBeCloseTo(0.1, 10);
   });
 
   it("classifies a ledger-side surplus and preserves free/locked detail", async () => {
@@ -147,8 +148,9 @@ describe("position reconciliation diagnostics", () => {
     });
     expect(report).toMatchObject({
       status: "ledger_higher", ledgerQty: 1, exchangeFreeQty: 0.5,
-      exchangeLockedQty: 0.2, deltaQty: -0.3, canSell: false,
+      exchangeLockedQty: 0.2, canSell: false,
     });
+    expect(report.deltaQty).toBeCloseTo(-0.3, 10);
   });
 
   it("marks inconsistent Binance components as unsafe even if ledger total matches", async () => {
