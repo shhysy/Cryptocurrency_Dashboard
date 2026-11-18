@@ -144,3 +144,70 @@ export function assertPositionMatchesExchange(
     protectedBaseQty: position.baseQty,
   };
 }
+
+export type PositionReconciliationStatus =
+  | "matched"
+  | "exchange_higher"
+  | "ledger_higher"
+  | "exchange_components_invalid";
+
+export interface PositionReconciliationReport {
+  status: PositionReconciliationStatus;
+  ledgerQty: number;
+  exchangeFreeQty: number;
+  exchangeLockedQty: number;
+  exchangeTotalQty: number;
+  deltaQty: number;
+  toleranceQty: number;
+  canSell: boolean;
+  explanation: string;
+}
+
+/**
+ * Produce an audit-friendly quantity comparison. This report never adjusts
+ * either source and is informational only; sell preflight must still call
+ * assertPositionMatchesExchange and fail closed on every mismatch.
+ */
+export function buildPositionReconciliationReport(
+  position: PositionLedgerSnapshot,
+  exchange: ExchangePositionBalance,
+): PositionReconciliationReport {
+  const values = [position.totalQty, exchange.freeQty, exchange.lockedQty, exchange.totalQty];
+  if (!values.every(Number.isFinite) ||
+      position.totalQty < 0 || exchange.freeQty < 0 ||
+      exchange.lockedQty < 0 || exchange.totalQty < 0) {
+    throw new Error("持仓对账报告输入包含无效数量");
+  }
+  const toleranceQty = Math.max(EPSILON, exchange.totalQty * EPSILON);
+  const componentsMatch = Math.abs(
+    exchange.freeQty + exchange.lockedQty - exchange.totalQty,
+  ) <= toleranceQty;
+  const deltaQty = exchange.totalQty - position.totalQty;
+  let status: PositionReconciliationStatus;
+  let explanation: string;
+  if (!componentsMatch) {
+    status = "exchange_components_invalid";
+    explanation = "Binance free + locked 与 total 不一致；暂停卖出并检查账户快照";
+  } else if (Math.abs(deltaQty) <= toleranceQty) {
+    status = "matched";
+    explanation = "本地成交台账与 Binance 总持仓数量一致";
+  } else if (deltaQty > 0) {
+    status = "exchange_higher";
+    explanation = "Binance 持仓多于本地成交台账；可能存在转入、漏同步成交或其他账户操作";
+  } else {
+    status = "ledger_higher";
+    explanation = "本地成交台账多于 Binance 持仓；可能存在转出、手动卖出或未同步的账户变化";
+  }
+  return {
+    status,
+    ledgerQty: position.totalQty,
+    exchangeFreeQty: exchange.freeQty,
+    exchangeLockedQty: exchange.lockedQty,
+    exchangeTotalQty: exchange.totalQty,
+    deltaQty,
+    toleranceQty,
+    canSell: status === "matched",
+    explanation,
+  };
+}
+
