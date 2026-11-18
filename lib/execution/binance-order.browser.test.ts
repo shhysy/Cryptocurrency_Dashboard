@@ -6,6 +6,7 @@ import {
   prepareQueuedBuyDryRun,
 } from "./binance-order.browser";
 import type { QueuedBuyOrder } from "./types";
+import type { BuyFundsReservation } from "./fund-reservation";
 import type { SpotSymbolFilters } from "../binance.browser";
 
 const order: QueuedBuyOrder = {
@@ -67,6 +68,33 @@ describe("Binance buy execution adapter safety boundary", () => {
     );
     expect(getSymbolFilters).toHaveBeenCalledWith("BTCUSDT");
     expect(result.symbol).toBe("BTCUSDT");
+  });
+
+
+  it("subtracts other active USDT reservations before planning a partial buy", async () => {
+    const otherReservation: BuyFundsReservation = {
+      orderId: "queue-eth-2",
+      symbol: "ETHUSDT",
+      reservedUsdt: 40,
+      status: "active",
+      createdAt: 1,
+      updatedAt: 1,
+      releaseReason: null,
+    };
+    const result = await prepareQueuedBuyDryRun(order, 1000, {
+      getFreeUsdt: vi.fn().mockResolvedValue(100),
+      getSymbolFilters: vi.fn().mockResolvedValue(filters),
+      getReservations: vi.fn().mockResolvedValue([otherReservation]),
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      freeUsdt: 100,
+      otherReservedUsdt: 40,
+      unreservedFreeUsdt: 60,
+      proposedReserveUsdt: 60,
+      executableUsdt: 60,
+      remainingPlannedUsdt: 40,
+    });
   });
 
   it("respects the remaining per-asset cost cap", async () => {
