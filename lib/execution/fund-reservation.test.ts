@@ -35,7 +35,7 @@ describe("USDT buy-funds reservation planner", () => {
       observedFreeUsdt: 100,
       activeReservations: [active("order-a", 30), active("order-b", 20)],
       minNotionalUsdt: 5,
-    })).toMatchObject({ ok: true, reserveUsdt: 80, totalReservedUsdt: 20 });
+    })).toMatchObject({ ok: true, reserveUsdt: 30, availableUsdt: 80, totalReservedUsdt: 20 });
   });
 
   it("blocks when unreserved funds fall below exchange minimum notional", () => {
