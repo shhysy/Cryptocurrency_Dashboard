@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Balances from "./Balances";
 import BuyQueue from "./BuyQueue";
+import SellQueue from "./SellQueue";
 import CoinCardView from "./CoinCard";
 import CoinCardCompact from "./CoinCardCompact";
 import Hero from "./Hero";
@@ -144,15 +145,16 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
   useEffect(() => {
     if (!directReady || data.source !== "binance" || data.stale) return;
     let cancelled = false;
-    import("@/lib/execution/signal-queue")
-      .then(({ enqueueEligibleBuySignals }) => enqueueEligibleBuySignals(data))
-      .then((result) => {
-        if (!cancelled && result.created > 0) {
-          console.info("[buy-queue] 新增待买策略事件", result.created);
-        }
+    Promise.all([
+      import("@/lib/execution/signal-queue").then(({ enqueueEligibleBuySignals }) => enqueueEligibleBuySignals(data)),
+      import("@/lib/execution/sell-signal-queue").then(({ enqueueEligibleSellSignals }) => enqueueEligibleSellSignals(data)),
+    ])
+      .then(([buy, sell]) => {
+        if (!cancelled && buy.created > 0) console.info("[buy-queue] 新增待买策略事件", buy.created);
+        if (!cancelled && sell.created > 0) console.info("[sell-queue] 新增待卖策略事件", sell.created);
       })
       .catch((error) => {
-        if (!cancelled) console.warn("[buy-queue]", error);
+        if (!cancelled) console.warn("[strategy-queue]", error);
       });
     return () => { cancelled = true; };
   }, [data, directReady]);
@@ -354,7 +356,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
                 {tab === "trades" && <Timeline trades={data.trades} symbols={symbols} bare />}
                 {tab === "balance" && <Balances data={data} bare />}
                 {tab === "strategy" && <StrategyInfo bare />}
-                {tab === "queue" && <BuyQueue refreshKey={data.updatedAt} />}
+                {tab === "queue" && <><BuyQueue refreshKey={data.updatedAt} /><SellQueue refreshKey={data.updatedAt} /></>}
               </div>
             </div>
           </aside>
@@ -386,6 +388,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
 
       <Timeline trades={data.trades} symbols={symbols} />
       <BuyQueue refreshKey={data.updatedAt} />
+      <SellQueue refreshKey={data.updatedAt} />
       <StrategyInfo />
       {notes}
       <div className="pt-6">{footer}</div>
