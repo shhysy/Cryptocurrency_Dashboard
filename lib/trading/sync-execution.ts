@@ -19,9 +19,9 @@ import {
 export interface SyncExecutionResult {
   fillsComplete: boolean;
   insertedTrades: number;
+  insertedTradeIds: string[];
   executionStatus: string;
   remainingQuoteUsdt: number;
-  canNotifyFilledTrades: boolean;
   note?: string;
 }
 
@@ -65,8 +65,12 @@ export async function syncExecutionFromBinance(
   });
 
   let insertedTrades = 0;
+  const insertedTradeIds: string[] = [];
   for (const trade of result.trades) {
-    if (await addTradeOnce(trade)) insertedTrades += 1;
+    if (await addTradeOnce(trade)) {
+      insertedTrades += 1;
+      insertedTradeIds.push(trade.id);
+    }
   }
 
   await saveExecution({
@@ -116,10 +120,9 @@ export async function syncExecutionFromBinance(
   return {
     fillsComplete: result.fillsComplete,
     insertedTrades,
+    insertedTradeIds,
     executionStatus: result.execution.status,
     remainingQuoteUsdt: result.remainingQuoteUsdt,
-    canNotifyFilledTrades: result.fillsComplete && result.trades.length > 0 &&
-      result.execution.status !== "reconcile-required",
     ...(result.note ? { note: result.note } : {}),
   };
 }
