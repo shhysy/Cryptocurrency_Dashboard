@@ -209,6 +209,7 @@ export function matchEarnRedemptionRecord<T extends {
 export function findUniqueEarnRedemptionRecord<T extends {
   redeemId?: number | string;
   productId?: string;
+  projectId?: string;
   asset?: string;
   amount?: string;
   destAccount?: string;
@@ -218,7 +219,7 @@ export function findUniqueEarnRedemptionRecord<T extends {
 ): T | null {
   const matches = records.filter((record) =>
     record.redeemId !== undefined &&
-    record.productId === intent.productId &&
+    (record.projectId === intent.productId || record.productId === intent.productId) &&
     record.asset === "USDT" &&
     record.destAccount === "SPOT" &&
     Number(record.amount) === intent.amountUsdt
