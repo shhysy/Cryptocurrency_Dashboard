@@ -59,6 +59,7 @@ export async function syncBuyOrderFromBinance(
 
   const decision = decideOrderReconciliation({
     status: snapshot.status,
+    origQty: Number(snapshot.origQty),
     executedQty: Number(snapshot.executedQty),
     cummulativeQuoteQty: Number(snapshot.cummulativeQuoteQty),
     orderId: snapshot.orderId,
