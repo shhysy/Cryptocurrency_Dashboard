@@ -89,6 +89,8 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
       const result = await prepareQueuedBuyEarnRedemption({
         orderId: order.id,
         requestedUsdt: order.remainingUsdt,
+        symbol: order.symbol,
+        quoteAsset: order.quoteAsset,
       });
       setFundingPlans((current) => ({
         ...current,
