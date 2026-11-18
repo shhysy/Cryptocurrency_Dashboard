@@ -44,7 +44,7 @@ const data = (over: Partial<DashboardData> = {}): DashboardData => ({
     change24h: 0, qty: 1, marketValue: 60000, avgCost: 30000, invested: 30000,
     returnPct: 1, toDoublePct: 0, doubleProgress: 1,
     series: [{ t: 1, c: 50000 }, { t: 2, c: 51000 }, { t: 3, c: 52000 }],
-    buys: [{ id: "buy-1", symbol: "BTC", time: 1, price: 30000, qty: 1, fee: 0, source: "binance" }],
+    buys: [{ id: "buy-1", t: 1, price: 30000, qty: 1, position: "mid" }],
     signal: sellSignal,
   }],
   trades: [],
