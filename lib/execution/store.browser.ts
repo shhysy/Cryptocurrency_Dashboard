@@ -149,6 +149,73 @@ export async function recordConfirmedBuyFill(
   }
 }
 
+/** Atomically mark the latest persisted queue row for manual reconciliation. */
+export async function markBuyOrderReconcileRequired(
+  orderId: string,
+  reason: string,
+): Promise<QueuedBuyOrder> {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(ORDERS, "readwrite");
+      const store = tx.objectStore(ORDERS);
+      const request = store.get(orderId);
+      let updated: QueuedBuyOrder | undefined;
+      request.onsuccess = () => {
+        const current = request.result as QueuedBuyOrder | undefined;
+        if (!current) {
+          tx.abort();
+          return;
+        }
+        updated = {
+          ...current,
+          status: "reconcile_required",
+          lastError: reason,
+          updatedAt: Date.now(),
+        };
+        store.put(updated);
+      };
+      tx.oncomplete = () => updated ? resolve(updated) : reject(new Error("待买订单不存在"));
+      tx.onerror = () => reject(tx.error ?? new Error("更新待买订单复核状态失败"));
+      tx.onabort = () => reject(tx.error ?? new Error("更新待买订单复核状态事务中止"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** Clear a prior reconciliation hold only after a complete, matching exchange snapshot. */
+export async function markBuyOrderReconciled(orderId: string): Promise<QueuedBuyOrder> {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(ORDERS, "readwrite");
+      const store = tx.objectStore(ORDERS);
+      const request = store.get(orderId);
+      let updated: QueuedBuyOrder | undefined;
+      request.onsuccess = () => {
+        const current = request.result as QueuedBuyOrder | undefined;
+        if (!current) {
+          tx.abort();
+          return;
+        }
+        const status = current.remainingUsdt <= 1e-8
+          ? "filled"
+          : current.filledUsdt > 0
+            ? "partially_filled"
+            : "pending";
+        updated = { ...current, status, lastError: null, updatedAt: Date.now() };
+        store.put(updated);
+      };
+      tx.oncomplete = () => updated ? resolve(updated) : reject(new Error("待买订单不存在"));
+      tx.onerror = () => reject(tx.error ?? new Error("清除待买订单复核状态失败"));
+      tx.onabort = () => reject(tx.error ?? new Error("清除待买订单复核状态事务中止"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
 export async function listTradeLedger(): Promise<TradeLedgerEntry[]> {
   const db = await openDb();
   try {
