@@ -133,7 +133,9 @@ export async function syncSellOrderFromBinance(
     snapshot.status === "EXPIRED" || snapshot.status === "REJECTED";
   const nextEvent: SellEventRecord = {
     ...event,
-    status: terminal ? "executed" : "reconcile_required",
+    status: terminal
+      ? (Number(snapshot.executedQty) + 1e-8 < Number(snapshot.origQty) ? "partially_filled" : "executed")
+      : "reconcile_required",
     fillIds,
     lastError: terminal ? null : "卖出订单仍未进入终态；已记录当前确认成交，继续只读对账",
     updatedAt: Date.now(),
