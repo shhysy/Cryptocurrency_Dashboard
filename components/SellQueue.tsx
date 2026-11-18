@@ -70,7 +70,7 @@ export default function SellQueue({ refreshKey }: { refreshKey: number }) {
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
                 <div><p className="text-mute">预留卖出数量</p><p className="num text-fg">{event.requestedQty.toPrecision(8).replace(/\.?0+$/, "")}</p></div>
-                <div><p className="text-mute">实际成交数量</p><p className="num text-fg">{(event.filledQty ?? 0).toPrecision(8).replace(/\\.?0+$/, "")}</p></div>
+                <div><p className="text-mute">实际成交数量</p><p className="num text-fg">{(event.filledQty ?? 0).toPrecision(8).replace(/\.?0+$/, "")}</p></div>
                 <div><p className="text-mute">已确认成交笔数</p><p className="num text-fg">{event.fillIds.length}</p></div>
               </div>
               {event.lastError ? <p className="mt-2 text-[10px] text-warn">{event.lastError}</p> : null}
