@@ -163,6 +163,7 @@ export interface SpotSymbolFilters {
   quoteAsset: string;
   basePrecision: number;
   quotePrecision: number;
+  quoteOrderQtyMarketAllowed?: boolean;
   filters: Record<string, string | number>[];
 }
 
