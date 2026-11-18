@@ -586,8 +586,8 @@ export async function markTradeNotificationFailed(
  */
 export async function enqueueEarnRedemptionIntents(
   intents: EarnRedemptionIntent[],
-): Promise<{ created: number; existing: number }> {
-  if (intents.length === 0) return { created: 0, existing: 0 };
+): Promise<{ created: number; existing: number; intents: EarnRedemptionIntent[] }> {
+  if (intents.length === 0) return { created: 0, existing: 0, intents: [] };
   const ids = new Set<string>();
   for (const intent of intents) {
     if (!intent.id || !intent.orderId || !intent.productId || intent.asset !== "USDT" ||
@@ -604,8 +604,9 @@ export async function enqueueEarnRedemptionIntents(
       const store = tx.objectStore(EARN_REDEMPTIONS);
       let created = 0;
       let existing = 0;
+      const persistedIntents: EarnRedemptionIntent[] = new Array(intents.length);
       let fatal: Error | null = null;
-      for (const intent of intents) {
+      intents.forEach((intent, index) => {
         const request = store.get(intent.id);
         request.onsuccess = () => {
           const prior = request.result as EarnRedemptionIntent | undefined;
@@ -617,17 +618,19 @@ export async function enqueueEarnRedemptionIntents(
               return;
             }
             existing += 1;
+            persistedIntents[index] = prior;
           } else {
             store.add(intent);
             created += 1;
+            persistedIntents[index] = intent;
           }
         };
         request.onerror = () => {
           fatal = request.error ?? new Error("读取理财赎回意图失败");
           tx.abort();
         };
-      }
-      tx.oncomplete = () => resolve({ created, existing });
+      });
+      tx.oncomplete = () => resolve({ created, existing, intents: persistedIntents });
       tx.onerror = () => reject(fatal ?? tx.error ?? new Error("保存理财赎回意图失败"));
       tx.onabort = () => reject(fatal ?? tx.error ?? new Error("保存理财赎回意图事务中止"));
     });
