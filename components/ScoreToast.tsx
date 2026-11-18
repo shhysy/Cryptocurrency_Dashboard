@@ -12,11 +12,7 @@ const CN: Record<string, string> = {
   CL: "原油(WTI)",
 };
 
-type ToastItem = {
-  id: string;
-  title: string;
-  body: string;
-};
+type ToastItem = { id: string; title: string; body: string };
 
 const STORAGE_KEY = "score-toast-seen-v1";
 const TTL_MS = 5_000;
@@ -39,17 +35,13 @@ function wasSeen(key: string) {
   return Boolean(seenMap()[key]);
 }
 
-/**
- * 右侧分数达标提示：出现后约 5 秒自动消失。
- * 门槛来自 data.config.mailScoreCore / mailScoreAlt（对应 .env）。
- */
 export default function ScoreToast({ data }: { data: DashboardData }) {
   const [items, setItems] = useState<ToastItem[]>([]);
   const timers = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
-    const core = data.config?.mailScoreCore ?? 55;
-    const alt = data.config?.mailScoreAlt ?? 75;
+    const core = data.config?.mailScoreCore ?? 61;
+    const alt = data.config?.mailScoreAlt ?? 83;
     const next: ToastItem[] = [];
 
     for (const c of data.coins) {
@@ -67,7 +59,7 @@ export default function ScoreToast({ data }: { data: DashboardData }) {
       next.push({
         id: key,
         title: `${name} 达到 ${score} 分`,
-        body: `${name}（${c.symbol}）机会指数 ${score}/90，已达${gLabel}门槛 ${min} 分`,
+        body: `${name}（${c.symbol}）机会指数 ${score}/100，已达${gLabel}门槛 ${min} 分`,
       });
     }
 
