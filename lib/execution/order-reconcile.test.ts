@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideOrderReconciliation } from "./order-reconcile";
+import { decideOrderReconciliation, isExchangeOrderTerminal } from "./order-reconcile";
 import { clientOrderIdForEvent } from "./client-order-id";
 
 describe("Binance 订单对账与幂等 ID", () => {
@@ -39,5 +39,21 @@ describe("Binance 订单对账与幂等 ID", () => {
 
   it("未查到订单不能假定失败并重发", () => {
     expect(decideOrderReconciliation(null).action).toBe("manual_review");
+  });
+});
+
+
+describe("exchange order terminal lock", () => {
+  it("keeps NEW and PARTIALLY_FILLED orders locked", () => {
+    expect(isExchangeOrderTerminal("NEW")).toBe(false);
+    expect(isExchangeOrderTerminal("PARTIALLY_FILLED")).toBe(false);
+  });
+
+  it("releases the submission lock only for terminal statuses", () => {
+    expect(isExchangeOrderTerminal("FILLED")).toBe(true);
+    expect(isExchangeOrderTerminal("CANCELED")).toBe(true);
+    expect(isExchangeOrderTerminal("EXPIRED")).toBe(true);
+    expect(isExchangeOrderTerminal("REJECTED")).toBe(true);
+    expect(isExchangeOrderTerminal("UNKNOWN")).toBe(false);
   });
 });
