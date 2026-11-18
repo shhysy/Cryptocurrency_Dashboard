@@ -29,6 +29,7 @@ describe("Binance 订单对账与幂等 ID", () => {
   it("FILLED 状态必须包含真实成交数量和订单 ID", () => {
     expect(decideOrderReconciliation({ status: "FILLED", origQty: 0.002, executedQty: 0.002, cummulativeQuoteQty: 100, orderId: 1 }).action).toBe("complete");
     expect(decideOrderReconciliation({ status: "FILLED", origQty: 0.002, executedQty: 0, cummulativeQuoteQty: 0, orderId: 1 }).action).toBe("manual_review");
+    expect(decideOrderReconciliation({ status: "FILLED", origQty: 0.01, executedQty: 0.002, cummulativeQuoteQty: 100, orderId: 1 }).action).toBe("manual_review");
     expect(decideOrderReconciliation({ status: "FILLED", origQty: 0.002, executedQty: 0.002, cummulativeQuoteQty: 100, orderId: null }).action).toBe("manual_review");
   });
 
