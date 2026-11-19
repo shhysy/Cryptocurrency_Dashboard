@@ -2,7 +2,7 @@ import { strategyConfig } from "../strategy.config";
 import type { CoinCard, DashboardData } from "../lib/types";
 import type { TradeLedgerEntry } from "../lib/execution/types";
 import type { SellEventRecord } from "../lib/execution/sell-store.browser";
-import type { Action } from "./types";
+import type { Action, CoinSignal } from "./types";
 import { buildVerdict } from "./engine";
 
 const WEEK_MS = 7 * 864e5;
@@ -72,7 +72,7 @@ function replayAverageCost(coin: CoinCard, sells: TradeLedgerEntry[]): AverageRe
 
 function blockedSignal(coin: CoinCard, reason: string): CoinCard {
   const action = noAction("均价回补", { blocked: [reason] });
-  return { ...coin, signal: { ...coin.signal, kind: "none", tag: "暂缓", action } };
+  return { ...coin, signal: { ...coin.signal, kind: "none" as const, tag: "暂缓" as const, action } };
 }
 
 /**
@@ -145,7 +145,7 @@ export function applyPostTakeProfitRebuy(
           ...coin, avgCost, returnPct,
           toDoublePct: Math.max(0, (avgCost * 2) / coin.price - 1) * 100,
           doubleProgress: Math.min(1, Math.max(0, returnPct)),
-          signal: { ...signal, kind: "sell", tag: "止盈", action },
+          signal: { ...signal, kind: "sell" as const, tag: "止盈" as const, action },
         };
       }
     }
@@ -216,8 +216,8 @@ export function applyPostTakeProfitRebuy(
           notes: [`止盈后按当前均价 ${avgCost.toFixed(6)} 重新计算第 ${tierIndex + 1} 档`],
         };
       }
-      const tag = action.side === "buy" ? "补仓" : action.blocked.length ? "暂缓" : "观望";
-      const kind = action.side === "buy"
+      const tag: CoinSignal["tag"] = action.side === "buy" ? "补仓" : action.blocked.length ? "暂缓" : "观望";
+      const kind: CoinSignal["kind"] = action.side === "buy"
         ? (signal.score >= profile.highScore ? "strong" : "accumulate")
         : "none";
       return {
