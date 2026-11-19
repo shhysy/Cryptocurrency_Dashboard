@@ -4,6 +4,7 @@ import {
 } from "../binance.browser";
 import type { BinanceSpotOrderSnapshot, BinanceSpotTrade } from "../binance.browser";
 import { clientOrderIdForEvent } from "./client-order-id";
+import { isCurrentBuyAttempt } from "./buy-attempt";
 import { decideOrderReconciliation, isExchangeOrderTerminal } from "./order-reconcile";
 import { reconcileConfirmedBuyFills, type BuyFillReconciliation } from "./fill-reconcile";
 import {
@@ -35,7 +36,7 @@ export async function syncBuyOrderFromBinance(
   const initial = orders.find((item) => item.id === queuedOrderId);
   if (!initial) throw new Error("找不到待买订单");
   if (!Number.isInteger(attempt) || attempt < 0) throw new Error("订单 attempt 参数无效");
-  if (initial.attemptCount !== attempt + 1 || initial.status !== "reconcile_required") {
+  if (!isCurrentBuyAttempt(initial, attempt)) {
     throw new Error("该 attempt 已过期或当前订单不在对账锁定状态；拒绝修改当前买入任务");
   }
 
