@@ -17,7 +17,7 @@ export interface SellGuardRequest {
   cycleAvailableQty: number;
   baseAvailableQty: number;
   now: number;
-  /** Set only for the explicit V3.3 base-reduction rule. */
+  /** 仅在明确启用 V3.3 底仓减仓规则时设置。 */
   allowBaseReduction?: boolean;
 }
 
@@ -27,15 +27,15 @@ export interface SellGuardResult {
   reason: string | null;
 }
 
-/** Stable key should include the source weekly candle and TP tier, not the current refresh time. */
+/** 稳定键应包含来源周线与止盈档位，不要用当前刷新时间。 */
 export function makeSellEventKey(symbol: string, kind: SellEventKind, sourceEvent: string): string {
   if (!symbol || !sourceEvent) throw new Error("卖出事件缺少币种或来源标识");
   return `sell:${symbol}:${kind}:${sourceEvent}`;
 }
 
 /**
- * Prevents duplicate sell signals and enforces V3.3 cycle/base boundaries.
- * Persist the event as pending before any network request; mark it executed only after confirmed fills.
+ * 防止重复卖出信号，并执行 V3.3 周期仓/底仓边界。
+ * 任何网络请求前先把事件记为 pending；仅在成交确认后标记为已执行。
  */
 export function guardSellIntent(request: SellGuardRequest, state: SellGuardState): SellGuardResult {
   if (!request.eventKey || !Number.isFinite(request.desiredQty) || request.desiredQty <= 0) {
@@ -49,7 +49,7 @@ export function guardSellIntent(request: SellGuardRequest, state: SellGuardState
   }
   let available = Math.max(0, request.cycleAvailableQty);
   if (request.kind === "base_reduce" && request.allowBaseReduction) {
-    // V3.3 base reduction sells at most 50% of the remaining protected base in one event.
+    // V3.3 底仓减仓：单次最多卖出剩余受保护底仓的 50%。
     available = Math.max(0, request.baseAvailableQty * 0.5);
   }
   let qty = Math.min(request.desiredQty, available);

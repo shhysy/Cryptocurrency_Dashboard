@@ -1,6 +1,6 @@
 /**
- * Server-only HMAC helper for the trade-fill notification Worker.
- * Never import this module from a client component or expose the secret via NEXT_PUBLIC_*.
+ * 仅服务端使用的成交通知 Worker HMAC 签名工具。
+ * 禁止在客户端组件中引入，也禁止通过 NEXT_PUBLIC_* 暴露密钥。
  */
 export async function signTradeNotificationRequest(
   rawBody: string,
@@ -27,11 +27,8 @@ export async function signTradeNotificationRequest(
     false,
     ["sign"],
   );
-  const timestampText = String(timestamp);
-  const payload = new TextEncoder().encode(`${timestampText}.${rawBody}`);
-  const digest = await globalThis.crypto.subtle.sign("HMAC", key, payload);
-  const signature = [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-  return { timestamp: timestampText, signature };
+  const data = new TextEncoder().encode(`${timestamp}.${rawBody}`);
+  const signature = await globalThis.crypto.subtle.sign("HMAC", key, data);
+  const hex = [...new Uint8Array(signature)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return { timestamp: String(timestamp), signature: hex };
 }
