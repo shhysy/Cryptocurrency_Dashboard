@@ -158,7 +158,7 @@ export function applyPostTakeProfitRebuy(
 
     if (postTpMode) {
       const postTpBuys = coin.buys.filter((buy) => buy.t > firstTpTime);
-      const tierIndex = postTpBuys.length;
+      const tierIndex = new Set(postTpBuys.map((buy) => buy.orderId ?? buy.id)).size;
       const blocked: string[] = [];
       const metrics = signal.metrics;
       const cfg = strategyConfig;
