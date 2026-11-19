@@ -37,3 +37,15 @@
 - 没有增加提现、划转、合约或 Earn 赎回接口。
 - 生产 BUY/SELL 与 Earn 赎回仍关闭。
 - 真实账户资金不参与本阶段。
+
+
+## 第二十二阶段安全加固补充
+
+- 订单 API 不再只检查 DASHBOARD_PASSWORD 是否存在；接口内部也验证 Basic Auth 密码。
+- Basic Auth 比较使用固定时间循环，避免普通字符串直接比较。
+- 请求体改为读取原始文本后按 UTF-8 字节数限制，不能依赖客户端可伪造/省略的 Content-Length。
+- 严格拒绝跨源请求、非 JSON、无效 JSON、超大请求体和未声明字段。
+- BINANCE_SPOT_ENVIRONMENT 显式填写了非 testnet/production 的值时直接拒绝，不会因拼写错误静默回退生产环境。
+- API route security tests 已纳入 Vitest include，确保 CI 实际执行路由测试。
+
+认证说明：浏览器必须先通过全站 Basic Auth；订单 API 自身再次核对相同密码。部署时必须设置强 DASHBOARD_PASSWORD，并使用 HTTPS。
