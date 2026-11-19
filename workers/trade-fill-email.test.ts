@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
+// @ts-expect-error The Worker entry is JavaScript and is loaded directly by Vitest.
 import worker from "./trade-fill-email.js";
 
 const secret = "test-hmac-secret-for-worker-tests-0123456789";
