@@ -30,7 +30,7 @@ describe("Binance Spot order adapter", () => {
       symbol: "BTCUSDT",
       quoteOrderQty: "10.00",
       clientOrderId: "gpt1234567890abcdef",
-    })).rejects.toThrow("现货实盘买入尚未启用");
+    })).rejects.toThrow("测试网买入开关未启用");
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
@@ -45,7 +45,7 @@ describe("Binance Spot sell adapter", () => {
       symbol: "BTCUSDT",
       quantity: "0.0001",
       clientOrderId: "gpt1234567890abcdef",
-    })).rejects.toThrow("现货实盘卖出尚未启用");
+    })).rejects.toThrow("测试网卖出开关未启用");
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
