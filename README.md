@@ -128,3 +128,24 @@ BINANCE_API_SECRET=你的生产只读_API_Secret
 ## 免责声明
 
 信号仅供参考，不构成投资建议。加密货币波动剧烈，请控制仓位。
+
+
+### Spot Testnet 下单（仅用于虚拟资产演练）
+
+当前已提供服务端 `/api/binance/testnet-order`，只允许 MARKET BUY / SELL，服务端固定使用 Testnet endpoint 和 Testnet Key。生产模式在服务端硬拒绝。浏览器不会持有 Secret。
+
+必须同时设置前后端两个独立开关，且需要先配置 `DASHBOARD_PASSWORD`：
+
+```dotenv
+BINANCE_SPOT_ENVIRONMENT=testnet
+NEXT_PUBLIC_BINANCE_SPOT_TESTNET=1
+BINANCE_TESTNET_BUY_ENABLED=1
+NEXT_PUBLIC_BINANCE_TESTNET_BUY_ENABLED=1
+BINANCE_TESTNET_SELL_ENABLED=1
+NEXT_PUBLIC_BINANCE_TESTNET_SELL_ENABLED=1
+DASHBOARD_PASSWORD=请设置一个强密码
+```
+
+BUY 和 SELL 可分别开启；首次联调建议只开启 BUY，验证流程后再单独开启 SELL。任何一侧缺少前端或服务端开关都会拒绝请求。生产 BUY/SELL 开关不存在可用的启用路径，仍保持关闭。提交结果不明确时只保留 clientOrderId 并进入对账，不自动重发。
+
+注意：队列买入仍依赖账户余额、交易对规则和本地资金预留；卖出仍依赖本地成交账本与 Binance 持仓核对。不要为了通过测试而绕过这些保护。
