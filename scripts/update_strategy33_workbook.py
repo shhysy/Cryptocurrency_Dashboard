@@ -328,3 +328,5 @@ print("AUTO_EXEC_ROWS", check["自动交易执行"].max_row)
 print("AUTO_EXEC_COLS", check["自动交易执行"].max_column)
 print("BACKTEST_TEXT_REMAINING", [(sh.title, c.coordinate, str(c.value)[:100]) for sh in check.worksheets for row_cells in sh.iter_rows() for c in row_cells if isinstance(c.value, str) and ("回测评估" in c.value or "回测" in c.value)])
 print("FILE_BYTES", path.stat().st_size)
+
+print('STRATEGY33_AUTOMATION_UPDATE_READY')
