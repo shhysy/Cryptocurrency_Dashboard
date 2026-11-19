@@ -2,34 +2,42 @@ import { strategyConfig } from "../strategy.config";
 import type { CoinCard, DashboardData } from "../lib/types";
 import type { TradeLedgerEntry } from "../lib/execution/types";
 import type { SellEventRecord } from "../lib/execution/sell-store.browser";
-import type { Action, CoinSignal, Verdict } from "./types";
+import type { Action } from "./types";
 import { buildVerdict } from "./engine";
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * 864e5;
 const EPSILON = 1e-8;
 
-function noAction(over: Partial<Action> = {}): Action {
+function noAction(label: string, over: Partial<Action> = {}): Action {
   return {
-    kind: "add", label: "均价回补", side: "none", plannedUsdt: null, usdt: null,
+    kind: "none", label, side: "none", plannedUsdt: null, usdt: null,
     qty: null, sellPct: null, limits: [], blocked: [], notes: [], ...over,
   };
 }
 
-function isConfirmedTakeProfit(event: SellEventRecord): boolean {
-  return event.kind === "take_profit" &&
-    (event.status === "executed" ||
-      (event.status === "partially_filled" && (event.filledQty ?? 0) > EPSILON));
+function confirmed(event: SellEventRecord): boolean {
+  return event.status === "executed" ||
+    (event.status === "partially_filled" && (event.filledQty ?? 0) > EPSILON);
 }
 
-function replayAverageCost(
-  coin: CoinCard,
-  sellFills: TradeLedgerEntry[],
-): { qty: number; costUsdt: number; avgCost: number } | null {
+function tierOf(event: SellEventRecord): number | null {
+  const match = event.eventKey.match(/:止盈([1-3])$/);
+  return match ? Number(match[1]) : null;
+}
+
+interface AverageReplay {
+  qty: number;
+  costUsdt: number;
+  avgCost: number;
+  lastFlatAt: number | null;
+}
+
+function replayAverageCost(coin: CoinCard, sells: TradeLedgerEntry[]): AverageReplay | null {
   const events: { time: number; side: "BUY" | "SELL"; qty: number; costUsdt?: number }[] = [
     ...coin.buys.map((buy) => ({
       time: buy.t, side: "BUY" as const, qty: buy.qty, costUsdt: buy.costUsdt,
     })),
-    ...sellFills.map((fill) => ({
+    ...sells.map((fill) => ({
       time: fill.time,
       side: "SELL" as const,
       qty: fill.qty + (fill.commissionAsset === coin.symbol ? fill.commission : 0),
@@ -38,6 +46,7 @@ function replayAverageCost(
 
   let qty = 0;
   let costUsdt = 0;
+  let lastFlatAt: number | null = null;
   for (const event of events) {
     if (!Number.isFinite(event.qty) || event.qty <= 0) return null;
     if (event.side === "BUY") {
@@ -46,21 +55,31 @@ function replayAverageCost(
       costUsdt += event.costUsdt!;
     } else {
       if (event.qty > qty + EPSILON || qty <= EPSILON) return null;
-      const avg = costUsdt / qty;
+      const average = costUsdt / qty;
       qty = Math.max(0, qty - event.qty);
-      costUsdt = Math.max(0, costUsdt - avg * event.qty);
+      costUsdt = Math.max(0, costUsdt - average * event.qty);
+      if (qty <= EPSILON) {
+        qty = 0;
+        costUsdt = 0;
+        lastFlatAt = event.time;
+      }
     }
   }
   if (qty <= EPSILON || costUsdt <= EPSILON) return null;
   if (Math.abs(qty - coin.qty) > Math.max(EPSILON, coin.qty * 1e-6)) return null;
-  return { qty, costUsdt, avgCost: costUsdt / qty };
+  return { qty, costUsdt, avgCost: costUsdt / qty, lastFlatAt };
+}
+
+function blockedSignal(coin: CoinCard, reason: string): CoinCard {
+  const action = noAction("均价回补", { blocked: [reason] });
+  return { ...coin, signal: { ...coin.signal, kind: "none", tag: "暂缓", action } };
 }
 
 /**
- * Once a confirmed take-profit tier has filled, replace the old head-price
- * ladder with a fresh four-tier ladder measured from the current average cost.
- * The override is client-side because confirmed sell-kind history lives in
- * browser IndexedDB, not in the server dashboard response.
+ * Replays the browser's exchange-confirmed SELL ledger against dashboard BUY
+ * fills. It then enforces sequential 2x/3x/5x take-profit tiers and, after
+ * the first confirmed TP in the current holding round, replaces head-price
+ * adds/reserve with four average-cost rebuy tiers.
  */
 export function applyPostTakeProfitRebuy(
   data: DashboardData,
@@ -71,133 +90,159 @@ export function applyPostTakeProfitRebuy(
 
   const coins = data.coins.map((coin) => {
     if (coin.qty <= EPSILON || coin.avgCost === null) return coin;
-    const symbolEvents = sellEvents.filter((event) => event.symbol === coin.symbol && isConfirmedTakeProfit(event));
-    if (!symbolEvents.length) return coin;
-
-    const tpIds = new Set(symbolEvents.flatMap((event) => event.fillIds));
-    const tpFills = ledger.filter((fill) =>
-      fill.symbol === coin.symbol + "USDT" && fill.side === "SELL" &&
+    const pair = coin.symbol + "USDT";
+    const symbolEvents = sellEvents.filter((event) => event.symbol === coin.symbol);
+    const symbolSells = ledger.filter((fill) =>
+      fill.symbol === pair && fill.side === "SELL"
+    );
+    const replay = replayAverageCost(coin, symbolSells);
+    const tpEvents = symbolEvents.filter((event) => event.kind === "take_profit" && confirmed(event));
+    const tpIds = new Set(tpEvents.flatMap((event) => event.fillIds));
+    const tpFills = symbolSells.filter((fill) =>
       fill.sellKind === "take_profit" && tpIds.has(fill.fillId)
     );
-    // If local sell-event history says TP happened but its fills are unavailable,
-    // do not silently fall back to the old head-price ladder.
-    if (tpFills.length === 0 || tpFills.length !== tpIds.size) {
-      const action = noAction({
-        label: "均价回补",
-        blocked: ["已记录止盈，但本地止盈成交明细不完整；暂停回补信号，先恢复成交台账"],
-      });
-      return { ...coin, signal: { ...coin.signal, tag: "暂缓", kind: "none", action } };
-    }
 
-    const replay = replayAverageCost(coin, ledger.filter((fill) =>
-      fill.symbol === coin.symbol + "USDT" && fill.side === "SELL"
-    ));
-    if (!replay) {
-      const action = noAction({
-        label: "均价回补",
-        blocked: ["买卖成交无法与当前持仓数量核对；暂停均价回补，先核对持仓台账"],
-      });
-      return { ...coin, signal: { ...coin.signal, tag: "暂缓", kind: "none", action } };
+    if (tpEvents.length && (tpFills.length === 0 || tpFills.length !== tpIds.size)) {
+      return blockedSignal(coin, "已记录止盈，但止盈成交明细不完整；暂停回补，先恢复成交台账");
     }
+    if (tpEvents.length && !replay) {
+      return blockedSignal(coin, "买卖成交无法与当前持仓数量核对；暂停止盈后回补，先核对持仓台账");
+    }
+    if (!replay) return coin;
 
-    const latestTpTime = Math.max(...tpFills.map((fill) => fill.time));
-    const postTpBuys = coin.buys.filter((buy) => buy.t > latestTpTime);
-    const tierIndex = postTpBuys.length;
     const profile = strategyConfig.profiles[coin.signal.group];
+    const avgCost = replay.avgCost;
+    const returnPct = coin.price / avgCost - 1;
     const signal = coin.signal;
-    const metrics = signal.metrics;
-    const cfg = strategyConfig;
-    const blocked: string[] = [];
 
-    if (signal.score < profile.minScore) blocked.push(`分数 ${signal.score} 低于回补门槛 ${profile.minScore}`);
-    if (metrics.stableCount === null || metrics.stableCount < profile.stabilizeMin) {
-      blocked.push(`未企稳（${metrics.stableCount ?? 0}/${profile.stabilizeMin} 项）`);
-    }
-    if ((metrics.weeklyRsi !== null && metrics.weeklyRsi > cfg.rsi.overheat) ||
-        (metrics.fearGreed !== null && metrics.fearGreed >= cfg.fearGreed.overheat)) {
-      blocked.push("市场过热，暂停均价回补");
-    }
-    if (coin.signal.group === "alt" && data.market.btcState === "bear" && profile.bearBlocks) {
-      blocked.push("BTC 熊市，山寨币禁止新增");
-    }
-    const latestBuy = coin.buys.filter((buy) => !buy.id.startsWith("opening-"))
-      .reduce((latest, buy) => Math.max(latest, buy.t), 0);
-    const cooldownWeeks = data.market.btcState === "bear" ? profile.cooldownBearWeeks : profile.cooldownWeeks;
-    if (latestBuy > 0 && (data.updatedAt - latestBuy) / WEEK_MS < cooldownWeeks) {
-      blocked.push(`冷却期未到（需 ≥ ${cooldownWeeks} 周）`);
+    // The three TP tiers are strictly sequential. A later price target cannot
+    // skip an earlier tier; each tier sells a fraction of the then-current cycle inventory.
+    const doneTiers = new Set(
+      symbolEvents.filter((event) => event.kind === "take_profit" && confirmed(event))
+        .map(tierOf).filter((tier): tier is number => tier !== null),
+    );
+    const nextTier = [1, 2, 3].find((tier) => !doneTiers.has(tier));
+    const baseReduced = symbolSells
+      .filter((fill) => fill.sellKind === "base_reduce")
+      .reduce((sum, fill) => sum + fill.qty +
+        (fill.commissionAsset === coin.symbol ? fill.commission : 0), 0);
+    const boughtQty = coin.buys.reduce((sum, buy) => sum + buy.qty, 0);
+    const protectedBaseQty = Math.max(0, boughtQty * profile.baseRatio - baseReduced);
+    const cycleQty = Math.max(0, coin.qty - protectedBaseQty);
+
+    if (nextTier !== undefined) {
+      const tp = profile.takeProfit[nextTier - 1];
+      const trigger = avgCost * tp.mult;
+      if (coin.price >= trigger && cycleQty > EPSILON) {
+        const qty = Math.min(cycleQty * tp.ratio, cycleQty);
+        const action: Action = {
+          kind: "takeProfit", label: `止盈${nextTier}`, side: "sell",
+          plannedUsdt: null, usdt: qty * coin.price, qty,
+          sellPct: qty / coin.qty, limits: [], blocked: [],
+          notes: [`价格达到当前均价 × ${tp.mult}；卖出当前周期仓的 ${Math.round(tp.ratio * 100)}%`],
+        };
+        return {
+          ...coin, avgCost, returnPct,
+          toDoublePct: Math.max(0, (avgCost * 2) / coin.price - 1) * 100,
+          doubleProgress: Math.min(1, Math.max(0, returnPct)),
+          signal: { ...signal, kind: "sell", tag: "止盈", action },
+        };
+      }
     }
 
-    if (tierIndex >= profile.adds.length) {
-      const action = noAction({
-        label: "均价回补已完成",
-        notes: ["止盈后的 4 档均价回补已用完；本轮不再启用原头仓补仓或备用金"],
-      });
+    // A confirmed TP activates the rebuy mode only for the same holding round.
+    // If the position previously reached zero, the next holding round starts fresh.
+    const firstTpTime = tpFills.length ? Math.min(...tpFills.map((fill) => fill.time)) : null;
+    const postTpMode = firstTpTime !== null &&
+      (replay.lastFlatAt === null || replay.lastFlatAt < firstTpTime);
+
+    if (postTpMode) {
+      const postTpBuys = coin.buys.filter((buy) => buy.t > firstTpTime);
+      const tierIndex = postTpBuys.length;
+      const blocked: string[] = [];
+      const metrics = signal.metrics;
+      const cfg = strategyConfig;
+
+      if (signal.score < profile.minScore) blocked.push(`分数 ${signal.score} 低于回补门槛 ${profile.minScore}`);
+      if (metrics.stableCount === null || metrics.stableCount < profile.stabilizeMin) {
+        blocked.push(`未企稳（${metrics.stableCount ?? 0}/${profile.stabilizeMin} 项）`);
+      }
+      if ((metrics.weeklyRsi !== null && metrics.weeklyRsi > cfg.rsi.overheat) ||
+          (metrics.fearGreed !== null && metrics.fearGreed >= cfg.fearGreed.overheat)) {
+        blocked.push("市场过热，暂停均价回补");
+      }
+      if (coin.signal.group === "alt" && data.market.btcState === "bear" && profile.bearBlocks) {
+        blocked.push("BTC 熊市，山寨币禁止新增");
+      }
+      const latestBuy = coin.buys.filter((buy) => !buy.id.startsWith("opening-"))
+        .reduce((latest, buy) => Math.max(latest, buy.t), 0);
+      const cooldownWeeks = data.market.btcState === "bear" ? profile.cooldownBearWeeks : profile.cooldownWeeks;
+      if (latestBuy > 0 && (data.updatedAt - latestBuy) / WEEK_MS < cooldownWeeks) {
+        blocked.push(`冷却期未到（需 ≥ ${cooldownWeeks} 周）`);
+      }
+
+      if (tierIndex >= profile.adds.length) {
+        const action = noAction("均价回补已完成", {
+          notes: ["止盈后的 4 档均价回补已用完；原头仓价补仓和备用金不再恢复"],
+        });
+        return { ...coin, avgCost, returnPct, signal: { ...signal, kind: "none", tag: "观望", action } };
+      }
+
+      const tier = profile.adds[tierIndex];
+      const trigger = avgCost * (1 - tier.drop);
+      const factor = data.market.btcState === "bear" ? profile.bearFactor :
+        data.market.btcState === "transition" ? profile.transitionFactor : 1;
+      const plannedUsdt = tier.usdt * factor;
+      const remainingCap = Math.max(0, profile.capUsdt - replay.costUsdt);
+      const amount = Math.min(plannedUsdt, remainingCap);
+      const limits = factor < 1
+        ? [`BTC ${data.market.btcState === "bear" ? "熊市" : "过渡市"}，金额 × ${factor}`]
+        : [];
+      if (amount < plannedUsdt) limits.push(`单币成本上限剩余 ${remainingCap.toFixed(2)} USDT`);
+      if (amount < cfg.minOrderUsdt) blocked.push("单币额度剩余低于最小下单额");
+
+      let action: Action;
+      if (blocked.length) {
+        action = noAction(`均价回补第 ${tierIndex + 1} 档`, { plannedUsdt, limits, blocked });
+      } else if (coin.price > trigger) {
+        action = noAction(`均价回补第 ${tierIndex + 1} 档`, {
+          notes: [`触发价 ${trigger.toFixed(6)}（当前均价 ${avgCost.toFixed(6)} 下跌 ${(tier.drop * 100).toFixed(0)}%），当前价格尚未到达`],
+        });
+      } else {
+        action = {
+          kind: "add", label: `均价回补第 ${tierIndex + 1} 档`, side: "buy",
+          plannedUsdt, usdt: amount, qty: amount / coin.price, sellPct: null,
+          limits, blocked: [],
+          notes: [`止盈后按当前均价 ${avgCost.toFixed(6)} 重新计算第 ${tierIndex + 1} 档`],
+        };
+      }
+      const tag = action.side === "buy" ? "补仓" : action.blocked.length ? "暂缓" : "观望";
+      const kind = action.side === "buy"
+        ? (signal.score >= profile.highScore ? "strong" : "accumulate")
+        : "none";
       return {
-        ...coin,
-        avgCost: replay.avgCost,
-        returnPct: coin.price / replay.avgCost - 1,
-        signal: { ...signal, tag: "观望", kind: "none", action },
+        ...coin, avgCost, returnPct,
+        toDoublePct: Math.max(0, (avgCost * 2) / coin.price - 1) * 100,
+        doubleProgress: Math.min(1, Math.max(0, returnPct)),
+        signal: { ...signal, kind, tag, action },
       };
     }
 
-    const tier = profile.adds[tierIndex];
-    const trigger = replay.avgCost * (1 - tier.drop);
-    const factor = data.market.btcState === "bear" ? profile.bearFactor :
-      data.market.btcState === "transition" ? profile.transitionFactor : 1;
-    const plannedUsdt = tier.usdt * factor;
-    const remainingCap = Math.max(0, profile.capUsdt - replay.costUsdt);
-    const amount = Math.min(plannedUsdt, remainingCap);
-    const limits = factor < 1 ? [`BTC ${data.market.btcState === "bear" ? "熊市" : "过渡市"}，金额 × ${factor}`] : [];
-    if (amount < plannedUsdt) limits.push(`单币成本上限剩余 ${remainingCap.toFixed(2)} USDT`);
-    if (amount < cfg.minOrderUsdt) blocked.push("单币额度剩余低于交易所最小下单额");
-
-    let action: Action;
-    if (blocked.length) {
-      action = noAction({ label: `均价回补第 ${tierIndex + 1} 档`, plannedUsdt, limits, blocked });
-    } else if (coin.price > trigger) {
-      action = noAction({
-        label: `均价回补第 ${tierIndex + 1} 档`,
-        notes: [`触发价 ${trigger.toFixed(6)}（当前均价 ${replay.avgCost.toFixed(6)} 下跌 ${(tier.drop * 100).toFixed(0)}%），当前价格尚未到达`],
-      });
-    } else {
-      action = {
-        kind: "add",
-        label: `均价回补第 ${tierIndex + 1} 档`,
-        side: "buy",
-        plannedUsdt,
-        usdt: amount,
-        qty: amount / coin.price,
-        sellPct: null,
-        limits,
-        blocked: [],
-        notes: [`止盈后按当前均价 ${replay.avgCost.toFixed(6)} 重新计算第 ${tierIndex + 1} 档触发价 ${trigger.toFixed(6)}`],
-      };
-    }
-
-    const tag = action.side === "buy" ? "补仓" : action.blocked.length ? "暂缓" : "观望";
-    const kind = action.side === "buy" ? (signal.score >= profile.highScore ? "strong" : "accumulate") : "none";
     return {
-      ...coin,
-      avgCost: replay.avgCost,
-      returnPct: coin.price / replay.avgCost - 1,
-      toDoublePct: Math.max(0, (replay.avgCost * 2) / coin.price - 1) * 100,
-      doubleProgress: Math.min(1, Math.max(0, (coin.price / replay.avgCost - 1))),
-      signal: { ...signal, tag, kind, action },
+      ...coin, avgCost, returnPct,
+      toDoublePct: Math.max(0, (avgCost * 2) / coin.price - 1) * 100,
+      doubleProgress: Math.min(1, Math.max(0, returnPct)),
     };
   });
 
   const verdict = buildVerdict(coins.map((coin) => coin.signal));
-  const totalInvested = coins.reduce((sum, coin) => sum + (coin.qty > 0 ? coin.avgCost! * coin.qty : 0), 0);
+  const totalInvested = coins.reduce((sum, coin) => sum + (coin.qty > 0 && coin.avgCost ? coin.avgCost * coin.qty : 0), 0);
   const totalValue = coins.reduce((sum, coin) => sum + coin.marketValue, 0);
   const pnl = totalValue - totalInvested;
   return {
-    ...data,
-    coins,
-    verdict,
+    ...data, coins, verdict,
     summary: {
-      ...data.summary,
-      totalInvested,
-      pnl,
+      ...data.summary, totalInvested, pnl,
       pnlPct: totalInvested > 0 ? pnl / totalInvested : 0,
       investedCny: totalInvested * data.summary.usdtCny,
     },
