@@ -83,6 +83,21 @@ export function planBuyFundsReservationTopUp(input: {
       totalReservedUsdt: 0, reason: "当前资金预留状态无效，必须人工核对",
     };
   }
+  if (currentReservation) {
+    const original = currentReservation.originalReservedUsdt ?? currentReservation.reservedUsdt;
+    const consumed = currentReservation.consumedUsdt ?? 0;
+    if (!currentReservation.symbol ||
+        ![currentReservation.reservedUsdt, original, consumed].every(Number.isFinite) ||
+        currentReservation.reservedUsdt < 0 || original <= 0 || consumed < 0 ||
+        consumed > original + 1e-8 ||
+        currentReservation.reservedUsdt > original - consumed + 1e-8 ||
+        (currentReservation.status === "released" && currentReservation.reservedUsdt > 1e-8)) {
+      return {
+        ok: false, reservedUsdt: 0, additionalUsdt: 0, availableUsdt: 0,
+        totalReservedUsdt: 0, reason: "当前资金预留记录损坏，必须人工核对",
+      };
+    }
+  }
 
   const active = activeReservations.filter((item) => item?.status === "active");
   const validation = planBuyFundsReservation({
