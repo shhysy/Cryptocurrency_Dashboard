@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveBinanceSpotEnvironment } from "./binance-environment";
+import { assertSimpleEarnSupported, resolveBinanceSpotEnvironment } from "./binance-environment";
 
 describe("Binance Spot environment isolation", () => {
   it("selects the Spot Testnet endpoint and only testnet credentials", () => {
@@ -44,5 +44,15 @@ describe("Binance Spot environment isolation", () => {
       apiKey: "production-key",
       apiSecret: "production-secret",
     });
+  });
+});
+
+describe("Binance Simple Earn environment guard", () => {
+  it("rejects Simple Earn endpoints while Spot Testnet is selected", () => {
+    expect(() => assertSimpleEarnSupported("testnet")).toThrow("不支持 Simple Earn");
+  });
+
+  it("allows production-only Simple Earn path in production mode", () => {
+    expect(() => assertSimpleEarnSupported("production")).not.toThrow();
   });
 });
