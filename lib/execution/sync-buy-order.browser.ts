@@ -166,7 +166,7 @@ export async function syncBuyOrderFromBinance(
     );
   } catch (error) {
     const reason = error instanceof Error ? error.message : "资金预留成交对账失败";
-    const blocked = await markBuyOrderReconcileRequired(current.id, reason);
+    const blocked = await markBuyOrderReconcileRequired(current.id, reason, attempt);
     return {
       action: "manual_review", newlyRecordedFills, orderStatus: snapshot.status,
       remainingUsdt: blocked.remainingUsdt, reason,
