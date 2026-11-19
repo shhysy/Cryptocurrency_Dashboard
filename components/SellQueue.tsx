@@ -129,12 +129,12 @@ export default function SellQueue({ refreshKey }: { refreshKey: number }) {
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    disabled={!LIVE_SPOT_SELL_SUBMISSION_ENABLED || Boolean(submitLoading[event.eventKey])}
+                    disabled={!BINANCE_SPOT_SELL_SUBMISSION_ENABLED || Boolean(submitLoading[event.eventKey])}
                     onClick={() => void submitSell(event)}
                     className="rounded-full border border-line px-3 py-1 text-[10px] text-sub hover:text-fg disabled:opacity-40"
                     title="实盘卖出开关关闭时不可用"
                   >
-                    {submitLoading[event.eventKey] ? "提交中…" : LIVE_SPOT_SELL_SUBMISSION_ENABLED ? "执行卖出" : "实盘卖出未启用"}
+                    {submitLoading[event.eventKey] ? "提交中…" : BINANCE_SPOT_SELL_SUBMISSION_ENABLED ? "执行卖出" : "实盘卖出未启用"}
                   </button>
                   {submitMessages[event.eventKey] ? <p className="text-[10px] text-mute">{submitMessages[event.eventKey]}</p> : null}
                 </div>
