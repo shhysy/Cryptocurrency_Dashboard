@@ -55,6 +55,7 @@ describe("buy reconciliation stale-attempt protection", () => {
     });
     mocks.fetchSpotTradesForOrder.mockResolvedValue([trade]);
     mocks.markBuyOrderReconcileRequired.mockResolvedValue(order);
+    mocks.markBuyOrderReconciled.mockResolvedValue(order);
     mocks.recordConfirmedBuyFill.mockResolvedValue({
       recorded: true,
       ledger: {},
