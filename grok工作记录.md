@@ -88,3 +88,42 @@
 |------|------|
 | 2026-11-19 | 创建本文件；预备订单已实现/未实现；确认无 gpt工作记录.md |
 | 2026-11-19 | **约定：仅使用 gpt 分支，停止使用 grok 分支作为开发线** |
+
+
+## 七、GPT / Grok 并行分工（2026-11-19）
+
+### 本轮 Grok 负责：预备订单人工计划完善
+**允许修改：**
+- `lib/execution/prep-orders.ts`
+- `lib/execution/prep-orders-csv.ts`
+- `lib/execution/prep-store.browser.ts`
+- `components/PrepOrdersPanel.tsx`
+- 与上述文件直接对应的独立测试、预备订单说明文档。
+
+**目标：**
+1. 完善人工计划生成、止盈后重建、回补后触发价刷新。
+2. 加强计划状态/CSV 一致性、输入校验和异常处理。
+3. 补充预备订单核心单元测试；CSV 仅为导出快照，不是执行真源。
+4. UI 明确显示“人工计划”，不得伪装为交易所已挂单或自动执行状态。
+5. 记录修改文件、测试结果、commit SHA、CI。
+
+**禁止修改：**
+- `components/Dashboard.tsx`
+- `lib/execution/fund-reservation.ts`
+- `lib/execution/store.browser.ts`
+- `lib/execution/buy-order-submit.browser.ts`
+- `lib/execution/sync-buy-order.browser.ts`
+- 成交台账、资金预留及自动执行开关。
+
+### GPT 当前负责：资金预留与订单恢复安全
+GPT 负责资金预留事务、并发预留/认领、部分成交扣减、终态释放、旧 attempt 隔离、IndexedDB 恢复与异常 fail-closed。GPT 不修改本记录中 Grok 负责的预备订单核心文件，也不修改 `Dashboard.tsx`。
+
+### 共同约束
+- 唯一开发分支为 `gpt`。
+- 不将 localStorage/CSV 预备订单计划接入自动下单。
+- 两条线不得同时修改同一核心文件；跨边界需求先协商并更新双方记录。
+- LIVE BUY/SELL 与 Simple Earn 自动赎回保持关闭；不使用真实余额、不发送真实订单。
+- 双方每次开工先读取两份工作记录，结束时更新自己的记录，写明测试、commit SHA、CI。
+
+### 分工日志
+- 2026-11-19：接受并记录本轮分工。Grok 专注预备订单人工计划/CSV；GPT 专注资金预留与执行订单恢复安全。
