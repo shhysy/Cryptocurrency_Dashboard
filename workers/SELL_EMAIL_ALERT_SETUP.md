@@ -1,10 +1,12 @@
 # 卖出信号邮件通知（Cloudflare Worker）
 
-本功能基于 grok 分支现有策略，不修改 `/api/dashboard` 或币安请求接口。
+> 本文说明的是策略卖出信号提醒，不是交易所确认成交通知。已确认买卖成交邮件使用独立的 `trade-fill-email.js`，配置见 `TRADE_FILL_EMAIL_SETUP.md`。
+
+本 Worker 只接收看板计算出的卖出信号摘要并发送提醒；不访问 Binance、不计算策略、不下单。看板行情与账户数据由 Next.js 服务端 `/api/dashboard` 提供。
 
 ## 数据流
 
-1. 看板在浏览器中按现有 `NEXT_PUBLIC_DIRECT_BINANCE=1` 逻辑直连币安并计算 DashboardData。
+1. 看板通过同源 `/api/dashboard` 获取服务端组装的 DashboardData。
 2. 仅当数据来源为 Binance 且非 stale 时，前端把已触发的卖出信号摘要 POST 到本 Worker。
 3. Worker 只读取 `signal.action.side === "sell"` 且 `qty > 0` 的信号，用 Resend 发邮件。
 4. KV 按币种 + 卖出动作 + 策略标签去重；同一信号持续存在只提醒一次，信号消失后再次触发会重新提醒。
