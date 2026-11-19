@@ -128,11 +128,14 @@ export function applyPostTakeProfitRebuy(
       currentRoundTpEvents.map(tierOf).filter((tier): tier is number => tier !== null),
     );
     const nextTier = [1, 2, 3].find((tier) => !doneTiers.has(tier));
+    const roundStart = replay.lastFlatAt ?? Number.NEGATIVE_INFINITY;
     const baseReduced = symbolSells
-      .filter((fill) => fill.sellKind === "base_reduce")
+      .filter((fill) => fill.sellKind === "base_reduce" && fill.time > roundStart)
       .reduce((sum, fill) => sum + fill.qty +
         (fill.commissionAsset === coin.symbol ? fill.commission : 0), 0);
-    const boughtQty = coin.buys.reduce((sum, buy) => sum + buy.qty, 0);
+    const boughtQty = coin.buys
+      .filter((buy) => buy.t > roundStart)
+      .reduce((sum, buy) => sum + buy.qty, 0);
     const protectedBaseQty = Math.max(0, boughtQty * profile.baseRatio - baseReduced);
     const cycleQty = Math.max(0, coin.qty - protectedBaseQty);
 
