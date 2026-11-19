@@ -90,7 +90,7 @@ export async function syncBuyOrderFromBinance(
   if (decision.action === "safe_to_retry") {
     // Confirmed terminal zero-fill orders can leave the reconciliation hold,
     // but a separate caller must still decide whether to create a new attempt.
-    await releaseBuyFundsReservation(initial.id, true, "Binance 已确认订单终态且零成交");
+    await releaseBuyFundsReservation(initial.id, true, "Binance 已确认订单终态且零成交", attempt);
     const ready = await markBuyOrderReconciled(initial.id, attempt);
     return {
       action: "safe_to_retry", newlyRecordedFills: 0, orderStatus: snapshot.status,
@@ -163,6 +163,7 @@ export async function syncBuyOrderFromBinance(
       current.id,
       cumulativeSpendUsdt,
       terminal,
+      attempt,
     );
   } catch (error) {
     const reason = error instanceof Error ? error.message : "资金预留成交对账失败";
