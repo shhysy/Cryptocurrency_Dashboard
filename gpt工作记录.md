@@ -308,3 +308,12 @@
 - CI：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44480553523
 - 新增测试提交：`619698e22a7ca66493bb579f8700dd79a5531b74`。
 - 已覆盖 fake-indexeddb 的并发事务、重复预留、并发 claim、重开连接、stale order、Earn top-up、无 IndexedDB 和 blocked upgrade。仍未覆盖真实浏览器跨进程多标签页、浏览器进程重启、quota exceeded 和强制 transaction abort。
+
+
+### Phase 32 验证补充（第二轮，2026-11-19）
+- `store.browser.test.ts` 已扩展到 12 项：覆盖旧版本连接阻塞升级、强制 IndexedDB transaction abort、IndexedDB 不可用时拒绝读写。
+- `fund-reservation.ts` 现对所有预留记录（active/released）统一校验；未知状态、损坏的 released 行、released 仍有未使用预留金额、重复 ID 都会 fail-closed，不会被过滤掉后错误释放预算。
+- Earn top-up 还会核对现有预留交易对，避免同一订单 ID 下不同交易对的预留被扩展。
+- 最新代码 CI run `44480800615`：`store.browser.test.ts` 12/12 通过；全套 40 个测试文件中 39 个通过、323 项测试通过；TypeScript typecheck 通过。唯一失败仍为 Grok 的 `sell-guard.test.ts`「底仓减仓未显式允许时拒绝」。
+- CI：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44480800615
+- 新增提交：`ec6940586bbabf0c04bd0be78efb4691b2f91e7a`（全量预留行 fail-closed）、`4f41f521562a1f4aa16443e76b890a62d32e08d8`（对应测试）、`2ab8522dd26856c997da2a96ab01aa6e8c6602b3`（transaction abort 测试）、`d91a67f77d2dd5a7336e79d071ed6074203d043d`（测试 spy 类型修复）、`4df656e96db793c3df63baa91ab25338f5b6753a`（top-up 交易对校验）。
