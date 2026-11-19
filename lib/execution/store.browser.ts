@@ -88,6 +88,7 @@ export async function saveBuyOrder(order: QueuedBuyOrder): Promise<void> {
 export async function recordConfirmedBuyFill(
   fill: ExecutionFill,
   queuedOrderId: string,
+  expectedAttempt?: number,
 ): Promise<{ recorded: boolean; ledger: TradeLedgerEntry; order: QueuedBuyOrder }> {
   if (fill.side !== "BUY") throw new Error("当前原子记账函数只接受买入成交");
   if (!queuedOrderId || !fill.fillId || !fill.symbol) throw new Error("成交记录或待买订单标识无效");
@@ -117,6 +118,12 @@ export async function recordConfirmedBuyFill(
         if (!fillReady || !orderReady || !reservationReady || result || fatalError) return;
         if (!currentOrder) {
           fatalError = new Error("成交对应的待买订单不存在");
+          tx.abort();
+          return;
+        }
+        if (expectedAttempt !== undefined &&
+            (currentOrder.attemptCount !== expectedAttempt + 1 || currentOrder.status !== "reconcile_required")) {
+          fatalError = new Error("该成交属于过期 attempt；当前买入任务已变化，拒绝修改队列和台账");
           tx.abort();
           return;
         }
@@ -271,6 +278,7 @@ export async function recordConfirmedSellFill(
 export async function markBuyOrderReconcileRequired(
   orderId: string,
   reason: string,
+  expectedAttempt?: number,
 ): Promise<QueuedBuyOrder> {
   const db = await openDb();
   try {
@@ -281,7 +289,8 @@ export async function markBuyOrderReconcileRequired(
       let updated: QueuedBuyOrder | undefined;
       request.onsuccess = () => {
         const current = request.result as QueuedBuyOrder | undefined;
-        if (!current) {
+        if (!current || (expectedAttempt !== undefined &&
+            (current.attemptCount !== expectedAttempt + 1 || current.status !== "reconcile_required"))) {
           tx.abort();
           return;
         }
@@ -359,7 +368,7 @@ export async function claimBuyOrderSubmission(
 }
 
 /** Clear a prior reconciliation hold only after a complete, matching exchange snapshot. */
-export async function markBuyOrderReconciled(orderId: string): Promise<QueuedBuyOrder> {
+export async function markBuyOrderReconciled(orderId: string, expectedAttempt?: number): Promise<QueuedBuyOrder> {
   const db = await openDb();
   try {
     return await new Promise((resolve, reject) => {
@@ -369,7 +378,8 @@ export async function markBuyOrderReconciled(orderId: string): Promise<QueuedBuy
       let updated: QueuedBuyOrder | undefined;
       request.onsuccess = () => {
         const current = request.result as QueuedBuyOrder | undefined;
-        if (!current) {
+        if (!current || (expectedAttempt !== undefined &&
+            (current.attemptCount !== expectedAttempt + 1 || current.status !== "reconcile_required"))) {
           tx.abort();
           return;
         }
