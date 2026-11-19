@@ -15,9 +15,9 @@ export interface TradeNotificationOutboxEvent {
   commissionUsdt: number;
   filledAt: number;
   status: "pending" | "sending" | "sent" | "failed";
-  /** Lease prevents two browser tabs from delivering the same event concurrently. */
+  /** 租约到期前，避免多标签页同时投递同一事件。 */
   leaseUntil: number | null;
-  /** Fencing token: stale dispatchers cannot complete a lease reclaimed by another tab. */
+  /** 围栏令牌：租约被其他标签页收回后，旧调度器不能再标记完成。 */
   leaseToken: string | null;
   nextAttemptAt: number | null;
   attemptCount: number;
@@ -27,7 +27,7 @@ export interface TradeNotificationOutboxEvent {
   sentAt: number | null;
 }
 
-/** Whether an outbox event may be claimed by a dispatcher at the supplied time. */
+/** 在给定时刻，调度器是否可以领取该 Outbox 事件。 */
 export function isTradeNotificationClaimable(
   event: Pick<TradeNotificationOutboxEvent, "status" | "leaseUntil" | "nextAttemptAt">,
   now: number,
@@ -39,8 +39,8 @@ export function isTradeNotificationClaimable(
 }
 
 /**
- * Build a deterministic notification event only from a validated exchange fill.
- * The event contains execution facts, never API credentials or account balances.
+ * 仅由已校验的交易所成交构造确定性通知事件。
+ * 事件只含成交事实，不含 API 密钥或账户余额。
  */
 export function buildTradeFillNotificationEvent(
   fill: ExecutionFill,
