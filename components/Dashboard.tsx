@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Balances from "./Balances";
 import BuyQueue from "./BuyQueue";
+import PrepOrdersPanel from "./PrepOrdersPanel";
 import SellQueue from "./SellQueue";
 import ExecutionBackground from "./ExecutionBackground";
 import CoinCardView from "./CoinCard";
@@ -121,13 +122,14 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
     try {
       const res = await fetch(`/api/dashboard${sc ? `?scenario=${sc}` : ""}`, { cache: "no-store" });
       if (!res.ok) throw new Error(String(res.status));
-      const nextData = await res.json() as DashboardData;
+      const nextData = (await res.json()) as DashboardData;
       if (nextData.source === "binance") {
         const sellStore = await import("@/lib/execution/sell-store.browser");
         const executionStore = await import("@/lib/execution/store.browser");
         const rebuy = await import("@/strategy/post-take-profit-rebuy");
         const [sellEvents, ledger] = await Promise.all([
-          sellStore.listSellEvents(), executionStore.listTradeLedger(),
+          sellStore.listSellEvents(),
+          executionStore.listTradeLedger(),
         ]);
         setData(rebuy.applyPostTakeProfitRebuy(nextData, sellEvents, ledger));
       } else {
@@ -145,8 +147,6 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fresh Binance BUY signals are queued and SELL signals are reserved as guarded events.
-  // Neither path submits an order to the exchange.
   useEffect(() => {
     if (!directReady || data.source !== "binance" || data.stale) return;
     let cancelled = false;
@@ -164,7 +164,9 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
       .finally(() => {
         if (!cancelled) setQueueVersion((version) => version + 1);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [data, directReady]);
 
   useEffect(() => {
@@ -173,8 +175,6 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
     return () => clearInterval(id);
   }, [data.source, refresh]);
 
-  // 浏览器直连模式：将本轮看板计算出的卖出信号交给邮件 Worker。
-  // Worker 只负责发信与去重，不参与行情请求或策略计算。
   useEffect(() => {
     const endpoint = process.env.NEXT_PUBLIC_SELL_ALERT_URL;
     if (!endpoint || !directReady || data.source !== "binance" || data.stale) return;
@@ -211,7 +211,6 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
       .catch((error) => console.warn("[sell-alert]", error));
   }, [data]);
 
-  // 页面打开后每 60 秒调用一次 /api/notify；是否发信、冷却多久由服务端按 .env 决定
   useEffect(() => {
     if (typeof window === "undefined") return;
     const check = () => {
@@ -365,7 +364,13 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
                 {tab === "trades" && <Timeline trades={data.trades} symbols={symbols} bare />}
                 {tab === "balance" && <Balances data={data} bare />}
                 {tab === "strategy" && <StrategyInfo bare />}
-                {tab === "queue" && <><BuyQueue data={data} refreshKey={queueVersion} /><SellQueue refreshKey={queueVersion} /></>}
+                {tab === "queue" && (
+                  <>
+                    <BuyQueue data={data} refreshKey={queueVersion} />
+                    <PrepOrdersPanel data={data} refreshKey={queueVersion} />
+                    <SellQueue refreshKey={queueVersion} />
+                  </>
+                )}
               </div>
             </div>
           </aside>
@@ -398,6 +403,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
 
       <Timeline trades={data.trades} symbols={symbols} />
       <BuyQueue data={data} refreshKey={queueVersion} />
+      <PrepOrdersPanel data={data} refreshKey={queueVersion} />
       <SellQueue refreshKey={queueVersion} />
       <StrategyInfo />
       {notes}
