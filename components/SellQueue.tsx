@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listSellEvents, type SellEventRecord } from "@/lib/execution/sell-store.browser";
 import { syncSellOrderFromBinance } from "@/lib/execution/sync-sell-order.browser";
-import { LIVE_SPOT_SELL_SUBMISSION_ENABLED } from "@/lib/binance.browser";
+import { BINANCE_SPOT_SELL_SUBMISSION_ENABLED } from "@/lib/binance.browser";
 import { submitQueuedSellEvent } from "@/lib/execution/sell-order-submit.browser";
 
 const STATUS: Record<SellEventRecord["status"], string> = {
