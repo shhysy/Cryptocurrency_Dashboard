@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertSimpleEarnSupported, resolveBinanceSpotEnvironment } from "./binance-environment";
+import { assertSimpleEarnSupported, resolveBinanceSpotEnvironment, resolveBinanceSpotSubmissionSwitches } from "./binance-environment";
 
 describe("Binance Spot environment isolation", () => {
   it("selects the Spot Testnet endpoint and only testnet credentials", () => {
@@ -54,5 +54,28 @@ describe("Binance Simple Earn environment guard", () => {
 
   it("allows production-only Simple Earn path in production mode", () => {
     expect(() => assertSimpleEarnSupported("production")).not.toThrow();
+  });
+});
+
+describe("Spot order submission environment switches", () => {
+  it("keeps production BUY and SELL hard-disabled even if testnet flags are set", () => {
+    expect(resolveBinanceSpotSubmissionSwitches("production", {
+      NEXT_PUBLIC_BINANCE_SPOT_TESTNET_BUY_ENABLED: "1",
+      NEXT_PUBLIC_BINANCE_SPOT_TESTNET_SELL_ENABLED: "1",
+    })).toEqual({ buyEnabled: false, sellEnabled: false });
+  });
+
+  it("requires separate explicit testnet opt-in for BUY and SELL", () => {
+    expect(resolveBinanceSpotSubmissionSwitches("testnet", {
+      NEXT_PUBLIC_BINANCE_SPOT_TESTNET_BUY_ENABLED: "1",
+    })).toEqual({ buyEnabled: true, sellEnabled: false });
+    expect(resolveBinanceSpotSubmissionSwitches("testnet", {
+      NEXT_PUBLIC_BINANCE_SPOT_TESTNET_SELL_ENABLED: "1",
+    })).toEqual({ buyEnabled: false, sellEnabled: true });
+  });
+
+  it("keeps both testnet submission paths disabled by default", () => {
+    expect(resolveBinanceSpotSubmissionSwitches("testnet", {}))
+      .toEqual({ buyEnabled: false, sellEnabled: false });
   });
 });
