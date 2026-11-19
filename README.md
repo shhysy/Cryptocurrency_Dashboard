@@ -149,3 +149,6 @@ DASHBOARD_PASSWORD=请设置一个强密码
 BUY 和 SELL 可分别开启；首次联调建议只开启 BUY，验证流程后再单独开启 SELL。任何一侧缺少前端或服务端开关都会拒绝请求。生产 BUY/SELL 开关不存在可用的启用路径，仍保持关闭。提交结果不明确时只保留 clientOrderId 并进入对账，不自动重发。
 
 注意：队列买入仍依赖账户余额、交易对规则和本地资金预留；卖出仍依赖本地成交账本与 Binance 持仓核对。不要为了通过测试而绕过这些保护。
+
+
+安全说明：测试网下单 API 除全站 Basic Auth 外，还会独立校验 `Authorization: Basic` 密码；必须设置强 `DASHBOARD_PASSWORD` 并通过 HTTPS 部署。API 路由的认证、跨源、JSON、请求体大小和字段白名单测试均纳入 Vitest。
