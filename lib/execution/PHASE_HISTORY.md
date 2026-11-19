@@ -576,3 +576,208 @@ Worker 验证签名、时间窗口和字段后，过滤 KV 已发送事件，发
 - 用户选择私人自用的浏览器直连模式，并接受 API Secret 会进入前端 bundle 的风险。该方案不是安全隔离：只能使用专用 Key、绑定固定 IP、禁止提现/划转/合约权限，不可把 Key/Secret 写入源码或提交 Git；若不能绑定 IP，不应开启交易权限。
 - 启用前仍需用户明确确认、换用专用 TRADE Key，并在 Binance Testnet/小额受控环境完成验证；当前不会要求用户现在开启权限。
 - IndexedDB 是本浏览器本地状态；清除站点数据会丢失赎回意图。不能把本地意图当作 Binance 已赎回的事实。
+
+
+---
+
+<!-- 原文件：lib/execution/PHASE_15.md -->
+
+# 第十五阶段：受控的 Spot 市价买单提交适配器（默认关闭）
+
+## 本阶段实现
+
+- `binance.browser.ts` 新增 `submitSpotMarketBuy`，使用 Binance Spot `POST /api/v3/order`。
+- 只支持 USDT 报价的 MARKET BUY，参数使用 `quoteOrderQty`，并传入稳定的 `newClientOrderId`。
+- `newOrderRespType=FULL`；响应必须包含匹配的 symbol/clientOrderId、有效 orderId 和已知订单状态。
+- 新增 `LIVE_SPOT_ORDER_SUBMISSION_ENABLED=false`，默认在任何网络请求前 fail-closed。
+- `buy-order-submit.browser.ts` 串联只读预检、现货资金本地预留、原子领取 attempt、一次 POST 和提交结果复核状态。
+- `claimBuyOrderSubmission` 在 IndexedDB 单事务中将订单移入 `reconcile_required` 并递增 attemptCount；并发标签页不能领取同一待买订单。
+- 请求超时或响应异常时保留本次 attempt 和资金预留，不自动重发；必须先通过 `clientOrderId` 查询订单。
+- `BuyQueue.tsx` 新增执行买入入口（默认禁用）和手动“核对 Binance 买单”按钮。
+- 真实成交仍由 `syncBuyOrderFromBinance` 查询订单和逐笔成交；只有核对通过后才能更新买入金额、成交台账与通知 Outbox。
+
+## 关键执行规则
+
+1. 预检必须通过，且 quoteOrderQty 必须满足当前交易对规则。
+2. 只提交本地资金预留覆盖的 USDT 金额，不将 Flexible Earn 未到账金额算入 Spot free。
+3. 先持久化 attempt，再发送 POST；不能先发单后补本地状态。
+4. 每次 attempt 只允许一个 POST；网络超时不重试。
+5. 通过客户端订单 ID 对账，订单仍为 NEW / PARTIALLY_FILLED 时等待，不创建第二笔订单。
+6. 成交量/金额和逐笔成交不一致时进入人工复核。
+7. 买入成交通知只在成交核验和台账入账成功后生成。
+
+## 当前边界
+
+- `LIVE_SPOT_ORDER_SUBMISSION_ENABLED=false`，当前不会发送 Spot BUY POST。
+- 用户现有 Binance Key 仍为只读；真正提交订单需要 TRADE 权限，启用前会再次通知用户。
+- 浏览器直连会暴露前端 bundle 中的 API Secret；用户已选择私人自用方式并接受该风险。只可使用专用 API Key、固定 IP 白名单，禁止提现、划转、合约等无关权限。
+- BUY 已有单次提交编排；SELL 的完整提交编排和页面打开期间的自动只读对账已在第十六阶段补齐。Spot Testnet 端到端测试仍未完成。
+- 本地 IndexedDB 预留不是 Binance 侧锁仓；最终执行前仍必须重新读取 Spot free 和交易对规则。
+
+
+---
+
+<!-- 原文件：lib/execution/PHASE_16.md -->
+
+# 第十六阶段：卖出提交编排与自动只读对账
+
+## 本阶段实现
+
+- 新增 `sell-order-submit.browser.ts`，将卖出事件、交易规则、实时价格、持仓账本和 Binance Spot SELL 接口串联。
+- 提交前重新读取 Binance 交易对规则和价格，并通过本地成交台账与 Binance free/locked 持仓核对。
+- 普通止盈、指标止盈、追踪止损只能卖周期仓；底仓减仓沿用单次最多减去受保护底仓 50% 的约束。
+- `fundamental_exit` 暂不允许自动执行，必须人工复核。
+- 提交前先在 IndexedDB 原子领取卖出事件并保存确定性 `clientOrderId`；多个标签页不能重复领取。
+- POST 成功后绑定 Binance `orderId`；如果响应或本地绑定异常，保留 `clientOrderId`，后续可通过只读订单查询恢复。
+- 新增卖出数量格式化函数和测试，使用已通过交易步长预检的数量，不自行扩大数量。
+- `SellQueue` 新增执行卖出入口，但实盘开关关闭时不可用。
+- 买卖队列页面每 30 秒自动核对已经领取、处于 `reconcile_required` 的订单；仅调用只读订单和成交查询，不会重复 POST。
+- 自动对账和人工对账共用页面内的 in-flight 锁，避免同一订单并发查询和重复写入。
+
+## 自动对账规则
+
+1. 只处理已有本地提交 attempt / clientOrderId 的订单。
+2. 先按 clientOrderId 或 exchangeOrderId 查询原订单。
+3. 订单未终态时继续保留锁定状态，等待下一轮对账。
+4. 只有逐笔成交与 Binance 累计成交数量、金额一致时才记入成交台账。
+5. 成交台账按交易所成交 ID 去重；成交 Outbox 只在确认成交入账时创建。
+6. 已终态部分成交按实际成交量记账，不根据原始请求量推断成交。
+7. 不存在订单、查询失败或数据不一致时保持复核状态，不自动重发 POST。
+
+## 运行边界
+
+- 自动轮询只在看板页面打开时运行；页面关闭期间不会执行轮询。
+- BUY、SELL、Simple Earn redeem 的实盘开关均保持 `false`。
+- 当前只完成浏览器打开期间的自动只读对账，不代表后台常驻任务。
+- SELL MARKET POST 编排已实现但未启用；基本面失效退出尚未纳入自动执行。
+- 没有部署或使用 Binance 交易权限；当前只读 Key 不会因此获得交易能力。
+- 成交通知 Outbox 已在真实成交核验后入队，但安全的登录态转发/邮件 dispatcher 尚未接通。
+
+
+---
+
+<!-- 原文件：lib/execution/PHASE_17.md -->
+
+# 第十七阶段：成交邮件 Outbox 安全投递
+
+## 本阶段实现
+
+- 扩展成交通知 Outbox 状态：`pending / sending / sent / failed`。
+- 新增 2 分钟租约，使用同一 IndexedDB readwrite transaction 批量领取，防止同一浏览器多个标签页重复投递。
+- 浏览器崩溃后租约到期可恢复；投递失败按指数退避，最长间隔 1 小时。
+- 新增 `notification-dispatch.browser.ts`，只把已核验成交事件的必要字段提交给同源 API。
+- 新增 `app/api/trade-fill-notifications/route.ts`：
+  - 校验精确 `APP_ORIGIN`
+  - 验证 Cloudflare Access JWT 签名、issuer、audience、有效期和可选邮箱白名单
+  - 校验成交事件字段和批次幂等 ID
+  - 使用仅存在于服务端环境变量的 HMAC Secret 签名
+  - 将请求转发到成交邮件 Worker
+- `ExecutionBackground` 在页面打开且标签页可见时，每 30 秒运行买卖只读对账及 Outbox 投递。
+- Worker 只有确认接收整个批次（accepted + duplicate = batch size）后，浏览器才把事件标记为 sent。
+
+## 需要部署者配置
+
+看板服务端环境变量：
+- `APP_ORIGIN`
+- `CF_ACCESS_TEAM_DOMAIN`
+- `CF_ACCESS_AUD`
+- `CF_ACCESS_ALLOWED_EMAIL`（必填，唯一允许邮箱白名单）
+- `TRADE_FILL_NOTIFY_URL`
+- `TRADE_NOTIFY_HMAC_SECRET`
+
+Cloudflare Worker：
+- KV namespace `TRADE_FILL_NOTIFICATIONS`
+- Secret `TRADE_NOTIFY_HMAC_SECRET`（必须与看板服务端相同）
+- Secret `RESEND_API_KEY`
+- Variables `MAIL_FROM`、`MAIL_TO`
+
+部署步骤见 `workers/TRADE_FILL_EMAIL_SETUP.md`。
+
+## 安全边界
+
+- 所有环境变量都不使用 `NEXT_PUBLIC_` 前缀。
+- HMAC Secret 和 Resend API Key 不进入浏览器 bundle。
+- API 未配置 Access、Origin 或 HMAC 时 fail-closed。
+- 浏览器 Outbox 只能来自本地成交核验流程，但本机用户仍能修改浏览器状态；邮件是私人提醒，不是独立审计证明。
+- Cloudflare KV 为最终一致性存储；Worker 的 Resend Idempotency-Key 和本地租约降低重复投递风险，但不承诺跨设备严格 exactly-once。
+- 页面关闭时不会运行自动 dispatcher；重新打开页面后恢复。
+- 邮件投递不需要 Binance TRADE 权限，也不执行任何交易。
+
+
+---
+
+<!-- 原文件：lib/execution/PHASE_18.md -->
+
+# 第十八阶段：自动执行周期（实盘开关默认关闭）
+
+## 本阶段实现
+
+- 将 `ExecutionBackground` 提升为 Dashboard 根级组件；无论用户当前是否打开“待买队列”Tab，只要看板打开且标签页可见，后台周期都会运行。
+- 每 30 秒进行一次买卖订单只读对账和成交 Outbox 投递；行情刷新后使用最新 DashboardData。
+- 增加 gated execution cycle：
+  - 仅在数据源为 Binance、数据非 stale、账户状态已知时进入执行分支。
+  - BUY：读取币种当前累计成本，按策略 profile 固定成本上限计算剩余额度；先做 Spot 预检，再使用单次提交编排。
+  - Simple Earn：只有 `LIVE_EARN_REDEMPTION_ENABLED` 开启时，才规划/提交 USDT Flexible Earn 缺口赎回；赎回历史和 Spot 到账核实后，后续周期再执行买入。
+  - SELL：只允许止盈、指标止盈、追踪止损和受限底仓减仓事件；基本面退出不自动执行。
+  - 每个周期最多提交一个买入订单和一个卖出订单；Flexible Earn 多产品赎回按已持久化 intent 逐个处理。
+- 自动执行与只读对账分离；订单提交前仍需经过独立的最新余额/规则/仓位预检、IndexedDB 原子领取和确定性 clientOrderId。
+- in-flight guard 跨 Dashboard 行情刷新保持，避免 effect 重建时重复处理同一事件。
+
+## 重要安全约束
+
+- `LIVE_SPOT_ORDER_SUBMISSION_ENABLED=false`
+- `LIVE_SPOT_SELL_SUBMISSION_ENABLED=false`
+- `LIVE_EARN_REDEMPTION_ENABLED=false`
+
+以上三个开关均保持关闭。当前自动执行周期只会执行只读对账和已确认成交邮件投递，不会真实买入、卖出或赎回。
+
+## 运行边界
+
+- 自动周期依赖看板保持打开且标签页可见；浏览器关闭或设备休眠时不会运行。
+- 当前仍未完成 Binance Spot Testnet 端到端演练。
+- 自动申购 Simple Earn Flexible 尚未实现；只实现了买入缺口时的活期赎回规划/受控适配器。
+- Locked Earn 不进入自动资金调度。
+- 需要启用实盘前，必须完成测试网演练、密钥安全审查和用户明确确认。
+
+
+---
+
+<!-- 原文件：lib/execution/PHASE_19.md -->
+
+# 第十九阶段：Binance Spot Testnet 环境隔离
+
+## 本阶段完成
+
+- 新增 `lib/binance-environment.ts`，集中解析 Spot API 环境。
+- 默认生产环境使用 `https://api.binance.com` 和原生产凭证入口。
+- 只有显式设置 `NEXT_PUBLIC_BINANCE_SPOT_TESTNET=1` 才切换到 `https://testnet.binance.vision`。
+- Testnet 模式只读取 `NEXT_PUBLIC_BINANCE_TESTNET_API_KEY` / `NEXT_PUBLIC_BINANCE_TESTNET_API_SECRET`，绝不回退生产 Key、Secret 或源码 fallback。
+- Spot 账户、交易对过滤器、订单查询、逐笔成交和 Spot 公共行情随 BASE 切换到 Testnet。
+- Testnet 模式对 Simple Earn 持仓、历史和赎回路径 fail-closed；不会请求生产 `/sapi/v1/simple-earn/*`。
+- 新增纯函数测试覆盖环境选择、凭证隔离、生产提交开关保持关闭、Simple Earn Testnet 拒绝。
+- README 增加独立 Testnet 环境配置步骤。
+
+## 尚未完成
+
+- Testnet 的 BUY/SELL 提交 UI 与自动执行调度尚未接入 Testnet 专用开关；队列按钮仍按生产实盘开关禁用。
+- 当前不能把本阶段描述为完成了 Testnet 真实下单演练。
+- 还没有用户自己的 Testnet API Key，也没有运行真实 Testnet 下单、撤单/终态、部分成交和超时恢复演练。
+- Simple Earn 不在 Spot Testnet 的支持范围内，仍需用模拟数据验证资金调度，不可拿生产账户测试。
+
+## 安全边界
+
+- `LIVE_SPOT_ORDER_SUBMISSION_ENABLED=false`
+- `LIVE_SPOT_SELL_SUBMISSION_ENABLED=false`
+- `LIVE_EARN_REDEMPTION_ENABLED=false`
+- 生产环境提交开关不会被 Testnet 环境变量打开。
+- Testnet Key/Secret 与生产凭证严格分离；缺少 Testnet 凭证时不会使用生产凭证兜底。
+- 真实账户资金和现有只读 API Key 未被使用；本阶段未发送任何交易或赎回 POST。
+
+## Testnet 环境变量
+
+```dotenv
+NEXT_PUBLIC_DIRECT_BINANCE=1
+NEXT_PUBLIC_BINANCE_SPOT_TESTNET=1
+NEXT_PUBLIC_BINANCE_TESTNET_API_KEY=your_testnet_key
+NEXT_PUBLIC_BINANCE_TESTNET_API_SECRET=your_testnet_secret
+```
