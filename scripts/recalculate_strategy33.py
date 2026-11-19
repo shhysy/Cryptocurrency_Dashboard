@@ -9,3 +9,5 @@ left=[(ws.title,c.coordinate,str(c.value)[:80]) for ws in wb.worksheets for row 
 assert not left, left
 print("PRECHECK_SHEETS",wb.sheetnames)
 print("PRECHECK_FORMULAS",sum(1 for ws in wb.worksheets for row in ws.iter_rows() for c in row if isinstance(c.value,str) and c.value.startswith("=")))
+
+print('FORMULA_RECALC_READY')
