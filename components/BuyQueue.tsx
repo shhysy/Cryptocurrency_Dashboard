@@ -273,12 +273,12 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
                     </button>
                     <button
                       type="button"
-                      disabled={!LIVE_SPOT_ORDER_SUBMISSION_ENABLED || !canPreview || !preview?.ok || buySubmitLoading[order.id]}
+                      disabled={!BINANCE_SPOT_BUY_SUBMISSION_ENABLED || !canPreview || !preview?.ok || buySubmitLoading[order.id]}
                       onClick={() => void submitBuy(order, remainingCapUsdt)}
                       className="rounded-full border border-line px-3 py-1 text-[10px] text-sub transition hover:text-fg disabled:opacity-40"
                       title="实盘买入开关关闭时不可用"
                     >
-                      {buySubmitLoading[order.id] ? "提交中…" : LIVE_SPOT_ORDER_SUBMISSION_ENABLED ? "执行买入" : "实盘买入未启用"}
+                      {buySubmitLoading[order.id] ? "提交中…" : BINANCE_SPOT_BUY_SUBMISSION_ENABLED ? "执行买入" : "实盘买入未启用"}
                     </button>
                   </div>
                 </div>
