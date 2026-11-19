@@ -7,6 +7,7 @@ import {
   listBuyOrders,
   reserveBuyFunds,
   saveBuyOrder,
+  topUpBuyFundsReservationAfterEarnCredit,
 } from "./store.browser";
 import type { BuyOrderIntent } from "./types";
 
@@ -116,6 +117,47 @@ describe("IndexedDB BUY reservation and claim integration", () => {
     const [saved] = await listBuyOrders();
     expect(saved.status).toBe("reconcile_required");
     expect(saved.attemptCount).toBe(1);
+  });
+
+  it("extends only the current order reservation after a verified Earn credit", async () => {
+    const order = makeOrder("BTC:add:week-earn");
+    await enqueueBuyOrder(order);
+    await reserveBuyFunds({
+      orderId: order.id, symbol: "BTCUSDT", requestedUsdt: 30,
+      observedFreeUsdt: 30, minNotionalUsdt: 5, now: 50,
+    });
+
+    const updated = await topUpBuyFundsReservationAfterEarnCredit({
+      orderId: order.id,
+      symbol: "BTCUSDT",
+      requestedRemainingUsdt: 100,
+      observedFreeUsdt: 100,
+      expectedAttemptCount: order.attemptCount,
+      expectedOrderUpdatedAt: order.updatedAt,
+      now: 51,
+    });
+    expect(updated).toMatchObject({
+      reservedUsdt: 100,
+      originalReservedUsdt: 100,
+      consumedUsdt: 0,
+      status: "active",
+    });
+  });
+
+  it("rejects an Earn top-up when the queued order changed after the caller read it", async () => {
+    const order = makeOrder("BTC:add:week-earn-stale");
+    await enqueueBuyOrder(order);
+    await saveBuyOrder({ ...order, updatedAt: order.updatedAt + 1 });
+
+    await expect(topUpBuyFundsReservationAfterEarnCredit({
+      orderId: order.id,
+      symbol: "BTCUSDT",
+      requestedRemainingUsdt: 100,
+      observedFreeUsdt: 100,
+      expectedAttemptCount: order.attemptCount,
+      expectedOrderUpdatedAt: order.updatedAt,
+    })).rejects.toThrow("已变化");
+    expect(await listBuyFundsReservations()).toHaveLength(0);
   });
 
   it("reopens the database connection and recovers persisted queue state", async () => {
