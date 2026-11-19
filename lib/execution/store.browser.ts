@@ -470,19 +470,6 @@ export async function reserveBuyFunds(input: {
       getAll.onsuccess = () => {
         const all = getAll.result as BuyFundsReservation[];
         const existing = all.find((item) => item.orderId === input.orderId);
-        if (existing?.status === "active") {
-          const plan = {
-            ok: true,
-            reserveUsdt: existing.reservedUsdt,
-            availableUsdt: existing.reservedUsdt,
-            totalReservedUsdt: all
-              .filter((item) => item.status === "active" && item.orderId !== input.orderId)
-              .reduce((sum, item) => sum + item.reservedUsdt, 0),
-            reason: null,
-          };
-          result = { reservation: existing, plan };
-          return;
-        }
         const plan = planBuyFundsReservation({
           orderId: input.orderId,
           requestedUsdt: input.requestedUsdt,
@@ -492,6 +479,22 @@ export async function reserveBuyFunds(input: {
         });
         if (!plan.ok) {
           result = { reservation: null, plan };
+          return;
+        }
+        if (existing?.status === "active") {
+          if (existing.symbol !== input.symbol) {
+            result = {
+              reservation: null,
+              plan: {
+                ...plan,
+                ok: false,
+                reserveUsdt: 0,
+                reason: "同一订单 ID 对应的资金预留交易对不一致，必须人工核对",
+              },
+            };
+            return;
+          }
+          result = { reservation: existing, plan };
           return;
         }
         const now = input.now ?? Date.now();
@@ -1058,11 +1061,28 @@ export async function topUpBuyFundsReservationAfterEarnCredit(input: {
       getAll.onsuccess = () => {
         const all = getAll.result as BuyFundsReservation[];
         const current = all.find((item) => item.orderId === input.orderId);
-        const otherReserved = all
-          .filter((item) => item.status === "active" && item.orderId !== input.orderId)
-          .reduce((sum, item) => sum + Math.max(0, item.reservedUsdt), 0);
-        const available = Math.max(0, input.observedFreeUsdt - otherReserved);
-        const remainingToReserve = Math.min(input.requestedRemainingUsdt, available);
+        if (input.requestedRemainingUsdt <= 1e-8) {
+          result = current ?? null;
+          return;
+        }
+        const plan = planBuyFundsReservation({
+          orderId: input.orderId,
+          requestedUsdt: input.requestedRemainingUsdt,
+          observedFreeUsdt: input.observedFreeUsdt,
+          activeReservations: all,
+          minNotionalUsdt: 0,
+        });
+        if (!plan.ok) {
+          fatal = new Error(plan.reason ?? "活动资金预留数据无效，无法扩展预留");
+          tx.abort();
+          return;
+        }
+        if (current?.symbol && current.symbol !== input.symbol) {
+          fatal = new Error("同一订单 ID 对应的资金预留交易对不一致，必须人工核对");
+          tx.abort();
+          return;
+        }
+        const remainingToReserve = Math.min(input.requestedRemainingUsdt, plan.availableUsdt);
         if (remainingToReserve <= 1e-8) {
           result = current ?? null;
           return;
