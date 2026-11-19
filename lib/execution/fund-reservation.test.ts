@@ -38,6 +38,27 @@ describe("USDT buy-funds reservation planner", () => {
     })).toMatchObject({ ok: true, reserveUsdt: 30, availableUsdt: 80, totalReservedUsdt: 20 });
   });
 
+  it("fails closed when an active reservation contains a non-finite amount", () => {
+    const corrupted = { ...active("order-a", 20), reservedUsdt: Number.NaN };
+    expect(planBuyFundsReservation({
+      orderId: "order-b",
+      requestedUsdt: 30,
+      observedFreeUsdt: 100,
+      activeReservations: [corrupted],
+      minNotionalUsdt: 5,
+    })).toMatchObject({ ok: false, reason: expect.stringContaining("损坏") });
+  });
+
+  it("fails closed when duplicate active reservations exist for one order", () => {
+    expect(planBuyFundsReservation({
+      orderId: "order-b",
+      requestedUsdt: 30,
+      observedFreeUsdt: 100,
+      activeReservations: [active("order-a", 20), active("order-a", 10)],
+      minNotionalUsdt: 5,
+    })).toMatchObject({ ok: false, reason: expect.stringContaining("重复") });
+  });
+
   it("blocks when unreserved funds fall below exchange minimum notional", () => {
     expect(planBuyFundsReservation({
       orderId: "order-b",
@@ -80,6 +101,12 @@ describe("monotonic buy reservation reconciliation", () => {
     const released = reconcileBuyFundsReservation(active("order-a", 50), 20, true, 20);
     expect(released).toMatchObject({ reservedUsdt: 0, status: "released" });
     expect(() => reconcileBuyFundsReservation(released, 20, false, 30)).toThrow("非终态快照重新激活");
+  });
+
+  it("rejects a corrupted persisted reservation before reconciling it", () => {
+    const corrupted = { ...active("order-a", 50), reservedUsdt: Number.NaN };
+    expect(() => reconcileBuyFundsReservation(corrupted, 10, false, 20))
+      .toThrow("记录损坏");
   });
 
   it("allows an idempotent terminal refresh", () => {
