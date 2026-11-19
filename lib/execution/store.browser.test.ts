@@ -230,6 +230,26 @@ describe("IndexedDB BUY reservation and claim integration", () => {
     expect(await listBuyFundsReservations()).toHaveLength(0);
   });
 
+  it("fails closed when a legacy tab blocks an IndexedDB schema upgrade", async () => {
+    const blocker = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, 3);
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore("legacy", { keyPath: "id" });
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error ?? new Error("打开旧版本测试数据库失败"));
+    });
+
+    try {
+      await expect(listBuyOrders()).rejects.toThrow("升级被其他浏览器标签页阻塞");
+    } finally {
+      blocker.close();
+      // Let the already-rejected upgrade request finish and close its
+      // connection after the blocking legacy tab releases the version lock.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  });
+
   it("fails closed when IndexedDB is unavailable", async () => {
     vi.stubGlobal("indexedDB", undefined);
     await expect(listBuyOrders()).rejects.toThrow("当前环境不支持 IndexedDB");
