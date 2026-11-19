@@ -1,6 +1,6 @@
 # 长期投资信号看板
 
-只读的单页看板：周线级别的信号、持仓、成本价、买入记录。**不能下单、不能交易**，代码里只有 GET 请求。
+周线级别的信号、持仓、成本价和交易执行研究看板。实盘买入、卖出与 Simple Earn 赎回由独立开关控制，当前全部关闭；未完成测试网演练前不得启用。
 
 没有配置币安 Key 时自动显示示例数据，页面顶部可切换 5 种结论状态预览。
 
@@ -90,9 +90,28 @@ node scripts/import-csv.mjs data/manual-trades.example.csv
 
 接口失败时显示上次缓存，并标注「数据更新时间」。缓存在进程内存里：Serverless 冷启动会丢失，此时若接口也失败，页面会显示「暂时无法获取数据」。
 
+## Binance Spot Testnet（测试网）
+
+本项目支持通过独立环境变量切换 Binance Spot Testnet，测试网凭证不会回退到生产 Key/Secret：
+
+```dotenv
+NEXT_PUBLIC_DIRECT_BINANCE=1
+NEXT_PUBLIC_BINANCE_SPOT_TESTNET=1
+NEXT_PUBLIC_BINANCE_TESTNET_API_KEY=你的测试网_API_Key
+NEXT_PUBLIC_BINANCE_TESTNET_API_SECRET=你的测试网_API_Secret
+```
+
+使用步骤：
+1. 在 Binance Spot Testnet 官方环境创建测试网 API Key/Secret；不要填写生产账户 Key。
+2. 在本地 `.env.local` 配置以上变量，重启 Next.js 开发服务器。
+3. 确认代码导出的 `BINANCE_SPOT_ENVIRONMENT` 为 `testnet`，接口地址为 `https://testnet.binance.vision`。
+4. 使用测试网资产验证余额读取、交易对规则、订单提交/查询、逐笔成交对账和异常恢复。
+5. 测试网不提供 Simple Earn；本项目在 Testnet 模式会主动拒绝所有 Simple Earn 读取/赎回路径，不会误访问生产理财接口。
+
+**重要：** Testnet 模式只切换 Spot REST 地址和测试网凭证，不会自动打开实盘开关。当前 `LIVE_SPOT_ORDER_SUBMISSION_ENABLED`、`LIVE_SPOT_SELL_SUBMISSION_ENABLED`、`LIVE_EARN_REDEMPTION_ENABLED` 均为 `false`。本地单元测试不会访问 Binance，也不会产生真实订单。实际 Testnet 下单需要单独审查并明确启用测试网专用执行配置，不能通过修改生产开关来做测试。
 ## 安全提醒
 
-- 当前自动赎回/买卖实盘开关均关闭，现有只读 Key 不会执行资金变动。
+- 当前自动赎回/买卖实盘开关均关闭，现有只读 Key 不会执行资金变动；Spot Testnet 使用独立凭证和独立接口地址。
 - 私人浏览器直连模式会把 `NEXT_PUBLIC_BINANCE_API_SECRET` 打进前端 bundle；这不是安全存储。若你接受该风险，也必须使用专用 Key、固定 IP 白名单，并且只开放必要的现货/理财交易权限，绝不开放提现、划转或合约权限。
 - 能绑定 IP 白名单就绑定（固定 IP 的服务器可以，Cloudflare Workers 不行）。
 - `.env.local` 不要提交 Git、不要发给任何人或贴进聊天。已经泄露的 Key 立刻在币安删除重建。
