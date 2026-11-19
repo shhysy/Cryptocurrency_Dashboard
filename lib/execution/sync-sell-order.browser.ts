@@ -35,7 +35,7 @@ export async function syncSellOrderFromBinance(
   const events = await listSellEvents();
   let event = events.find((item) => item.eventKey === eventKey);
   if (!event) throw new Error("找不到待对账卖出事件");
-  if (event.status !== "pending" && event.status !== "reconcile_required") {
+  if (event.status !== "pending" && event.status !== "reconcile_required" && event.status !== "partially_filled") {
     throw new Error(`卖出事件状态为 ${event.status}，不允许对账`);
   }
   if ((!event.exchangeOrderId || !/^[0-9]{1,32}$/.test(event.exchangeOrderId)) &&
