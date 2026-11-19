@@ -109,6 +109,22 @@ describe("Earn credit reservation top-up planning", () => {
     expect(plan).toMatchObject({ ok: false, reservedUsdt: 30, additionalUsdt: 0 });
   });
 
+  it("fails closed when a released reservation snapshot is corrupted", () => {
+    const released = {
+      ...active("order-a", 100),
+      reservedUsdt: Number.NaN,
+      consumedUsdt: 70,
+      status: "released" as const,
+    };
+    expect(planBuyFundsReservationTopUp({
+      orderId: "order-a",
+      requestedRemainingUsdt: 30,
+      observedFreeUsdt: 50,
+      activeReservations: [released],
+      currentReservation: released,
+    })).toMatchObject({ ok: false, reason: expect.stringContaining("损坏") });
+  });
+
   it("can create a fresh reservation after a previous attempt was terminally released", () => {
     const released = {
       ...active("order-a", 100),
