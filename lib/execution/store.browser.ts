@@ -104,9 +104,13 @@ export async function recordConfirmedBuyFill(
       const reservations = tx.objectStore(RESERVATIONS);
       const outbox = tx.objectStore(NOTIFICATION_OUTBOX);
       const getFill = fills.get(id);
+      const getLedger = ledgerStore.get(id);
       const getOrder = orders.get(queuedOrderId);
       const getReservation = reservations.get(queuedOrderId);
       let fillReady = false;
+      let ledgerReady = false;
+      let existingFillRecord: { id: string; fill: ExecutionFill } | undefined;
+      let existingLedger: TradeLedgerEntry | undefined;
       let orderReady = false;
       let reservationReady = false;
       let existingFill = false;
@@ -116,7 +120,7 @@ export async function recordConfirmedBuyFill(
       let fatalError: Error | null = null;
 
       const finishReads = () => {
-        if (!fillReady || !orderReady || !reservationReady || result || fatalError) return;
+        if (!fillReady || !ledgerReady || !orderReady || !reservationReady || result || fatalError) return;
         if (!currentOrder) {
           fatalError = new Error("成交对应的待买订单不存在");
           tx.abort();
@@ -130,7 +134,24 @@ export async function recordConfirmedBuyFill(
         }
         let ledger: TradeLedgerEntry = { ...fill, id, realizedPnlUsdt: null };
         if (existingFill) {
-          result = { recorded: false, ledger, order: currentOrder };
+          if (!existingLedger || !existingFillRecord) {
+            fatalError = new Error("买入成交去重索引与台账记录不一致，暂停记账");
+            tx.abort();
+            return;
+          }
+          try {
+            assertDuplicateExecutionFillMatches(existingFillRecord.fill, null, fill, null);
+            assertDuplicateExecutionFillMatches(existingLedger, null, fill, null);
+            result = { recorded: false, ledger: existingLedger, order: currentOrder };
+          } catch (error) {
+            fatalError = error instanceof Error ? error : new Error("重复买入成交数据冲突");
+            tx.abort();
+          }
+          return;
+        }
+        if (existingLedger) {
+          fatalError = new Error("买入成交台账存在记录但去重索引缺失，暂停记账");
+          tx.abort();
           return;
         }
         try {
@@ -175,6 +196,11 @@ export async function recordConfirmedBuyFill(
         fillReady = true;
         finishReads();
       };
+      getLedger.onsuccess = () => {
+        existingLedger = getLedger.result as TradeLedgerEntry | undefined;
+        ledgerReady = true;
+        finishReads();
+      };
       getOrder.onsuccess = () => {
         currentOrder = getOrder.result as QueuedBuyOrder | undefined;
         orderReady = true;
@@ -186,6 +212,7 @@ export async function recordConfirmedBuyFill(
         finishReads();
       };
       getFill.onerror = () => { fatalError = getFill.error ?? new Error("查询成交 ID 失败"); tx.abort(); };
+      getLedger.onerror = () => { fatalError = getLedger.error ?? new Error("查询买入成交台账失败"); tx.abort(); };
       getOrder.onerror = () => { fatalError = getOrder.error ?? new Error("读取待买订单失败"); tx.abort(); };
       getReservation.onerror = () => { fatalError = getReservation.error ?? new Error("读取资金预留失败"); tx.abort(); };
       tx.oncomplete = () => {
