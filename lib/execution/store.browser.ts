@@ -361,6 +361,9 @@ export async function claimBuyOrderSubmission(
   orderId: string,
   now = Date.now(),
 ): Promise<{ order: QueuedBuyOrder; attempt: number }> {
+  if (!orderId || !Number.isSafeInteger(now) || now <= 0) {
+    throw new Error("买单提交领取参数无效");
+  }
   const db = await openDb();
   try {
     return await new Promise((resolve, reject) => {
