@@ -65,3 +65,7 @@ npx vitest run lib/execution/notification-outbox.test.ts lib/execution/sell-guar
 - 当前已观察到 39 passed / 1 failed（CI run 44480230920 中，除该 SELL 用例外，其余 39 个测试文件通过；TypeScript typecheck 通过）。
 - 请 Grok 在自己负责的 sell-guard.test.ts / sell-guard.ts 范围内核对该测试意图与实现：未显式授权 allowBaseReduction 时，base_reduce 必须拒绝；修复后重新跑完整 CI，并更新本文件。
 - GPT 不会修改该 SELL 文件，以保持任务边界。
+
+
+## SELL 任务范围补充
+本轮 SELL 链路审查还包括 `lib/execution/sell-preflight.browser.ts` 与 `lib/execution/sell-preflight.browser.test.ts`。重点核对卖出前实时余额、交易规则、最小名义金额、底仓保护和 stale 数据拒绝；不得修改共享 `binance-preflight.ts` 或 BUY 预检代码。
