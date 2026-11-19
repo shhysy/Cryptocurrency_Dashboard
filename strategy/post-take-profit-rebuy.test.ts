@@ -31,7 +31,7 @@ const data = (over: Partial<DashboardData> = {}): DashboardData => ({
 });
 
 const event: SellEventRecord = {
-  eventKey: "sell:BTC:take_profit:tier-1", symbol: "BTC", kind: "take_profit",
+  eventKey: "sell:BTC:take_profit:10:止盈1", symbol: "BTC", kind: "take_profit",
   status: "executed", requestedQty: 0.2, filledQty: 0.2, createdAt: 10, updatedAt: 20,
   exchangeOrderId: "11", fillIds: ["sell-1"], lastError: null,
 };
@@ -79,7 +79,8 @@ describe("post-take-profit average-cost rebuy", () => {
 describe("sequential take-profit tiers", () => {
   it("sells 50% of the current cycle inventory at 2x", () => {
     const d = data({ coins: [{ ...coin, price: 200, qty: 0.8, marketValue: 160 }] });
-    const result = applyPostTakeProfitRebuy(d, [], []);
+    const priorSell: TradeLedgerEntry = { ...sell, fillId: "prior-sell", time: 5, qty: 0.2, quoteQty: 20, sellKind: "trail_stop" };
+    const result = applyPostTakeProfitRebuy(d, [], [priorSell]);
     expect(result.coins[0].signal.action.label).toBe("止盈1");
     expect(result.coins[0].signal.action.qty).toBeCloseTo(0.2, 10);
   });
