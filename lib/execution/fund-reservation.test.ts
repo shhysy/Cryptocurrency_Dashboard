@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planBuyFundsReservation, remainingReservationAfterFill, reconcileBuyFundsReservation } from "./fund-reservation";
+import { buyOrderReservationBlockReason, planBuyFundsReservation, planBuyFundsReservationTopUp, remainingReservationAfterFill, reconcileBuyFundsReservation } from "./fund-reservation";
 import type { BuyFundsReservation } from "./fund-reservation";
 
 const active = (orderId: string, reservedUsdt: number): BuyFundsReservation => ({
@@ -77,6 +77,70 @@ describe("USDT buy-funds reservation planner", () => {
   });
 });
 
+
+describe("Earn credit reservation top-up planning", () => {
+  it("adds only the new balance headroom and preserves the current reservation", () => {
+    const current = active("order-a", 30);
+    const plan = planBuyFundsReservationTopUp({
+      orderId: "order-a",
+      requestedRemainingUsdt: 80,
+      observedFreeUsdt: 100,
+      activeReservations: [current, active("order-b", 20)],
+      currentReservation: current,
+    });
+    expect(plan).toMatchObject({
+      ok: true,
+      reservedUsdt: 80,
+      additionalUsdt: 50,
+      availableUsdt: 80,
+      totalReservedUsdt: 100,
+    });
+  });
+
+  it("never shrinks an existing reservation when free balance has fallen", () => {
+    const current = active("order-a", 30);
+    const plan = planBuyFundsReservationTopUp({
+      orderId: "order-a",
+      requestedRemainingUsdt: 80,
+      observedFreeUsdt: 100,
+      activeReservations: [current, active("order-b", 80)],
+      currentReservation: current,
+    });
+    expect(plan).toMatchObject({ ok: false, reservedUsdt: 30, additionalUsdt: 0 });
+  });
+
+  it("can create a fresh reservation after a previous attempt was terminally released", () => {
+    const released = {
+      ...active("order-a", 100),
+      reservedUsdt: 0,
+      consumedUsdt: 70,
+      status: "released" as const,
+    };
+    const plan = planBuyFundsReservationTopUp({
+      orderId: "order-a",
+      requestedRemainingUsdt: 30,
+      observedFreeUsdt: 50,
+      activeReservations: [released],
+      currentReservation: released,
+    });
+    expect(plan).toMatchObject({ ok: true, reservedUsdt: 30, additionalUsdt: 30 });
+  });
+});
+
+describe("live buy-order reservation guard", () => {
+  const order = {
+    id: "order-a", symbol: "BTC", quoteAsset: "USDT", status: "pending",
+  };
+  it("allows only a matching pending/partial order", () => {
+    expect(buyOrderReservationBlockReason(order, "order-a", "BTCUSDT")).toBeNull();
+    expect(buyOrderReservationBlockReason({ ...order, status: "partially_filled" }, "order-a", "BTCUSDT")).toBeNull();
+  });
+  it("rejects missing, stale-state, and mismatched-symbol orders", () => {
+    expect(buyOrderReservationBlockReason(undefined, "order-a", "BTCUSDT")).toContain("不存在");
+    expect(buyOrderReservationBlockReason({ ...order, status: "reconcile_required" }, "order-a", "BTCUSDT")).toContain("禁止");
+    expect(buyOrderReservationBlockReason(order, "order-a", "ETHUSDT")).toContain("不一致");
+  });
+});
 
 describe("monotonic buy reservation reconciliation", () => {
   it("reduces the reservation from cumulative confirmed spend", () => {
