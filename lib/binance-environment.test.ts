@@ -120,6 +120,16 @@ describe("Server-only Binance environment", () => {
       apiSecret: "production-secret",
     });
   });
+
+  it("rejects misspelled environment values instead of silently selecting production", async () => {
+    const { resolveServerBinanceEnvironment } = await import("./binance-environment");
+    expect(() => resolveServerBinanceEnvironment({
+      BINANCE_SPOT_ENVIRONMENT: "testent",
+      BINANCE_API_KEY: "production-key",
+      BINANCE_API_SECRET: "production-secret",
+    })).toThrow("只能是 testnet 或 production");
+  });
+
 });
 
 
