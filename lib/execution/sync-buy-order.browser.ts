@@ -146,7 +146,7 @@ export async function syncBuyOrderFromBinance(
     }
   } catch (error) {
     const reason = error instanceof Error ? error.message : "成交台账写入失败";
-    const blocked = await markBuyOrderReconcileRequired(current.id, reason);
+    const blocked = await markBuyOrderReconcileRequired(current.id, reason, attempt);
     return {
       action: "manual_review", newlyRecordedFills, orderStatus: snapshot.status,
       remainingUsdt: blocked.remainingUsdt, reason,
@@ -178,6 +178,7 @@ export async function syncBuyOrderFromBinance(
     const held = await markBuyOrderReconcileRequired(
       current.id,
       `Binance 订单仍处于 ${snapshot.status}，已记录当前成交但禁止创建下一次 attempt；继续等待终态`,
+      attempt,
     );
     return {
       action: snapshot.status === "PARTIALLY_FILLED" ? "partial" : "wait",
