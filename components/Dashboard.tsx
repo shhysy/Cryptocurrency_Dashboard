@@ -119,17 +119,11 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
 
   const refresh = useCallback(async (sc?: string) => {
     try {
-      const direct = process.env.NEXT_PUBLIC_DIRECT_BINANCE === "1" && typeof window !== "undefined";
-      if (direct && !sc) {
-        const { getBrowserDashboard } = await import("@/lib/service.browser");
-        setData(await getBrowserDashboard());
-        setDirectReady(true);
-        setErr(null);
-        return;
-      }
       const res = await fetch(`/api/dashboard${sc ? `?scenario=${sc}` : ""}`, { cache: "no-store" });
       if (!res.ok) throw new Error(String(res.status));
-      setData(await res.json());
+      const nextData = await res.json();
+      setData(nextData);
+      setDirectReady(nextData.source === "binance" && !nextData.stale);
       setErr(null);
     } catch (e) {
       setErr(`刷新失败：${e instanceof Error ? e.message.slice(0, 100) : "未知错误"}`);
@@ -137,9 +131,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
   }, []);
 
   useEffect(() => {
-    if (process.env.NEXT_PUBLIC_DIRECT_BINANCE === "1") {
-      refresh();
-    }
+    refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -175,7 +167,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
   // Worker 只负责发信与去重，不参与行情请求或策略计算。
   useEffect(() => {
     const endpoint = process.env.NEXT_PUBLIC_SELL_ALERT_URL;
-    if (!endpoint || !directReady || process.env.NEXT_PUBLIC_DIRECT_BINANCE !== "1" || data.source !== "binance" || data.stale) return;
+    if (!endpoint || !directReady || data.source !== "binance" || data.stale) return;
 
     const signals = data.coins
       .filter((coin) => coin.signal.action.side === "sell" && coin.signal.action.qty !== null && coin.signal.action.qty > 0)
