@@ -49,6 +49,32 @@ describe("USDT buy-funds reservation planner", () => {
     })).toMatchObject({ ok: false, reason: expect.stringContaining("损坏") });
   });
 
+  it("fails closed on an unknown reservation status instead of ignoring its amount", () => {
+    const unknown = { ...active("order-a", 20), status: "pending" } as unknown as BuyFundsReservation;
+    expect(planBuyFundsReservation({
+      orderId: "order-b",
+      requestedUsdt: 30,
+      observedFreeUsdt: 100,
+      activeReservations: [unknown],
+      minNotionalUsdt: 5,
+    })).toMatchObject({ ok: false, reason: expect.stringContaining("未知状态") });
+  });
+
+  it("fails closed when a released reservation still claims unspent funds", () => {
+    const corrupted = {
+      ...active("order-a", 20),
+      status: "released" as const,
+      reservedUsdt: 10,
+    };
+    expect(planBuyFundsReservation({
+      orderId: "order-b",
+      requestedUsdt: 30,
+      observedFreeUsdt: 100,
+      activeReservations: [corrupted],
+      minNotionalUsdt: 5,
+    })).toMatchObject({ ok: false, reason: expect.stringContaining("损坏") });
+  });
+
   it("fails closed when duplicate active reservations exist for one order", () => {
     expect(planBuyFundsReservation({
       orderId: "order-b",
