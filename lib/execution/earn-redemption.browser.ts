@@ -175,6 +175,8 @@ export async function reconcileEarnRedemptionIntent(
         symbol: pair,
         requestedRemainingUsdt: order.remainingUsdt,
         observedFreeUsdt: spot.free,
+        expectedAttemptCount: order.attemptCount,
+        expectedOrderUpdatedAt: order.updatedAt,
       });
     }
     return {
