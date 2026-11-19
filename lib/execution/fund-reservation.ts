@@ -133,6 +133,10 @@ export function reconcileBuyFundsReservation(
   if (cumulativeConfirmedSpendUsdt + 1e-8 < consumed) {
     throw new Error("收到较旧的成交快照，拒绝回退已确认支出和资金预留");
   }
+  if (reservation.status === "released" &&
+      Math.abs(cumulativeConfirmedSpendUsdt - consumed) > 1e-8) {
+    throw new Error("资金预留释放后成交累计值发生变化，必须人工复核");
+  }
   if (reservation.status === "released" && !exchangeOrderTerminal) {
     throw new Error("资金预留已因订单终态释放，拒绝被非终态快照重新激活");
   }
