@@ -88,7 +88,7 @@ export function applyPostTakeProfitRebuy(
 ): DashboardData {
   if (data.source !== "binance" || data.stale || !data.market.accountKnown) return data;
 
-  const coins = data.coins.map((coin) => {
+  const coins: CoinCard[] = data.coins.map((coin): CoinCard => {
     if (coin.qty <= EPSILON || coin.avgCost === null) return coin;
     const pair = coin.symbol + "USDT";
     const symbolEvents = sellEvents.filter((event) => event.symbol === coin.symbol);
