@@ -169,21 +169,23 @@ export function planBuyFundsReservation(input: {
     };
   }
 
-  // Corrupt local reservation rows must never be ignored while allocating a
-  // shared balance snapshot. One bad active row blocks the entire allocation.
+  // Never ignore malformed rows: an unknown status or damaged released row
+  // could otherwise hide funds from the shared allocation calculation.
   const active = activeReservations.filter((item) => item?.status === "active");
   const seenOrderIds = new Set<string>();
-  for (const item of active) {
-    const original = item.originalReservedUsdt ?? item.reservedUsdt;
-    const consumed = item.consumedUsdt ?? 0;
-    if (!item.orderId || seenOrderIds.has(item.orderId) ||
+  for (const item of activeReservations) {
+    const original = item?.originalReservedUsdt ?? item?.reservedUsdt;
+    const consumed = item?.consumedUsdt ?? 0;
+    if (!item?.orderId || !item.symbol || seenOrderIds.has(item.orderId) ||
+        (item.status !== "active" && item.status !== "released") ||
         ![item.reservedUsdt, original, consumed].every(Number.isFinite) ||
         item.reservedUsdt < 0 || original <= 0 || consumed < 0 ||
         consumed > original + 1e-8 ||
-        item.reservedUsdt > original - consumed + 1e-8) {
+        item.reservedUsdt > original - consumed + 1e-8 ||
+        (item.status === "released" && item.reservedUsdt > 1e-8)) {
       return {
         ok: false, reserveUsdt: 0, availableUsdt: 0,
-        totalReservedUsdt: 0, reason: "检测到损坏或重复的活动资金预留记录，已停止分配并要求人工核对",
+        totalReservedUsdt: 0, reason: "检测到损坏、未知状态或重复的资金预留记录，已停止分配并要求人工核对",
       };
     }
     seenOrderIds.add(item.orderId);
