@@ -7,6 +7,9 @@ const MAX_BODY_BYTES = 2_048;
 
 export async function POST(req: Request) {
   try {
+    if (!process.env.DASHBOARD_PASSWORD) {
+      return NextResponse.json({ error: "测试网订单接口要求先设置 DASHBOARD_PASSWORD" }, { status: 403 });
+    }
     const origin = req.headers.get("origin");
     const requestUrl = new URL(req.url);
     if (!origin || new URL(origin).origin !== requestUrl.origin) {
