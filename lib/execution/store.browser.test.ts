@@ -2,6 +2,7 @@ import "fake-indexeddb/auto";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueuedBuy } from "./queue";
 import {
+  applyConfirmedBuyReservationSpend,
   claimBuyOrderSubmission,
   enqueueBuyOrder,
   listBuyFundsReservations,
@@ -142,6 +143,42 @@ describe("IndexedDB BUY reservation and claim integration", () => {
     expect(updated).toMatchObject({
       reservedUsdt: 100,
       originalReservedUsdt: 100,
+      consumedUsdt: 0,
+      status: "active",
+    });
+  });
+
+  it("starts a fresh reservation spend baseline for a new attempt after a partial terminal fill", async () => {
+    const order = makeOrder("BTC:add:week-next-attempt");
+    await enqueueBuyOrder(order);
+    await reserveBuyFunds({
+      orderId: order.id, symbol: "BTCUSDT", requestedUsdt: 100,
+      observedFreeUsdt: 100, minNotionalUsdt: 5, now: 60,
+    });
+    const claimed = await claimBuyOrderSubmission(order.id, 61);
+    await applyConfirmedBuyReservationSpend(order.id, 70, true, claimed.attempt, 62);
+    const partial = {
+      ...claimed.order,
+      status: "partially_filled" as const,
+      filledUsdt: 70,
+      remainingUsdt: 30,
+      updatedAt: 63,
+      lastError: null,
+    };
+    await saveBuyOrder(partial);
+
+    const nextAttemptReservation = await topUpBuyFundsReservationAfterEarnCredit({
+      orderId: order.id,
+      symbol: "BTCUSDT",
+      requestedRemainingUsdt: 30,
+      observedFreeUsdt: 100,
+      expectedAttemptCount: partial.attemptCount,
+      expectedOrderUpdatedAt: partial.updatedAt,
+      now: 64,
+    });
+    expect(nextAttemptReservation).toMatchObject({
+      reservedUsdt: 30,
+      originalReservedUsdt: 30,
       consumedUsdt: 0,
       status: "active",
     });
