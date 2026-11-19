@@ -1,5 +1,5 @@
 import type { Candle, Trade } from "@/strategy/types";
-import { resolveServerBinanceEnvironment } from "./binance-environment";
+import { isTestnetOrderSubmissionEnabled, resolveServerBinanceEnvironment } from "./binance-environment";
 
 const SPOT_ENV = resolveServerBinanceEnvironment({
   BINANCE_SPOT_ENVIRONMENT: process.env.BINANCE_SPOT_ENVIRONMENT,
@@ -350,9 +350,10 @@ export async function submitTestnetSpotMarketOrder(
   input: SpotMarketOrderInput,
 ): Promise<SpotMarketOrderResponse> {
   if (!SPOT_TESTNET) throw new Error("订单提交接口仅允许 Binance Spot Testnet");
-  const enabled = input.side === "BUY"
-    ? process.env.BINANCE_TESTNET_BUY_ENABLED === "1"
-    : process.env.BINANCE_TESTNET_SELL_ENABLED === "1";
+  const enabled = isTestnetOrderSubmissionEnabled(SPOT_ENV.mode, input.side, {
+    BINANCE_TESTNET_BUY_ENABLED: process.env.BINANCE_TESTNET_BUY_ENABLED,
+    BINANCE_TESTNET_SELL_ENABLED: process.env.BINANCE_TESTNET_SELL_ENABLED,
+  });
   if (!enabled) throw new Error("测试网该方向的订单提交开关未在服务端启用");
   if (!apiKey() || !apiSecret()) throw new Error("服务端缺少 Binance Testnet API Key/Secret");
   if (!/^[A-Z0-9]{5,24}$/.test(input.symbol)) throw new Error("交易对格式无效");
