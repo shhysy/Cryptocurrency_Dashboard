@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planBuyFundsReservation, remainingReservationAfterFill } from "./fund-reservation";
+import { planBuyFundsReservation, remainingReservationAfterFill, reconcileBuyFundsReservation } from "./fund-reservation";
 import type { BuyFundsReservation } from "./fund-reservation";
 
 const active = (orderId: string, reservedUsdt: number): BuyFundsReservation => ({
@@ -53,5 +53,38 @@ describe("USDT buy-funds reservation planner", () => {
     expect(remainingReservationAfterFill(reservation, 20)).toBe(30);
     expect(remainingReservationAfterFill(reservation, 35)).toBe(15);
     expect(() => remainingReservationAfterFill(reservation, 51)).toThrow("超过资金预留");
+  });
+});
+
+
+describe("monotonic buy reservation reconciliation", () => {
+  it("reduces the reservation from cumulative confirmed spend", () => {
+    const first = reconcileBuyFundsReservation(active("order-a", 50), 20, false, 10);
+    expect(first).toMatchObject({ reservedUsdt: 30, consumedUsdt: 20, status: "active" });
+    const second = reconcileBuyFundsReservation(first, 35, false, 20);
+    expect(second).toMatchObject({ reservedUsdt: 15, consumedUsdt: 35, status: "active" });
+  });
+
+  it("rejects an older concurrent-tab snapshot instead of restoring reserved funds", () => {
+    const newer = reconcileBuyFundsReservation(active("order-a", 50), 30, false, 20);
+    expect(() => reconcileBuyFundsReservation(newer, 20, false, 30)).toThrow("较旧的成交快照");
+    expect(newer.reservedUsdt).toBe(20);
+  });
+
+  it("keeps a zero-remaining reservation active while the exchange order is still open", () => {
+    const updated = reconcileBuyFundsReservation(active("order-a", 50), 50, false, 20);
+    expect(updated).toMatchObject({ reservedUsdt: 0, consumedUsdt: 50, status: "active" });
+  });
+
+  it("releases only on a terminal snapshot and refuses later non-terminal reactivation", () => {
+    const released = reconcileBuyFundsReservation(active("order-a", 50), 20, true, 20);
+    expect(released).toMatchObject({ reservedUsdt: 0, status: "released" });
+    expect(() => reconcileBuyFundsReservation(released, 20, false, 30)).toThrow("非终态快照重新激活");
+  });
+
+  it("allows an idempotent terminal refresh", () => {
+    const released = reconcileBuyFundsReservation(active("order-a", 50), 20, true, 20);
+    expect(reconcileBuyFundsReservation(released, 20, true, 30))
+      .toMatchObject({ reservedUsdt: 0, consumedUsdt: 20, status: "released" });
   });
 });
