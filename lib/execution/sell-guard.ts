@@ -44,11 +44,17 @@ export function guardSellIntent(request: SellGuardRequest, state: SellGuardState
   if (state.executedEventKeys.includes(request.eventKey) || state.pendingEventKeys.includes(request.eventKey)) {
     return { allowed: false, qty: 0, reason: "该卖出事件已执行或正在处理中，禁止重复提交" };
   }
-  if (request.kind === "base_reduce" && state.baseReduceExecuted) {
-    return { allowed: false, qty: 0, reason: "底仓减仓事件已执行，禁止重复减仓" };
+  if (request.kind === "base_reduce") {
+    // 必须显式授权；undefined/false 一律拒绝，禁止落到周期仓数量上误放行。
+    if (request.allowBaseReduction !== true) {
+      return { allowed: false, qty: 0, reason: "底仓减仓未显式授权，已拒绝" };
+    }
+    if (state.baseReduceExecuted) {
+      return { allowed: false, qty: 0, reason: "底仓减仓事件已执行，禁止重复减仓" };
+    }
   }
   let available = Math.max(0, request.cycleAvailableQty);
-  if (request.kind === "base_reduce" && request.allowBaseReduction) {
+  if (request.kind === "base_reduce" && request.allowBaseReduction === true) {
     // V3.3 底仓减仓：单次最多卖出剩余受保护底仓的 50%。
     available = Math.max(0, request.baseAvailableQty * 0.5);
   }
