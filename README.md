@@ -92,94 +92,37 @@ node scripts/import-csv.mjs data/manual-trades.example.csv
 
 ## Binance Spot Testnet（测试网）
 
-本项目支持通过独立环境变量切换 Binance Spot Testnet，测试网凭证不会回退到生产 Key/Secret：
+测试网/生产环境通过服务端环境变量切换，密钥只由 Next.js 服务端读取。不要使用任何 `NEXT_PUBLIC_*` 变量存放 API Key 或 Secret。
+
+本地配置示例（放在未跟踪的 `.env.local`）：
 
 ```dotenv
-NEXT_PUBLIC_DIRECT_BINANCE=1
-NEXT_PUBLIC_BINANCE_SPOT_TESTNET=1
-NEXT_PUBLIC_BINANCE_TESTNET_API_KEY=你的测试网_API_Key
-NEXT_PUBLIC_BINANCE_TESTNET_API_SECRET=你的测试网_API_Secret
+BINANCE_SPOT_ENVIRONMENT=testnet
+BINANCE_TESTNET_API_KEY=你的测试网_API_Key
+BINANCE_TESTNET_API_SECRET=你的测试网_API_Secret
+ENABLE_ACCOUNT=1
 ```
 
-使用步骤：
-1. 在 Binance Spot Testnet 官方环境创建测试网 API Key/Secret；不要填写生产账户 Key。
-2. 在本地 `.env.local` 配置以上变量，重启 Next.js 开发服务器。
-3. 确认代码导出的 `BINANCE_SPOT_ENVIRONMENT` 为 `testnet`，接口地址为 `https://testnet.binance.vision`。
-4. 使用测试网资产验证余额读取、交易对规则、订单提交/查询、逐笔成交对账和异常恢复。
-5. 测试网不提供 Simple Earn；本项目在 Testnet 模式会主动拒绝所有 Simple Earn 读取/赎回路径，不会误访问生产理财接口。
+生产环境改为：
 
-**当前阶段边界：** Testnet 模式已完成 Spot REST 地址/凭证隔离和 Simple Earn 拦截，但 Testnet BUY/SELL 提交按钮与自动执行调度尚未接入 Testnet 专用开关，因此目前仍不能通过看板发出 Testnet 订单。`LIVE_SPOT_ORDER_SUBMISSION_ENABLED`、`LIVE_SPOT_SELL_SUBMISSION_ENABLED`、`LIVE_EARN_REDEMPTION_ENABLED` 均保持 `false`。本地单元测试不会访问 Binance，也不会产生订单。真实 Testnet 下单演练必须在单独接入 Testnet 执行入口后进行，不能修改生产开关代替测试。
+```dotenv
+BINANCE_SPOT_ENVIRONMENT=production
+BINANCE_API_KEY=你的生产只读_API_Key
+BINANCE_API_SECRET=你的生产只读_API_Secret
+```
+
+测试网模式固定使用 `https://testnet.binance.vision`，只读取测试网凭证，不会回退到生产 Key；生产模式只读取生产凭证。测试网不支持 Simple Earn，因此测试网环境会拒绝 Simple Earn 路径。
+
+**当前完成边界：** Dashboard 的账户与行情请求已切换到 Next.js 服务端，浏览器不再需要读取 Binance 密钥；服务端已按环境选择 Spot endpoint 和凭证。测试网买卖提交 API、队列按钮和自动执行调度仍需后续迁移到服务端，当前不会从页面提交任何订单。生产 BUY/SELL 与 Earn 赎回保持关闭。真实测试网下单、部分成交和超时恢复演练尚未完成。
+
 ## 安全提醒
 
-- 当前自动赎回/买卖实盘开关均关闭，现有只读 Key 不会执行资金变动；Spot Testnet 使用独立凭证和独立接口地址。
-- 私人浏览器直连模式会把 `NEXT_PUBLIC_BINANCE_API_SECRET` 打进前端 bundle；这不是安全存储。若你接受该风险，也必须使用专用 Key、固定 IP 白名单，并且只开放必要的现货/理财交易权限，绝不开放提现、划转或合约权限。
-- 能绑定 IP 白名单就绑定（固定 IP 的服务器可以，Cloudflare Workers 不行）。
-- `.env.local` 不要提交 Git、不要发给任何人或贴进聊天。已经泄露的 Key 立刻在币安删除重建。
-- `DASHBOARD_PASSWORD` 留空时页面不需要密码，仅适合只在本机使用。部署到公网必须设置，否则任何人打开地址都能看到你的资产。
-- 这是 Basic Auth，请用 HTTPS 访问，否则密码是明文传输。
-- Key 只在服务端读取，不会进入前端代码。
-
-## 部署
-
-### 方案 A：自有服务器 / VPS（推荐）
-
-可以绑定固定 IP 白名单，也不受币安地区限制影响。
-
-```bash
-npm ci && npm run build
-DASHBOARD_PASSWORD=xxx BINANCE_API_KEY=xxx BINANCE_API_SECRET=xxx npm start   # 默认 3000 端口
-```
-
-用 pm2 / systemd 守护进程，前面放 Caddy 或 Nginx 做 HTTPS。
-
-### 方案 B：Vercel
-
-导入仓库，在 Project Settings → Environment Variables 填三个变量。出口 IP 不固定，不能做白名单。
-
-### 方案 C：Cloudflare Workers（本仓库已按此部署）
-
-需要 `@opennextjs/cloudflare` 适配器，按官方文档配置 `wrangler` 后部署。密钥在 Cloudflare 控制台 **Settings → Variables and Secrets** 里添加（类型选 Secret），不要写进 `wrangler.toml` / `wrangler.jsonc`。
-
-Cloudflare 出口 IP 不固定，**不能**做币安 IP 白名单；部分机房 IP 会被币安拦截。本项目已支持 **浏览器直连**（见下方环境变量），用用户本机宽带访问币安公开/签名接口，绕过 Workers 出口限制。
-
-### 环境变量速查（稳定性相关）
-
-| 变量 | 本机开发 | Cloudflare 生产 | 作用 |
-|------|----------|-----------------|------|
-| `PROXY_URL` | 国内常需要，填本地代理如 `http://127.0.0.1:7897` | **不要设**（Workers 用不了你电脑的代理） | Node 服务端经代理访问币安；不设则直连 |
-| `NEXT_PUBLIC_DIRECT_BINANCE` | 一般 `0`（本机 Node 直连或走 `PROXY_URL`） | **建议 `1`**（见 `.env.production`） | `1` = 服务端不调币安，由**浏览器**直发请求（需本机可访问币安；部分环境要配合浏览器 CORS 扩展） |
-| `ENABLE_ACCOUNT` | 有 Key 且要金额建议时保持默认（开启） | 若只看信号、或账户接口易超时，可设 **`0`** | `0` = 不读余额/成交，**只出方向**，请求更少、更快；`1`/未设 = 读账户并尽量给出买入金额 |
-| `BINANCE_API_KEY` / `SECRET` | 填只读 Key | 用 Secret 配置 | 账户与成交需要；仅行情信号可不配（或 `USE_MOCK=1`） |
-| `BINANCE_BASE_URL` | 可选，自建现货反代 | 可选 | 转发现货 `/api/v3/*` |
-| `BINANCE_FAPI_URL` | 可选，自建合约反代 | 可选 | 原油 CL 等 U 本位行情默认 `https://fapi.binance.com` |
-
-**本机（国内）推荐：**
-
-```bash
-# .env.local
-PROXY_URL=http://127.0.0.1:7897   # 改成你的代理端口；能直连币安则可留空
-ENABLE_ACCOUNT=1                  # 要买入金额就开；经常超时可先改 0 只看方向
-# NEXT_PUBLIC_DIRECT_BINANCE 不要开（本机走 Node + 代理即可）
-```
-
-**Cloudflare 生产推荐：**
-
-```bash
-# 在 CF Secrets / .env.production
-NEXT_PUBLIC_DIRECT_BINANCE=1      # 浏览器直连，避开 Workers 出口被拦
-ENABLE_ACCOUNT=0                  # 可选：只要信号、少打账户接口时更快更稳
-# 不要设置 PROXY_URL
-```
-
-说明：
-
-- 浏览器直连模式下，Key 和 Secret 会进入前端 bundle（见 `lib/credentials.ts` / `binance.browser.ts`）。仅限私人自用，并应绑定固定家宽 IP；不要复用其他服务的 API Key。当前真实赎回/买卖开关保持关闭。
-- `ENABLE_ACCOUNT=0` 时策略仍打分、仍给出「买/卖/暂缓」方向，但不会根据真实余额算建议金额。
-- 原油 CL 走币安 U 本位永续公开行情（`fapi`），与现货直连同一套部署思路；**无需改接口代码**，只配环境变量即可。
-
-### 国内网络
-
-本机或国内服务器可能连不上 `api.binance.com` / `fapi.binance.com`。本机用 `PROXY_URL`；或用海外 VPS；或自建反向代理并设置 `BINANCE_BASE_URL`（现货）/ `BINANCE_FAPI_URL`（合约）。
+- 本地密钥放在 `.env.local`；该文件已被 Git 忽略。GitHub 只提交无密钥的 `.env.example`。
+- 已经发到聊天或提交到仓库的密钥应在 Binance 后台撤销并重新生成；删除文件不会让旧密钥失效。
+- 测试网与生产凭证完全分离；测试网缺少凭证时不会使用生产凭证兜底。
+- 生产交易开关默认关闭；不开放提现、划转或合约权限。
+- 部署到公网必须配置 `DASHBOARD_PASSWORD` 并启用 HTTPS。
+- `ENABLE_ACCOUNT=0` 时只读取公开行情，不读取账户余额和成交。
 
 ## 免责声明
 
