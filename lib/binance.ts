@@ -322,3 +322,78 @@ export async function fetchSignedBinanceRead<T>(
   }
   return signedGet<T>(path, params);
 }
+
+
+export interface SpotMarketOrderInput {
+  side: "BUY" | "SELL";
+  symbol: string;
+  amount: string;
+  clientOrderId: string;
+}
+
+export interface SpotMarketOrderResponse {
+  symbol: string;
+  orderId: number;
+  clientOrderId: string;
+  status: "NEW" | "PARTIALLY_FILLED" | "FILLED" | "CANCELED" | "REJECTED" | "EXPIRED";
+  origQty: string;
+  executedQty: string;
+  cummulativeQuoteQty: string;
+  transactTime: number;
+}
+
+/**
+ * Testnet-only MARKET order adapter. Production is rejected regardless of
+ * browser flags. The server env flag is the authoritative second gate.
+ */
+export async function submitTestnetSpotMarketOrder(
+  input: SpotMarketOrderInput,
+): Promise<SpotMarketOrderResponse> {
+  if (!SPOT_TESTNET) throw new Error("订单提交接口仅允许 Binance Spot Testnet");
+  const enabled = input.side === "BUY"
+    ? process.env.BINANCE_TESTNET_BUY_ENABLED === "1"
+    : process.env.BINANCE_TESTNET_SELL_ENABLED === "1";
+  if (!enabled) throw new Error("测试网该方向的订单提交开关未在服务端启用");
+  if (!apiKey() || !apiSecret()) throw new Error("服务端缺少 Binance Testnet API Key/Secret");
+  if (!/^[A-Z0-9]{5,24}$/.test(input.symbol)) throw new Error("交易对格式无效");
+  if (!/^(?:0|[1-9]\\d*)(?:\\.\\d{1,8})?$/.test(input.amount) || Number(input.amount) <= 0) {
+    throw new Error("订单数量或金额无效");
+  }
+  if (!/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) throw new Error("clientOrderId 格式无效");
+
+  const serverTime = await serverNow();
+  const params: Record<string, string | number> = {
+    symbol: input.symbol,
+    side: input.side,
+    type: "MARKET",
+    ...(input.side === "BUY" ? { quoteOrderQty: input.amount } : { quantity: input.amount }),
+    newClientOrderId: input.clientOrderId,
+    newOrderRespType: "FULL",
+    recvWindow: 10000,
+    timestamp: Math.round(serverTime),
+  };
+  const qs = new URLSearchParams(
+    Object.entries(params).map(([key, value]) => [key, String(value)]),
+  ).toString();
+  const signature = await hmacHex(apiSecret(), qs);
+  const response = await doFetch(SIGNED_BASE + "/api/v3/order?" + qs + "&signature=" + signature, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey() },
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  });
+  const body = await response.text().catch(() => "");
+  if (!response.ok) throw new Error("Binance Testnet order " + response.status + ": " + body.slice(0, 240));
+  let parsed: SpotMarketOrderResponse;
+  try {
+    parsed = JSON.parse(body) as SpotMarketOrderResponse;
+  } catch {
+    throw new Error("Binance 响应无法解析；必须按 clientOrderId 对账，禁止重发");
+  }
+  if (parsed.symbol !== input.symbol || parsed.clientOrderId !== input.clientOrderId ||
+      !Number.isSafeInteger(parsed.orderId) || parsed.orderId <= 0 ||
+      !["NEW", "PARTIALLY_FILLED", "FILLED", "CANCELED", "REJECTED", "EXPIRED"].includes(parsed.status)) {
+    throw new Error("Binance 响应字段不匹配；必须按 clientOrderId 对账，禁止重发");
+  }
+  return parsed;
+}
