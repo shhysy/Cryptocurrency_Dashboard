@@ -37,6 +37,7 @@ export async function dispatchPendingTradeNotifications(): Promise<{
   const batch = await claimTradeNotificationOutboxBatch(20);
   if (batch.length === 0) return { claimed: 0, sent: 0, failed: 0, reason: null };
 
+  let failure: string | null = null;
   try {
     const response = await fetch("/api/trade-fill-notifications", {
       method: "POST",
@@ -53,11 +54,37 @@ export async function dispatchPendingTradeNotifications(): Promise<{
         result.accepted! + result.duplicate! !== batch.length) {
       throw new Error(result?.error ?? `成交通知服务返回 HTTP ${response.status}`);
     }
-    await Promise.all(batch.map((event) => markTradeNotificationSent(event.id, event.leaseToken ?? "")));
-    return { claimed: batch.length, sent: batch.length, failed: 0, reason: null };
   } catch (error) {
-    const reason = error instanceof Error ? error.message : "成交通知投递失败";
-    await Promise.all(batch.map((event) => markTradeNotificationFailed(event.id, event.leaseToken ?? "", reason)));
-    return { claimed: batch.length, sent: 0, failed: batch.length, reason };
+    failure = error instanceof Error ? error.message : "成交通知投递失败";
   }
+
+  if (failure) {
+    // A lease may have expired while the request was in flight. In that case
+    // the fencing check intentionally rejects this stale worker's update.
+    const updates = await Promise.allSettled(batch.map((event) =>
+      markTradeNotificationFailed(event.id, event.leaseToken ?? "", failure!),
+    ));
+    const failed = updates.filter((item) => item.status === "fulfilled").length;
+    return {
+      claimed: batch.length,
+      sent: 0,
+      failed,
+      reason: updates.some((item) => item.status === "rejected")
+        ? failure + "；部分事件租约已失效，交由当前持有者继续处理"
+        : failure,
+    };
+  }
+
+  const updates = await Promise.allSettled(batch.map((event) =>
+    markTradeNotificationSent(event.id, event.leaseToken ?? ""),
+  ));
+  const sent = updates.filter((item) => item.status === "fulfilled").length;
+  return {
+    claimed: batch.length,
+    sent,
+    failed: 0,
+    reason: sent === batch.length
+      ? null
+      : "通知服务已接受事件，但部分本地租约已被其他调度器接管；不会由旧调度器覆盖新租约",
+  };
 }
