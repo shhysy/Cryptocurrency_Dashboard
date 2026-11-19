@@ -148,7 +148,7 @@ export async function submitSpotMarketSell(input: {
 }): Promise<BinanceSpotOrderSubmitResponse> {
   if (!BINANCE_SPOT_SELL_SUBMISSION_ENABLED) throw new Error("测试网卖出开关未启用；不会发送订单 POST");
   if (!/^[A-Z0-9]{5,24}$/.test(input.symbol) ||
-      !/^(?:0|[1-9]\\d*)(?:\\.\\d{1,8})?$/.test(input.quantity) ||
+      !/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(input.quantity) ||
       Number(input.quantity) <= 0 || !/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) {
     throw new Error("测试网市价卖单参数无效");
   }
@@ -160,7 +160,7 @@ export async function submitSpotMarketBuy(input: {
 }): Promise<BinanceSpotOrderSubmitResponse> {
   if (!BINANCE_SPOT_BUY_SUBMISSION_ENABLED) throw new Error("测试网买入开关未启用；不会发送订单 POST");
   if (!/^[A-Z0-9]{5,24}$/.test(input.symbol) ||
-      !/^(?:0|[1-9]\\d*)(?:\\.\\d{1,8})?$/.test(input.quoteOrderQty) ||
+      !/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(input.quoteOrderQty) ||
       Number(input.quoteOrderQty) <= 0 || !/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) {
     throw new Error("测试网市价买单参数无效");
   }
