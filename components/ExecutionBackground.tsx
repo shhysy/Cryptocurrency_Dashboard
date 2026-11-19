@@ -73,7 +73,7 @@ export default function ExecutionBackground({ onChange, data }: { onChange: () =
         // Live execution is deliberately gated by independent, compile-time
         // switches. All three switches remain false in the checked-in build.
         if (active && data.source === "binance" && !data.stale && data.market.accountKnown) {
-          if (LIVE_SPOT_ORDER_SUBMISSION_ENABLED) {
+          if (BINANCE_SPOT_BUY_SUBMISSION_ENABLED) {
             const queuedBuys = await listBuyOrders();
             for (const order of queuedBuys) {
               if (!active) return;
@@ -122,7 +122,7 @@ export default function ExecutionBackground({ onChange, data }: { onChange: () =
             }
           }
 
-          if (LIVE_SPOT_SELL_SUBMISSION_ENABLED) {
+          if (BINANCE_SPOT_SELL_SUBMISSION_ENABLED) {
             const queuedSells = await listSellEvents();
             const event = queuedSells.find((item) =>
               item.status === "pending" &&
