@@ -14,3 +14,5 @@ for ws in wb.worksheets:
                 vals.append(f"{cell.coordinate}={v[:160]!r}")
         if vals: hits.extend(vals)
     for h in hits: print("HIT", h)
+
+print('INSPECTION_COMPLETE')
