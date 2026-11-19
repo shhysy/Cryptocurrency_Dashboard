@@ -49,6 +49,30 @@ describe("真实买入成交核对", () => {
     expect(result.complete).toBe(false);
     expect(result.fills).toHaveLength(0);
   });
+
+  it("完全相同的重复成交 ID 只计入一次", () => {
+    const result = reconcileConfirmedBuyFills(order, [fills[0], { ...fills[0] }], "BTC", "USDT");
+    expect(result.complete).toBe(true);
+    expect(result.fills).toHaveLength(1);
+  });
+
+  it("同一成交 ID 携带冲突数据时拒绝记账", () => {
+    expect(() => reconcileConfirmedBuyFills(order, [
+      fills[0], { ...fills[0], quoteQty: 99 },
+    ], "BTC", "USDT")).toThrow("价格、数量与成交金额不一致");
+  });
+
+  it("成交价格乘数量与 quoteQty 不一致时拒绝记账", () => {
+    expect(() => reconcileConfirmedBuyFills(order, [
+      { ...fills[0], quoteQty: 99 },
+    ], "BTC", "USDT")).toThrow("价格、数量与成交金额不一致");
+  });
+
+  it("订单成交数量为零但累计成交金额非零时拒绝", () => {
+    expect(() => reconcileConfirmedBuyFills({
+      ...order, executedQty: 0, cummulativeQuoteQty: 1,
+    }, [], "BTC", "USDT")).toThrow("订单累计成交数据无效");
+  });
 });
 
 describe("真实卖出成交核对", () => {
@@ -98,5 +122,12 @@ describe("真实卖出成交核对", () => {
     const { reconcileConfirmedSellFills } = await import("./fill-reconcile");
     const result = reconcileConfirmedSellFills(sellOrder, [], "BTC", "USDT");
     expect(result.complete).toBe(false);
+  });
+
+  it("卖出成交 ID 冲突时拒绝记账", async () => {
+    const { reconcileConfirmedSellFills } = await import("./fill-reconcile");
+    expect(() => reconcileConfirmedSellFills(sellOrder, [
+      sellFill, { ...sellFill, commission: 0.2 },
+    ], "BTC", "USDT")).toThrow("同一 Binance 成交 ID 返回了冲突的成交数据");
   });
 });
