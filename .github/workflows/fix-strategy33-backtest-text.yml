@@ -1,0 +1,29 @@
+name: 清理策略工作簿遗留提示
+on:
+  push:
+    branches: [gpt]
+    paths:
+      - 'scripts/fix_strategy33_backtest_text.py'
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gpt
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install openpyxl
+      - run: python scripts/fix_strategy33_backtest_text.py
+      - name: 清理临时文件并提交
+        run: |
+          rm -f scripts/fix_strategy33_backtest_text.py .github/workflows/fix-strategy33-backtest-text.yml
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "清理策略工作簿遗留的回测提示"
+          git push origin HEAD:gpt
