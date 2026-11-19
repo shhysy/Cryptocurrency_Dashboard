@@ -83,3 +83,40 @@ export function remainingReservationAfterFill(
   }
   return Math.max(0, original - confirmedSpendUsdt);
 }
+
+
+/**
+ * Apply a monotonic cumulative-spend snapshot. Concurrent tabs may finish
+ * reconciliation out of order, so an older snapshot must never restore funds.
+ * A non-terminal snapshot also cannot reopen a reservation already released
+ * after a confirmed terminal exchange status.
+ */
+export function reconcileBuyFundsReservation(
+  reservation: BuyFundsReservation,
+  cumulativeConfirmedSpendUsdt: number,
+  exchangeOrderTerminal: boolean,
+  now = Date.now(),
+): BuyFundsReservation {
+  if (!Number.isSafeInteger(now) || now <= 0) {
+    throw new Error("资金预留更新时间无效");
+  }
+  if (!Number.isFinite(cumulativeConfirmedSpendUsdt) || cumulativeConfirmedSpendUsdt < 0) {
+    throw new Error("累计成交支出无效");
+  }
+  if (cumulativeConfirmedSpendUsdt + 1e-8 < reservation.consumedUsdt) {
+    throw new Error("收到较旧的成交快照，拒绝回退已确认支出和资金预留");
+  }
+  if (reservation.status === "released" && !exchangeOrderTerminal) {
+    throw new Error("资金预留已因订单终态释放，拒绝被非终态快照重新激活");
+  }
+  const remaining = remainingReservationAfterFill(reservation, cumulativeConfirmedSpendUsdt);
+  return {
+    ...reservation,
+    reservedUsdt: exchangeOrderTerminal ? 0 : remaining,
+    originalReservedUsdt: reservation.originalReservedUsdt ?? reservation.reservedUsdt,
+    consumedUsdt: cumulativeConfirmedSpendUsdt,
+    status: exchangeOrderTerminal ? "released" : "active",
+    updatedAt: now,
+    releaseReason: exchangeOrderTerminal ? "Binance 已确认订单进入终态" : null,
+  };
+}
