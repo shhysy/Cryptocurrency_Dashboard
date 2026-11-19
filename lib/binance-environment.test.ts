@@ -121,3 +121,25 @@ describe("Server-only Binance environment", () => {
     });
   });
 });
+
+
+describe("Server-side Testnet order gate", () => {
+  it("allows BUY only when Testnet mode and server BUY switch are explicitly enabled", async () => {
+    const { isTestnetOrderSubmissionEnabled } = await import("./binance-environment");
+    expect(isTestnetOrderSubmissionEnabled("testnet", "BUY", { BINANCE_TESTNET_BUY_ENABLED: "1" })).toBe(true);
+    expect(isTestnetOrderSubmissionEnabled("testnet", "BUY", { BINANCE_TESTNET_SELL_ENABLED: "1" })).toBe(false);
+  });
+
+  it("allows SELL only when Testnet mode and server SELL switch are explicitly enabled", async () => {
+    const { isTestnetOrderSubmissionEnabled } = await import("./binance-environment");
+    expect(isTestnetOrderSubmissionEnabled("testnet", "SELL", { BINANCE_TESTNET_SELL_ENABLED: "1" })).toBe(true);
+    expect(isTestnetOrderSubmissionEnabled("testnet", "SELL", { BINANCE_TESTNET_BUY_ENABLED: "1" })).toBe(false);
+  });
+
+  it("rejects both sides in production regardless of environment flags", async () => {
+    const { isTestnetOrderSubmissionEnabled } = await import("./binance-environment");
+    const env = { BINANCE_TESTNET_BUY_ENABLED: "1", BINANCE_TESTNET_SELL_ENABLED: "1" };
+    expect(isTestnetOrderSubmissionEnabled("production", "BUY", env)).toBe(false);
+    expect(isTestnetOrderSubmissionEnabled("production", "SELL", env)).toBe(false);
+  });
+});
