@@ -135,3 +135,14 @@ describe("成交通知租约与退避（纯函数）", () => {
     expect(isTradeNotificationClaimable(failed, failed.nextAttemptAt!)).toBe(true);
   });
 });
+
+describe("成交通知仅接受已确认成交事实", () => {
+  it("缺少 orderId/fillId 不得构造已成交通知", () => {
+    expect(() => buildTradeFillNotificationEvent({ ...fill, orderId: "" })).toThrow();
+    expect(() => buildTradeFillNotificationEvent({ ...fill, fillId: "" })).toThrow();
+  });
+
+  it("commissionUsdt 为负数时拒绝", () => {
+    expect(() => buildTradeFillNotificationEvent({ ...fill, commissionUsdt: -0.01 })).toThrow();
+  });
+});
