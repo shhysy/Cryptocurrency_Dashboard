@@ -351,3 +351,14 @@
 - 最新已确认全量 CI run `44481270903`：39/40 测试文件通过、326 项测试通过、TypeScript typecheck 通过；唯一失败为 Grok 负责的 SELL guard 测试，已重新指派 Grok 修复。
 - GPT 的资金预留 / IndexedDB 测试文件已通过；仍缺真实浏览器跨进程多标签页、浏览器进程重启、quota exceeded 的验证。
 - 生产现货 BUY/SELL 与 Simple Earn 自动赎回保持关闭；未发送真实订单、未操作真实资金。
+
+
+
+### Phase 33 补充审查发现（2026-11-19）
+- 已检查 `strategy/engine.ts`、`strategy/indicators.ts`、`lib/binance.ts`、`lib/dashboard.ts`、`strategy/post-take-profit-rebuy.ts` 和对应测试。
+- 发现周线数据周期语义风险：`fetchKlines` 未按 K 线 closeTime 过滤未收盘周线；`closesWithPrice` 会把最后一根周线 close 替换成实时 ticker；RSI/MA/企稳条件因此可能是“周线历史 + 实时价格”的混合输入。V2.0 工作簿明确要求同一周线收盘价，但 V3.3 最新原表尚未取得，故先记录为 P0 待确认，不擅自改动触发逻辑。
+- 推荐后续把 `signalAsOf`（最近已确认周线）与 `executionPrice`（实时价格）分开，周线评分/结构只用已确认 candle；实时价格仅用于展示与执行前价格/滑点预检，具体是否采用需用户确认规则版本。
+- 已修订 `STRATEGY.md`：按当前配置同步 100 分制门槛、固定额度/单币上限、核心/保守底仓比例，并明确 V2.0 与仓库 V3.3 存在差异；补充指标止盈 SELL guard 的 2 周冷却和 50% 累计上限，以及周线/现价混用风险。未改策略参数与业务逻辑。
+- 新增规则追踪文档 `docs/RULES_IMPLEMENTATION_MATRIX.md`，列出版本冲突、配置差异、数据周期风险和待用户确认事项。
+- 文档提交：规则矩阵 `3e48fb7ab74be6c090ba1ee096aff34bb227d14d`；数据周期审查 `61b66568412ab3167615af708a1f8065872bd673`；策略说明同步 `732de9b94ffca9bee4a23a59fc404018d1b3c3fc`（后续修订另见最新文件历史）。
+- Grok 任务已追加到 `grok工作记录.md`，要求先修复 SELL guard 显式底仓授权失败，再完成通知 HMAC/Outbox 安全测试及 SELL 全链路模拟验收；Gro k不得改 GPT 的 BUY/资金预留与共享策略文件。
