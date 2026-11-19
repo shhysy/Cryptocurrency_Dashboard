@@ -108,7 +108,7 @@ NEXT_PUBLIC_BINANCE_TESTNET_API_SECRET=你的测试网_API_Secret
 4. 使用测试网资产验证余额读取、交易对规则、订单提交/查询、逐笔成交对账和异常恢复。
 5. 测试网不提供 Simple Earn；本项目在 Testnet 模式会主动拒绝所有 Simple Earn 读取/赎回路径，不会误访问生产理财接口。
 
-**重要：** Testnet 模式只切换 Spot REST 地址和测试网凭证，不会自动打开实盘开关。当前 `LIVE_SPOT_ORDER_SUBMISSION_ENABLED`、`LIVE_SPOT_SELL_SUBMISSION_ENABLED`、`LIVE_EARN_REDEMPTION_ENABLED` 均为 `false`。本地单元测试不会访问 Binance，也不会产生真实订单。实际 Testnet 下单需要单独审查并明确启用测试网专用执行配置，不能通过修改生产开关来做测试。
+**当前阶段边界：** Testnet 模式已完成 Spot REST 地址/凭证隔离和 Simple Earn 拦截，但 Testnet BUY/SELL 提交按钮与自动执行调度尚未接入 Testnet 专用开关，因此目前仍不能通过看板发出 Testnet 订单。`LIVE_SPOT_ORDER_SUBMISSION_ENABLED`、`LIVE_SPOT_SELL_SUBMISSION_ENABLED`、`LIVE_EARN_REDEMPTION_ENABLED` 均保持 `false`。本地单元测试不会访问 Binance，也不会产生订单。真实 Testnet 下单演练必须在单独接入 Testnet 执行入口后进行，不能修改生产开关代替测试。
 ## 安全提醒
 
 - 当前自动赎回/买卖实盘开关均关闭，现有只读 Key 不会执行资金变动；Spot Testnet 使用独立凭证和独立接口地址。
