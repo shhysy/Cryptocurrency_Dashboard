@@ -111,6 +111,14 @@ export function planBuyFundsReservationTopUp(input: {
   }
 
   const currentReserved = existingActive?.reservedUsdt ?? 0;
+  if (currentReserved > validation.availableUsdt + 1e-8) {
+    return {
+      ok: false, reservedUsdt: currentReserved, additionalUsdt: 0,
+      availableUsdt: validation.availableUsdt,
+      totalReservedUsdt: validation.totalReservedUsdt + currentReserved,
+      reason: "当前交易所可用余额低于已有本地资金预留总额，停止扩展并要求人工核对",
+    };
+  }
   const desiredAdditional = Math.max(0, requestedRemainingUsdt - currentReserved);
   const additionalCapacity = Math.max(0, validation.availableUsdt - currentReserved);
   const additionalUsdt = Math.min(desiredAdditional, additionalCapacity);
