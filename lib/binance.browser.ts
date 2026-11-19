@@ -37,11 +37,11 @@ const TESTNET_SUBMISSION_SWITCHES = resolveBinanceSpotSubmissionSwitches(
 export const BINANCE_SPOT_BUY_SUBMISSION_ENABLED =
   SPOT_ENVIRONMENT.mode === "testnet"
     ? TESTNET_SUBMISSION_SWITCHES.buyEnabled
-    : LIVE_SPOT_ORDER_SUBMISSION_ENABLED;
+    : false;
 export const BINANCE_SPOT_SELL_SUBMISSION_ENABLED =
   SPOT_ENVIRONMENT.mode === "testnet"
     ? TESTNET_SUBMISSION_SWITCHES.sellEnabled
-    : LIVE_SPOT_SELL_SUBMISSION_ENABLED;
+    : false;
 
 function assertSimpleEarnProductionOnly(): void {
   assertSimpleEarnSupported(BINANCE_SPOT_ENVIRONMENT);
