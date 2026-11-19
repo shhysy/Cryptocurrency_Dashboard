@@ -48,10 +48,10 @@ function validateEvent(value: unknown): value is ConfirmedFillEvent {
 }
 
 /**
- * Authenticated same-origin relay:
- * Cloudflare Access authenticates the private dashboard user; this route signs
- * the validated outbox batch with a server-only HMAC before forwarding it.
- * The browser never receives the HMAC secret or Worker mail credentials.
+ * 同源已认证中转：
+ * Cloudflare Access 校验私有看板用户身份；本路由用仅服务端持有的 HMAC
+ * 对已校验的 Outbox 批次签名后再转发。
+ * 浏览器拿不到 HMAC 密钥，也拿不到 Worker 邮件凭证。
  */
 export async function POST(request: Request): Promise<Response> {
   const configuredOrigin = process.env.APP_ORIGIN ?? "";
@@ -113,7 +113,7 @@ export async function POST(request: Request): Promise<Response> {
       return json({ ok: false, error: "批次中存在重复成交事件 ID" }, 400);
     }
 
-    // Rebuild a minimal canonical payload; never forward browser-supplied state fields.
+    // 重建最小规范载荷；绝不转发浏览器带来的状态字段。
     const payload = JSON.stringify({ events });
     if (new TextEncoder().encode(payload).byteLength > MAX_BODY_BYTES) {
       return json({ ok: false, error: "规范化请求体过大" }, 413);
