@@ -43,3 +43,20 @@ export function assertSimpleEarnSupported(mode: "testnet" | "production"): void 
     throw new Error("Binance Spot Testnet 不支持 Simple Earn；已阻止访问生产理财接口");
   }
 }
+
+export interface BinanceSpotSubmissionEnvironment {
+  NEXT_PUBLIC_BINANCE_SPOT_TESTNET_BUY_ENABLED?: string;
+  NEXT_PUBLIC_BINANCE_SPOT_TESTNET_SELL_ENABLED?: string;
+}
+
+/** Production submission remains hard-disabled; explicit opt-ins are testnet-only. */
+export function resolveBinanceSpotSubmissionSwitches(
+  mode: "testnet" | "production",
+  env: BinanceSpotSubmissionEnvironment,
+): { buyEnabled: boolean; sellEnabled: boolean } {
+  if (mode !== "testnet") return { buyEnabled: false, sellEnabled: false };
+  return {
+    buyEnabled: env.NEXT_PUBLIC_BINANCE_SPOT_TESTNET_BUY_ENABLED === "1",
+    sellEnabled: env.NEXT_PUBLIC_BINANCE_SPOT_TESTNET_SELL_ENABLED === "1",
+  };
+}
