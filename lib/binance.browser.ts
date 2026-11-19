@@ -18,8 +18,10 @@ export const BINANCE_SPOT_API_BASE =
 const API_KEY = "";
 const API_SECRET = "";
 const BASE = BINANCE_SPOT_API_BASE;
-export const BINANCE_SPOT_BUY_SUBMISSION_ENABLED = false;
-export const BINANCE_SPOT_SELL_SUBMISSION_ENABLED = false;
+export const BINANCE_SPOT_BUY_SUBMISSION_ENABLED =
+  BINANCE_SPOT_ENVIRONMENT === "testnet" && process.env.NEXT_PUBLIC_BINANCE_TESTNET_BUY_ENABLED === "1";
+export const BINANCE_SPOT_SELL_SUBMISSION_ENABLED =
+  BINANCE_SPOT_ENVIRONMENT === "testnet" && process.env.NEXT_PUBLIC_BINANCE_TESTNET_SELL_ENABLED === "1";
 
 function assertSimpleEarnProductionOnly(): void {
   assertSimpleEarnSupported(BINANCE_SPOT_ENVIRONMENT);
@@ -108,108 +110,61 @@ export interface BinanceSpotOrderSubmitResponse {
 
 export const LIVE_SPOT_SELL_SUBMISSION_ENABLED = false as const;
 
-export async function submitSpotMarketSell(input: {
+async function postTestnetMarketOrder(input: {
+  side: "BUY" | "SELL";
   symbol: string;
-  quantity: string;
+  amount: string;
   clientOrderId: string;
 }): Promise<BinanceSpotOrderSubmitResponse> {
-  if (!BINANCE_SPOT_SELL_SUBMISSION_ENABLED) {
-    throw new Error("Binance 现货实盘卖出尚未启用；当前不会发送订单 POST");
-  }
-  if (!API_KEY || !API_SECRET) throw new Error("缺少 Binance API Key/Secret");
-  if (!/^[A-Z0-9]{5,24}$/.test(input.symbol) ||
-      !/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(input.quantity) ||
-      Number(input.quantity) <= 0 ||
-      !/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) {
-    throw new Error("现货市价卖单参数无效");
-  }
-  const params = {
-    symbol: input.symbol,
-    side: "SELL",
-    type: "MARKET",
-    quantity: input.quantity,
-    newClientOrderId: input.clientOrderId,
-    newOrderRespType: "FULL",
-    recvWindow: 10000,
-    timestamp: Math.round(await serverNow()),
-  };
-  const qs = new URLSearchParams(
-    Object.entries(params).map(([key, value]) => [key, String(value)]),
-  ).toString();
-  const signature = await hmacHex(API_SECRET, qs);
-  const res = await fetch(BASE + "/api/v3/order?" + qs + "&signature=" + signature, {
+  const response = await fetch("/api/binance/testnet-order", {
     method: "POST",
-    headers: { "X-MBX-APIKEY": API_KEY },
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
     cache: "no-store",
-    signal: AbortSignal.timeout(15_000),
+    body: JSON.stringify(input),
   });
-  const body = await res.text().catch(() => "");
-  if (!res.ok) throw new Error("Binance Spot SELL " + res.status + ": " + body.slice(0, 300));
-  let parsed: BinanceSpotOrderSubmitResponse;
-  try {
-    parsed = JSON.parse(body) as BinanceSpotOrderSubmitResponse;
-  } catch {
-    throw new Error("Binance 卖单响应无法解析；必须按 clientOrderId 对账，禁止重发");
+  const raw = await response.text();
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch {
+    throw new Error("测试网订单代理响应无法解析；必须按 clientOrderId 对账，禁止重发");
   }
-  if (parsed.symbol !== input.symbol ||
-      parsed.clientOrderId !== input.clientOrderId ||
-      !Number.isSafeInteger(parsed.orderId) || parsed.orderId <= 0 ||
-      !["NEW", "PARTIALLY_FILLED", "FILLED", "CANCELED", "REJECTED", "EXPIRED"].includes(parsed.status)) {
-    throw new Error("Binance 卖单响应字段不完整或不匹配；必须按 clientOrderId 对账，禁止重发");
+  if (!response.ok) {
+    const detail = parsed && typeof parsed === "object" && "detail" in parsed
+      ? String((parsed as { detail: unknown }).detail)
+      : "测试网订单提交失败";
+    throw new Error(detail.slice(0, 220));
   }
-  return parsed;
+  const order = parsed as BinanceSpotOrderSubmitResponse;
+  if (order.symbol !== input.symbol || order.clientOrderId !== input.clientOrderId ||
+      !Number.isSafeInteger(order.orderId) || order.orderId <= 0 ||
+      !["NEW", "PARTIALLY_FILLED", "FILLED", "CANCELED", "REJECTED", "EXPIRED"].includes(order.status)) {
+    throw new Error("测试网订单响应不匹配；必须按 clientOrderId 对账，禁止重发");
+  }
+  return order;
+}
+
+export async function submitSpotMarketSell(input: {
+  symbol: string; quantity: string; clientOrderId: string;
+}): Promise<BinanceSpotOrderSubmitResponse> {
+  if (!BINANCE_SPOT_SELL_SUBMISSION_ENABLED) throw new Error("测试网卖出开关未启用；不会发送订单 POST");
+  if (!/^[A-Z0-9]{5,24}$/.test(input.symbol) ||
+      !/^(?:0|[1-9]\\d*)(?:\\.\\d{1,8})?$/.test(input.quantity) ||
+      Number(input.quantity) <= 0 || !/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) {
+    throw new Error("测试网市价卖单参数无效");
+  }
+  return postTestnetMarketOrder({ side: "SELL", symbol: input.symbol, amount: input.quantity, clientOrderId: input.clientOrderId });
 }
 
 export async function submitSpotMarketBuy(input: {
-  symbol: string;
-  quoteOrderQty: string;
-  clientOrderId: string;
+  symbol: string; quoteOrderQty: string; clientOrderId: string;
 }): Promise<BinanceSpotOrderSubmitResponse> {
-  if (!BINANCE_SPOT_BUY_SUBMISSION_ENABLED) {
-    throw new Error("Binance 现货实盘买入尚未启用；当前不会发送订单 POST");
-  }
-  if (!API_KEY || !API_SECRET) throw new Error("缺少 Binance API Key/Secret");
+  if (!BINANCE_SPOT_BUY_SUBMISSION_ENABLED) throw new Error("测试网买入开关未启用；不会发送订单 POST");
   if (!/^[A-Z0-9]{5,24}$/.test(input.symbol) ||
-      !/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(input.quoteOrderQty) ||
-      Number(input.quoteOrderQty) <= 0 ||
-      !/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) {
-    throw new Error("现货市价买单参数无效");
+      !/^(?:0|[1-9]\\d*)(?:\\.\\d{1,8})?$/.test(input.quoteOrderQty) ||
+      Number(input.quoteOrderQty) <= 0 || !/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) {
+    throw new Error("测试网市价买单参数无效");
   }
-  const params = {
-    symbol: input.symbol,
-    side: "BUY",
-    type: "MARKET",
-    quoteOrderQty: input.quoteOrderQty,
-    newClientOrderId: input.clientOrderId,
-    newOrderRespType: "FULL",
-    recvWindow: 10000,
-    timestamp: Math.round(await serverNow()),
-  };
-  const qs = new URLSearchParams(
-    Object.entries(params).map(([key, value]) => [key, String(value)]),
-  ).toString();
-  const signature = await hmacHex(API_SECRET, qs);
-  const res = await fetch(`${BASE}/api/v3/order?${qs}&signature=${signature}`, {
-    method: "POST",
-    headers: { "X-MBX-APIKEY": API_KEY },
-    cache: "no-store",
-    signal: AbortSignal.timeout(15_000),
-  });
-  const body = await res.text().catch(() => "");
-  if (!res.ok) throw new Error(`Binance Spot BUY ${res.status}: ${body.slice(0, 300)}`);
-  let parsed: BinanceSpotOrderSubmitResponse;
-  try {
-    parsed = JSON.parse(body) as BinanceSpotOrderSubmitResponse;
-  } catch {
-    throw new Error("Binance 买单响应无法解析；必须按 clientOrderId 对账，禁止重发");
-  }
-  if (parsed.symbol !== input.symbol ||
-      parsed.clientOrderId !== input.clientOrderId ||
-      !Number.isSafeInteger(parsed.orderId) || parsed.orderId <= 0 ||
-      !["NEW", "PARTIALLY_FILLED", "FILLED", "CANCELED", "REJECTED", "EXPIRED"].includes(parsed.status)) {
-    throw new Error("Binance 买单响应字段不完整或不匹配；必须按 clientOrderId 对账，禁止重发");
-  }
-  return parsed;
+  return postTestnetMarketOrder({ side: "BUY", symbol: input.symbol, amount: input.quoteOrderQty, clientOrderId: input.clientOrderId });
 }
 
 export interface FlexibleEarnRedemptionSubmitResponse {
