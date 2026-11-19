@@ -1,4 +1,5 @@
 import type { ExecutionFill, QueuedBuyOrder, TradeLedgerEntry } from "./types";
+import { assertDuplicateExecutionFillMatches } from "./fill-reconcile";
 import { applyConfirmedBuyFill } from "./queue";
 import { planBuyFundsReservation, remainingReservationAfterFill, type BuyFundsReservation } from "./fund-reservation";
 import { buildTradeFillNotificationEvent, isTradeNotificationClaimable, type TradeNotificationOutboxEvent } from "./notification-outbox";
