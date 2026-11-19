@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueuedBuy } from "./queue";
 import {
   claimBuyOrderSubmission,
@@ -45,6 +45,8 @@ describe("IndexedDB BUY reservation and claim integration", () => {
     }
     await deleteExecutionDatabase();
   });
+
+  afterEach(() => { vi.unstubAllGlobals(); });
 
   afterAll(async () => {
     if (typeof indexedDB !== "undefined") await deleteExecutionDatabase();
@@ -189,6 +191,11 @@ describe("IndexedDB BUY reservation and claim integration", () => {
       minNotionalUsdt: 5,
     })).rejects.toThrow("禁止新建或扩展资金预留");
     expect(await listBuyFundsReservations()).toHaveLength(0);
+  });
+
+  it("fails closed when IndexedDB is unavailable", async () => {
+    vi.stubGlobal("indexedDB", undefined);
+    await expect(listBuyOrders()).rejects.toThrow("当前环境不支持 IndexedDB");
   });
 
   it("does not claim an order twice after the first claim is persisted", async () => {
