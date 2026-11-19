@@ -1,0 +1,71 @@
+name: 更新策略3.3自动交易工作表
+on:
+  push:
+    branches: [gpt]
+    paths:
+      - 'scripts/update_strategy33_workbook.py'
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+        with:
+          ref: gpt
+          fetch-depth: 0
+      - name: 配置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 安装工作簿工具
+        run: |
+          python -m pip install openpyxl
+          sudo apt-get update
+          sudo apt-get install -y libreoffice-calc
+      - name: 删除回测评估并新增自动交易说明
+        run: python scripts/update_strategy33_workbook.py
+      - name: 使用 LibreOffice 重算并验证
+        run: |
+          mkdir -p /tmp/recalculated
+          libreoffice --headless --convert-to xlsx --outdir /tmp/recalculated 策略3.3.xlsx
+          test -s /tmp/recalculated/策略3.3.xlsx
+          mv /tmp/recalculated/策略3.3.xlsx 策略3.3.xlsx
+          python - <<'PY'
+          from openpyxl import load_workbook
+          from pathlib import Path
+          p=Path("策略3.3.xlsx")
+          wb=load_workbook(p, data_only=False)
+          assert "回测评估" not in wb.sheetnames
+          assert "自动交易执行" in wb.sheetnames
+          assert len(wb.sheetnames)==11
+          formulas=[(ws.title,c.coordinate,c.value) for ws in wb.worksheets for row in ws.iter_rows() for c in row if isinstance(c.value,str) and c.value.startswith("=")]
+          assert not any("回测评估" in str(v) for _,_,v in formulas)
+          assert "自动交易执行" in wb.sheetnames
+          assert "回测评估" not in str(wb["使用说明"]["B6"].value)
+          assert "回测评估" not in str(wb["使用说明"]["B14"].value)
+          cached=load_workbook(p,data_only=True)
+          errors=[]
+          for ws in cached.worksheets:
+              for row in ws.iter_rows():
+                  for c in row:
+                      if isinstance(c.value,str) and c.value.startswith("#"):
+                          errors.append((ws.title,c.coordinate,c.value))
+          print("SHEETS",wb.sheetnames)
+          print("FORMULAS",len(formulas))
+          print("VALIDATIONS",sum(len(ws.data_validations.dataValidation) for ws in wb.worksheets))
+          print("CACHED_ERRORS",errors[:20], "COUNT",len(errors))
+          print("AUTO_EXEC_ROWS",wb["自动交易执行"].max_row)
+          print("FILE_BYTES",p.stat().st_size)
+          assert not errors, "发现公式缓存错误"
+          PY
+      - name: 清理一次性脚本和工作流
+        run: |
+          rm -f scripts/inspect_strategy33_workbook.py scripts/update_strategy33_workbook.py
+          rm -f .github/workflows/inspect-strategy33.yml .github/workflows/update-strategy33-workbook.yml
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "移除回测评估并补充自动交易执行规则"
+          git push origin HEAD:gpt
