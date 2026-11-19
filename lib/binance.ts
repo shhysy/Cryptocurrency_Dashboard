@@ -252,6 +252,7 @@ export function mergeEarnBalances(balances: { asset: string; free: string; locke
 }
 interface RawTrade {
   id: number;
+  orderId: number;
   price: string;
   qty: string;
   commission: string;
@@ -282,7 +283,10 @@ export async function fetchBuyTrades(base: string, quote: string): Promise<Trade
       const commission = Number(t.commission);
       // 手续费折算为 USDT：以买到的币扣费 -> 乘成交价；以 USDT 扣费 -> 原值；BNB 等其他币 -> 记 0
       const fee = t.commissionAsset === base ? commission * price : t.commissionAsset === quote ? commission : 0;
-      return { id: `bn-${pair}-${t.id}`, symbol: base, time: t.time, price, qty: Number(t.qty), fee, source: "binance" as const };
+      const rawQty = Number(t.qty);
+      const netQty = t.commissionAsset === base ? rawQty - commission : rawQty;
+      if (!Number.isFinite(netQty) || netQty <= 0) throw new Error("Binance 买入手续费超过成交数量");
+      return { id: `bn-${pair}-${t.id}`, orderId: String(t.orderId), symbol: base, time: t.time, price, qty: netQty, fee, source: "binance" as const };
     });
 }
 
