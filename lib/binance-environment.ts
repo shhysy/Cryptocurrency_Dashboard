@@ -37,3 +37,9 @@ export function resolveBinanceSpotEnvironment(
     apiSecret: env.NEXT_PUBLIC_BINANCE_API_SECRET || env.fallbackApiSecret || "",
   };
 }
+
+export function assertSimpleEarnSupported(mode: "testnet" | "production"): void {
+  if (mode === "testnet") {
+    throw new Error("Binance Spot Testnet 不支持 Simple Earn；已阻止访问生产理财接口");
+  }
+}
