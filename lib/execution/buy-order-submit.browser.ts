@@ -86,6 +86,7 @@ export async function submitQueuedBuyOrder(
     await markBuyOrderReconcileRequired(
       order.id,
       `Binance 已受理订单 ${response.orderId}（${response.status}）；等待按 clientOrderId 对账成交`,
+      claimed.attempt,
     );
     return {
       submitted: true,
@@ -98,7 +99,7 @@ export async function submitQueuedBuyOrder(
     };
   } catch (error) {
     const reason = error instanceof Error ? error.message : "买单提交结果不明确";
-    await markBuyOrderReconcileRequired(order.id, reason.slice(0, 500));
+    await markBuyOrderReconcileRequired(order.id, reason.slice(0, 500), claimed.attempt);
     return {
       submitted: false,
       orderId: order.id,
