@@ -210,3 +210,26 @@
 - Grok 已完成预备订单 `planKind: manual_prep`、校验、CSV/store 归一化和 UI「人工计划 / 非挂单」标记。
 - Grok 修改文件均在其白名单内，没有与本阶段 GPT 文件冲突。
 - Grok 记录已补充分工边界；预备订单仍不接入自动下单。
+
+
+## 十、Phase 32 — 扩大 Grok 并行任务范围（2026-11-19）
+
+### 本轮新分工
+- **Grok 主责成交通知可靠性**：`notification-outbox.ts`、`notification-dispatch.browser.ts`、对应测试、`notification-signature.server.ts`、签名测试、`app/api/trade-fill-notifications/route.ts`。
+- **Grok 主责 SELL 卖出链路审查与模拟测试**：sell-guard、sell-signal-queue、sell-store、sell-order dry-run/submit guard、sync-sell-order 及其 SELL 专属测试。
+- Grok 不得修改共享 BUY store、BUY 队列、成交台账、position-accounting、Dashboard、策略配置及 BUY 资金预留。
+- GPT 继续负责 BUY 资金预留并发/IndexedDB 恢复及故障注入测试。
+- 通知模块只能消费已确认成交事件；不得改变成交台账真源或原子写入边界。
+- SELL 只做 mock/dry-run/模拟测试；实盘卖出开关保持关闭，不发真实订单。
+- 若 SELL 发现需要跨入共享文件的缺陷，先在 Grok 工作记录提出，不直接改共享文件。
+
+### GPT 本轮继续任务
+1. 核验 IndexedDB 资金预留预算核算和写入是否在同一 readwrite transaction 中，重点检查两个订单并发预留是否真正串行化。
+2. 设计并实现浏览器 IndexedDB 并发测试：两个不同订单并发预留不得超额、同一订单重复预留保持幂等、并发 claim 只有一个赢家。
+3. 补充订单浏览器重启/重新加载后的恢复测试，以及 transaction abort / blocked / unavailable 场景的 fail-closed 测试。
+4. 不引入未审查的新依赖；若测试环境缺少真实 IndexedDB 实现，先评估项目现有浏览器测试设施，不以纯 mock 假冒跨标签页原子性。
+
+### 当前验证基线
+- GPT 最新 HEAD（分工开始前）：`f1b6025e9b8f9f2874b01106ca1b73d472ee61b6`。
+- 最近 CI：39 个测试文件、297 个测试通过；TypeScript typecheck 通过。
+- CI：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44478709778
