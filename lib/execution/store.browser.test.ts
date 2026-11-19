@@ -1,3 +1,4 @@
+import "fake-indexeddb/auto";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createQueuedBuy } from "./queue";
 import {
