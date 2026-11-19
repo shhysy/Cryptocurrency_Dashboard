@@ -24,3 +24,11 @@
 ```bash
 npx vitest run lib/execution/sell-guard.test.ts lib/execution/notification-outbox.test.ts lib/execution/notification-signature.server.test.ts
 ```
+
+
+
+## 2026-11-19 项目规则版本确认（GPT同步）
+- 用户确认项目长期使用上传的 `长期投资策略V3.2_优化版_V3.3(1).xlsx`，统一版本名称为 **策略 3.3**。
+- 后续 SELL / 通知实现必须遵循该 Excel 原始规则；不得自行更改止盈、底仓减仓、追踪止损、基本面退出或风险参数。
+- 当前 Excel 页签部分标题仍保留 V3.2，但参数中心记录 V3.3 变更。以用户指定的策略 3.3 作为项目规则名，保留原表数值；如发现代码与 Excel 不一致，先记录差异并提交 GPT 评审，不在 Grok 白名单中改策略配置/引擎。
+- GPT 已在 `STRATEGY.md` 和 `docs/RULES_IMPLEMENTATION_MATRIX.md` 固定规则来源；Grok 工作记录同步此治理约定。
