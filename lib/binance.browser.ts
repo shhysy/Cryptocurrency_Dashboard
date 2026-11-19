@@ -10,11 +10,29 @@ import { normalizeFlexibleEarnPosition, sumSimpleEarnUsdtPositions, type SimpleE
  */
 import type { Candle, Trade } from "@/strategy/types";
 import { FALLBACK_BINANCE_API_KEY, FALLBACK_BINANCE_API_SECRET } from "./credentials";
+import { resolveBinanceSpotEnvironment } from "./binance-environment";
 
 // NEXT_PUBLIC_* 会被打包到客户端，浏览器直连模式无法对使用者隐藏 Secret。
-const API_KEY = process.env.NEXT_PUBLIC_BINANCE_API_KEY || FALLBACK_BINANCE_API_KEY;
-const API_SECRET = process.env.NEXT_PUBLIC_BINANCE_API_SECRET || FALLBACK_BINANCE_API_SECRET;
-const BASE = "https://api.binance.com";
+const SPOT_ENVIRONMENT = resolveBinanceSpotEnvironment({
+  NEXT_PUBLIC_BINANCE_SPOT_TESTNET: process.env.NEXT_PUBLIC_BINANCE_SPOT_TESTNET,
+  NEXT_PUBLIC_BINANCE_TESTNET_API_KEY: process.env.NEXT_PUBLIC_BINANCE_TESTNET_API_KEY,
+  NEXT_PUBLIC_BINANCE_TESTNET_API_SECRET: process.env.NEXT_PUBLIC_BINANCE_TESTNET_API_SECRET,
+  NEXT_PUBLIC_BINANCE_API_KEY: process.env.NEXT_PUBLIC_BINANCE_API_KEY,
+  NEXT_PUBLIC_BINANCE_API_SECRET: process.env.NEXT_PUBLIC_BINANCE_API_SECRET,
+  fallbackApiKey: FALLBACK_BINANCE_API_KEY,
+  fallbackApiSecret: FALLBACK_BINANCE_API_SECRET,
+});
+const API_KEY = SPOT_ENVIRONMENT.apiKey;
+const API_SECRET = SPOT_ENVIRONMENT.apiSecret;
+const BASE = SPOT_ENVIRONMENT.apiBase;
+export const BINANCE_SPOT_ENVIRONMENT = SPOT_ENVIRONMENT.mode;
+export const BINANCE_SPOT_API_BASE = SPOT_ENVIRONMENT.apiBase;
+
+function assertSimpleEarnProductionOnly(): void {
+  if (BINANCE_SPOT_ENVIRONMENT === "testnet") {
+    throw new Error("Binance Spot Testnet 不支持 Simple Earn；已阻止访问生产理财接口");
+  }
+}
 
 async function getJson<T>(url: string, headers?: Record<string, string>): Promise<T> {
   const res = await fetch(url, { headers, cache: "no-store", signal: AbortSignal.timeout(15_000) });
@@ -196,6 +214,7 @@ export async function redeemFlexibleEarnUsdt(input: {
   productId: string;
   amountUsdt: number;
 }): Promise<FlexibleEarnRedemptionSubmitResponse> {
+  assertSimpleEarnProductionOnly();
   if (!LIVE_EARN_REDEMPTION_ENABLED) {
     throw new Error("真实理财赎回尚未启用；当前不会发送 Binance POST 请求");
   }
@@ -369,6 +388,7 @@ export async function fetchSpotAssetBalance(asset: string): Promise<SpotAssetBal
 export async function fetchSpotAndEarnUsdtBalances(): Promise<Pick<UsdtWalletBuckets,
   "spotFreeUsdt" | "spotLockedUsdt" | "flexibleEarnUsdt" |
   "flexibleEarnRedeemingUsdt" | "flexibleEarnFrozenUsdt" | "lockedEarnUsdt" | "lockedEarnRedeemingUsdt">> {
+  assertSimpleEarnProductionOnly();
   const account = await signedGet<{ balances: { asset: string; free: string; locked: string }[] }>(
     "/api/v3/account",
   );
@@ -424,6 +444,7 @@ interface LockedEarnApiPosition {
 }
 
 async function fetchLockedEarnUsdtPositions(): Promise<SimpleEarnPositionPage["rows"]> {
+  assertSimpleEarnProductionOnly();
   const rows: SimpleEarnPositionPage["rows"] = [];
   for (let current = 1; current <= 20; current++) {
     const page = await signedGet<{ total: number; rows: LockedEarnApiPosition[] }>(
@@ -445,6 +466,7 @@ async function fetchLockedEarnUsdtPositions(): Promise<SimpleEarnPositionPage["r
 
 /** Read Flexible Earn positions using Binance's actual totalAmount/canRedeem/productId fields. */
 export async function fetchFlexibleEarnUsdtPositions(): Promise<SimpleEarnPositionPage["rows"]> {
+  assertSimpleEarnProductionOnly();
   const rows: SimpleEarnPositionPage["rows"] = [];
   for (let current = 1; current <= 20; current++) {
     const page = await signedGet<{ total: number; rows: FlexibleEarnApiPosition[] }>(
@@ -469,6 +491,7 @@ export async function fetchFlexibleEarnRedemptionRecords(input: {
   startTime: number;
   endTime?: number;
 }): Promise<FlexibleEarnRedemptionRecord[]> {
+  assertSimpleEarnProductionOnly();
   if (!Number.isFinite(input.startTime) || input.startTime <= 0) {
     throw new Error("理财赎回历史查询起始时间无效");
   }
