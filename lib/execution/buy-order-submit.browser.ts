@@ -1,6 +1,6 @@
 import {
   fetchSpotSymbolFilters,
-  LIVE_SPOT_ORDER_SUBMISSION_ENABLED,
+  BINANCE_SPOT_BUY_SUBMISSION_ENABLED,
   submitSpotMarketBuy,
 } from "../binance.browser";
 import { parseMarketRules } from "./binance-preflight";
@@ -43,7 +43,7 @@ export async function submitQueuedBuyOrder(
   queuedOrderId: string,
   remainingAssetCapUsdt: number,
 ): Promise<BuyOrderSubmissionResult> {
-  if (!LIVE_SPOT_ORDER_SUBMISSION_ENABLED) {
+  if (!BINANCE_SPOT_BUY_SUBMISSION_ENABLED) {
     throw new Error("现货实盘买入尚未启用；当前不会发送 Binance 订单 POST");
   }
   const orders = await listBuyOrders();
