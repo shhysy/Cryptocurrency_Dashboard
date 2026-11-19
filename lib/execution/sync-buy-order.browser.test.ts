@@ -25,6 +25,7 @@ vi.mock("./store.browser", () => ({
 }));
 
 import { syncBuyOrderFromBinance } from "./sync-buy-order.browser";
+import { clientOrderIdForEvent } from "./client-order-id";
 
 const order = {
   id: "buy-1", eventKey: "BTC:add:week-1", symbol: "BTC", quoteAsset: "USDT",
@@ -50,7 +51,7 @@ describe("buy reconciliation stale-attempt protection", () => {
     mocks.listBuyOrders.mockResolvedValue([order]);
     mocks.fetchSpotOrderByClientId.mockResolvedValue({
       ...snapshot,
-      clientOrderId: "unused",
+      clientOrderId: clientOrderIdForEvent(order.eventKey, 0),
     });
     mocks.fetchSpotTradesForOrder.mockResolvedValue([trade]);
     mocks.markBuyOrderReconcileRequired.mockResolvedValue(order);
