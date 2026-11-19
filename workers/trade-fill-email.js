@@ -153,14 +153,19 @@ export default {
       }
       if (fresh.length === 0) return json({ ok: true, accepted: 0, duplicate: body.events.length });
 
-      const batchKey = fresh.map((event) => event.id).sort().join("|");
-      await sendEmail(env, buildEmail(fresh), `trade-fill-${await digestHex(batchKey)}`);
-      const sentAt = Date.now();
-      await Promise.all(fresh.map((event) => env.TRADE_FILL_NOTIFICATIONS.put(
-        KV_PREFIX + encodeURIComponent(event.id),
-        JSON.stringify({ sentAt, side: event.side, symbol: event.symbol, fillId: event.fillId }),
-        { expirationTtl: 60 * 60 * 24 * 365 },
-      )));
+      // Use a per-fill idempotency key rather than a batch key. The same fill
+      // may be retried in a different batch composition after a timeout or
+      // lease recovery; its email must still map to the same Resend request.
+      for (const event of fresh) {
+        const idempotencyKey = `trade-fill-${await digestHex(event.id)}`;
+        await sendEmail(env, buildEmail([event]), idempotencyKey);
+        const sentAt = Date.now();
+        await env.TRADE_FILL_NOTIFICATIONS.put(
+          KV_PREFIX + encodeURIComponent(event.id),
+          JSON.stringify({ sentAt, side: event.side, symbol: event.symbol, fillId: event.fillId }),
+          { expirationTtl: 60 * 60 * 24 * 365 },
+        );
+      }
       return json({ ok: true, accepted: fresh.length, duplicate: body.events.length - fresh.length });
     } catch (error) {
       console.error("[trade-fill-email]", error instanceof Error ? error.message : String(error));
