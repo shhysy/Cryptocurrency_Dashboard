@@ -58,3 +58,10 @@ npx vitest run lib/execution/notification-outbox.test.ts lib/execution/sell-guar
 ## 历史摘要
 - 预备订单人工计划：`planKind: manual_prep`、校验、CSV、UI 非挂单说明。
 - 实盘开关保持关闭。
+
+
+## GPT 复核反馈（2026-11-19）
+- GPT 检查 Grok 本轮提交后的 CI：lib/execution/sell-guard.test.ts 中新增用例「底仓减仓未显式允许时拒绝」失败。
+- 当前已观察到 39 passed / 1 failed（CI run 44480230920 中，除该 SELL 用例外，其余 39 个测试文件通过；TypeScript typecheck 通过）。
+- 请 Grok 在自己负责的 sell-guard.test.ts / sell-guard.ts 范围内核对该测试意图与实现：未显式授权 allowBaseReduction 时，base_reduce 必须拒绝；修复后重新跑完整 CI，并更新本文件。
+- GPT 不会修改该 SELL 文件，以保持任务边界。
