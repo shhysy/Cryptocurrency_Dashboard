@@ -1,4 +1,5 @@
 import "fake-indexeddb/auto";
+import { IDBDatabase } from "fake-indexeddb";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueuedBuy } from "./queue";
 import {
@@ -228,6 +229,29 @@ describe("IndexedDB BUY reservation and claim integration", () => {
       minNotionalUsdt: 5,
     })).rejects.toThrow("禁止新建或扩展资金预留");
     expect(await listBuyFundsReservations()).toHaveLength(0);
+  });
+
+  it("rejects when an IndexedDB transaction is forcibly aborted", async () => {
+    const original = IDBDatabase.prototype.transaction;
+    const spy = vi.spyOn(IDBDatabase.prototype, "transaction");
+    spy.mockImplementation(function (
+      this: IDBDatabase,
+      storeNames: string | string[],
+      mode?: IDBTransactionMode,
+      options?: IDBTransactionOptions,
+    ) {
+      const transaction = original.call(this, storeNames, mode, options);
+      queueMicrotask(() => {
+        try { transaction.abort(); } catch { /* already completed */ }
+      });
+      return transaction;
+    });
+
+    try {
+      await expect(listBuyOrders()).rejects.toBeTruthy();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("fails closed when a legacy tab blocks an IndexedDB schema upgrade", async () => {
