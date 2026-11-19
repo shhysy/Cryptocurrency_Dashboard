@@ -173,11 +173,18 @@ describe("live buy-order reservation guard", () => {
   const order = {
     id: "order-a", symbol: "BTC", quoteAsset: "USDT", status: "pending", remainingUsdt: 100,
   };
+
   it("allows only a matching pending/partial order", () => {
     expect(buyOrderReservationBlockReason(order, "order-a", "BTCUSDT")).toBeNull();
     expect(buyOrderReservationBlockReason({ ...order, status: "partially_filled" }, "order-a", "BTCUSDT")).toBeNull();
   });
+
   it("rejects missing, stale-state, and mismatched-symbol orders", () => {
+    expect(buyOrderReservationBlockReason(undefined, "order-a", "BTCUSDT")).toContain("不存在");
+    expect(buyOrderReservationBlockReason({ ...order, status: "reconcile_required" }, "order-a", "BTCUSDT")).toContain("禁止");
+    expect(buyOrderReservationBlockReason(order, "order-a", "ETHUSDT")).toContain("不一致");
+  });
+
   it("rejects a queued order with an invalid remaining amount", () => {
     expect(buyOrderReservationBlockReason(
       { ...order, remainingUsdt: Number.NaN },
@@ -186,14 +193,10 @@ describe("live buy-order reservation guard", () => {
       10,
     )).toContain("剩余金额无效");
   });
+
   it("rejects a reservation request larger than the live order remainder", () => {
     expect(buyOrderReservationBlockReason(order, "order-a", "BTCUSDT", 101))
       .toContain("超过当前待买订单剩余金额");
-  });
-
-    expect(buyOrderReservationBlockReason(undefined, "order-a", "BTCUSDT")).toContain("不存在");
-    expect(buyOrderReservationBlockReason({ ...order, status: "reconcile_required" }, "order-a", "BTCUSDT")).toContain("禁止");
-    expect(buyOrderReservationBlockReason(order, "order-a", "ETHUSDT")).toContain("不一致");
   });
 });
 
