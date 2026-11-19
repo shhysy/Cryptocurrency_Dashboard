@@ -32,7 +32,7 @@ function decimalPlaces(value: number): number {
   return Math.max(0, Math.min(12, fraction - exponent));
 }
 
-/** Keep the already step-aligned preflight quantity exact when formatting it for Binance. */
+/** 将已按步长对齐的预检数量格式化为币安字符串，避免多余精度噪声。 */
 export function formatMarketSellQuantity(quantity: number, stepSize: number): string {
   if (!Number.isFinite(quantity) || quantity <= 0 ||
       !Number.isFinite(stepSize) || stepSize <= 0) {
@@ -45,12 +45,11 @@ export function formatMarketSellQuantity(quantity: number, stepSize: number): st
 }
 
 /**
- * Guarded one-shot SELL submission. The live switch is checked before any
- * exchange request. If enabled after separate review, the function repeats
- * position reconciliation and V3.3 base/cycle checks immediately before POST.
+ * 带护栏的单次卖出提交。任何交易所请求前先检查实盘开关。
+ * 若经单独评审启用，POST 前会再次核对持仓与 V3.3 底仓/周期仓边界。
  *
- * Any ambiguous result stays locked under its persisted clientOrderId. Never
- * retry the POST; recover the order through read-only clientOrderId lookup.
+ * 结果不明确时保持绑定已有的 clientOrderId，禁止重发 POST；
+ * 只能通过只读查询 clientOrderId 恢复订单状态。
  */
 export async function submitQueuedSellEvent(eventKey: string): Promise<SellOrderSubmissionResult> {
   if (!BINANCE_SPOT_SELL_SUBMISSION_ENABLED) {
