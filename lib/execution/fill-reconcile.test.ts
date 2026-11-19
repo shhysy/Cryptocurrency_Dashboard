@@ -59,7 +59,7 @@ describe("真实买入成交核对", () => {
   it("同一成交 ID 携带冲突数据时拒绝记账", () => {
     expect(() => reconcileConfirmedBuyFills(order, [
       fills[0], { ...fills[0], commission: 0.2, commissionAsset: "USDT" },
-    ], "BTC", "USDT")).toThrow("价格、数量与成交金额不一致");
+    ], "BTC", "USDT")).toThrow("同一 Binance 成交 ID 返回了冲突的成交数据");
   });
 
   it("成交价格乘数量与 quoteQty 不一致时拒绝记账", () => {
