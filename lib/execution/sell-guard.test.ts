@@ -4,7 +4,7 @@ import { guardSellIntent, makeSellEventKey, type SellGuardState } from "./sell-g
 const state = (over: Partial<SellGuardState> = {}): SellGuardState => ({
   executedEventKeys: [],
   pendingEventKeys: [],
-  cycleInitialQty: 10,
+  cycleInitialQty: 0.1,
   indicatorProfitSoldQty: 0,
   lastIndicatorProfitAt: null,
   baseReduceExecuted: false,
@@ -67,5 +67,19 @@ describe("自动卖出幂等与仓位保护", () => {
     };
     expect(guardSellIntent(req, state()).qty).toBe(0.005);
     expect(guardSellIntent(req, state({ baseReduceExecuted: true })).allowed).toBe(false);
+  });
+
+  it("追踪止损只能动周期仓，不能卖底仓", () => {
+    expect(guardSellIntent({
+      symbol: "BTC", kind: "trail_stop", eventKey: "trail-1",
+      desiredQty: 0.1, cycleAvailableQty: 0.03, baseAvailableQty: 0.05, now: 1,
+    }, state())).toMatchObject({ allowed: true, qty: 0.03 });
+  });
+
+  it("底仓减仓未显式允许时拒绝", () => {
+    expect(guardSellIntent({
+      symbol: "BTC", kind: "base_reduce", eventKey: "base-1",
+      desiredQty: 0.01, cycleAvailableQty: 0.02, baseAvailableQty: 0.02, now: 1,
+    }, state()).allowed).toBe(false);
   });
 });

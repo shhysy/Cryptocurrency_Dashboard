@@ -38,9 +38,8 @@ function workerEvent(event: TradeNotificationOutboxEvent) {
 }
 
 /**
- * Deliver only events already created by the exchange-fill reconciliation
- * transaction. The same-origin API verifies Cloudflare Access and signs the
- * request server-side; the browser never handles the HMAC secret.
+ * 仅投递「成交对账事务」已写入的 Outbox 事件。
+ * 同源 API 校验身份并在服务端签名；浏览器不接触 HMAC 密钥。
  */
 export async function dispatchPendingTradeNotifications(): Promise<{
   claimed: number;
@@ -74,8 +73,7 @@ export async function dispatchPendingTradeNotifications(): Promise<{
   }
 
   if (failure) {
-    // A lease may have expired while the request was in flight. In that case
-    // the fencing check intentionally rejects this stale worker's update.
+    // 请求途中租约可能过期；围栏令牌不匹配时拒绝旧调度器回写。
     const updates = await Promise.allSettled(batch.map((event) =>
       markTradeNotificationFailed(event.id, event.leaseToken ?? "", failure!),
     ));
@@ -84,7 +82,9 @@ export async function dispatchPendingTradeNotifications(): Promise<{
       claimed: batch.length,
       sent: 0,
       failed,
-      reason: failure,
+      reason: updates.some((item) => item.status === "rejected")
+        ? failure + "；部分事件租约已失效，交由当前持有者继续处理"
+        : failure,
     };
   }
 
@@ -92,5 +92,12 @@ export async function dispatchPendingTradeNotifications(): Promise<{
     markTradeNotificationSent(event.id, event.leaseToken ?? ""),
   ));
   const sent = updates.filter((item) => item.status === "fulfilled").length;
-  return { claimed: batch.length, sent, failed: 0, reason: null };
+  return {
+    claimed: batch.length,
+    sent,
+    failed: 0,
+    reason: sent === batch.length
+      ? null
+      : "通知服务已接受事件，但部分本地租约已被其他调度器接管；不会由旧调度器覆盖新租约",
+  };
 }
