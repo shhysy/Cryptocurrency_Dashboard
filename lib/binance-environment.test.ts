@@ -79,3 +79,45 @@ describe("Spot order submission environment switches", () => {
       .toEqual({ buyEnabled: false, sellEnabled: false });
   });
 });
+
+
+describe("Server-only Binance environment", () => {
+  it("uses only testnet credentials and fixed testnet endpoint in testnet mode", async () => {
+    const { resolveServerBinanceEnvironment } = await import("./binance-environment");
+    expect(resolveServerBinanceEnvironment({
+      BINANCE_SPOT_ENVIRONMENT: "testnet",
+      BINANCE_TESTNET_API_KEY: "test-key",
+      BINANCE_TESTNET_API_SECRET: "test-secret",
+      BINANCE_API_KEY: "production-key",
+      BINANCE_API_SECRET: "production-secret",
+      BINANCE_BASE_URL: "https://custom-production.example",
+    })).toEqual({
+      mode: "testnet",
+      apiBase: "https://testnet.binance.vision",
+      apiKey: "test-key",
+      apiSecret: "test-secret",
+    });
+  });
+
+  it("never falls back to production credentials in testnet mode", async () => {
+    const { resolveServerBinanceEnvironment } = await import("./binance-environment");
+    expect(resolveServerBinanceEnvironment({
+      BINANCE_SPOT_ENVIRONMENT: "testnet",
+      BINANCE_API_KEY: "production-key",
+      BINANCE_API_SECRET: "production-secret",
+    })).toMatchObject({ mode: "testnet", apiKey: "", apiSecret: "" });
+  });
+
+  it("uses production credentials only in production mode", async () => {
+    const { resolveServerBinanceEnvironment } = await import("./binance-environment");
+    expect(resolveServerBinanceEnvironment({
+      BINANCE_API_KEY: "production-key",
+      BINANCE_API_SECRET: "production-secret",
+    })).toMatchObject({
+      mode: "production",
+      apiBase: "https://api.binance.com",
+      apiKey: "production-key",
+      apiSecret: "production-secret",
+    });
+  });
+});
