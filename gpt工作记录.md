@@ -237,3 +237,66 @@
 
 ### Grok SELL 范围补充
 另包含 `lib/execution/sell-preflight.browser.ts` 与其专属测试；只审查 SELL 专属预检，不修改共享 `binance-preflight.ts`、BUY 预检或资金预留。
+
+
+## 十一、Phase 32 — BUY 资金预留事务与 Earn top-up 修复（进行中）
+
+### 本轮发现并修复的问题
+1. **预留前未在同一事务确认订单仍可执行**
+   - 原 `reserveBuyFunds` 只对资金预留 store 开 readwrite transaction；它没有在同一事务中读取当前待买订单。
+   - 预检后如果另一标签页已将订单推进到 `reconcile_required`，旧标签页仍可能先写入资金预留。
+   - 现改为同一事务同时读 `buy-orders` 与 `buy-funds-reservations`，仅允许当前订单状态为 `pending/partially_filled` 且交易对匹配时建立预留。
+
+2. **Earn 到账 top-up 旧快照竞态**
+   - 原 `topUpBuyFundsReservationAfterEarnCredit` 未读取当前订单状态/版本，可能在订单已变化后仍扩展预留。
+   - 现要求调用方传入 `expectedAttemptCount`、`expectedOrderUpdatedAt`；store 在同一 readwrite transaction 中核对订单状态、attempt、更新时间和剩余金额，任何不匹配均 abort。
+   - 预留扩展改为只增加可用余额允许的差额，不会缩小已有预留；若已有预留总额已超过当前观察到的可用余额，则 fail-closed。
+   - 已终态释放的旧 attempt 若开始新 attempt，重置该 attempt 的累计支出基线为 0，避免新 attempt 的成交快照与旧 attempt 的累计值混用。
+
+3. **提交 claim 参数校验**
+   - `claimBuyOrderSubmission` 现在校验订单 ID 与时间戳参数。
+
+### 新增测试基础设施和集成测试
+- 新增开发依赖 `fake-indexeddb@6.2.7`（仅测试用，无运行时依赖）。
+- 新增 `lib/execution/store.browser.test.ts`，通过多连接 IndexedDB API 测试：
+  - 两个不同订单并发 reserve，总预留不超过共享 free snapshot。
+  - 同一订单并发 reserve 幂等，只生成一条预留。
+  - 同一订单并发 claim 只有一个成功。
+  - 关闭连接后重新打开，队列状态仍可读取。
+  - 订单状态变更后旧预检不能建立资金预留。
+  - Earn top-up 仅在订单快照未变化时成功。
+  - 新 attempt 的预留支出基线重置。
+  - IndexedDB 不可用时 fail-closed。
+- 扩展 `fund-reservation.test.ts`：覆盖 top-up 差额计算、保留已有预留、已有预留超过可用余额、released 记录损坏和订单状态/交易对校验。
+
+### 修改文件
+- `lib/execution/fund-reservation.ts`
+- `lib/execution/fund-reservation.test.ts`
+- `lib/execution/store.browser.ts`
+- `lib/execution/store.browser.test.ts`（新增）
+- `lib/execution/earn-redemption.browser.ts`
+- `package.json`
+- `package-lock.json`
+
+### 验证状态
+- 最新可读取的代码 CI（run 44480382213）：`store.browser.test.ts` 10 项通过；全套 40 个测试文件中 39 个通过、319 项测试通过，另有 1 个 Grok 负责的 SELL guard 用例失败。
+- TypeScript typecheck 通过。
+- 失败用例：`lib/execution/sell-guard.test.ts` 的「底仓减仓未显式允许时拒绝」。GPT 已在 `grok工作记录.md` 留下反馈，未修改 Grok 文件。
+- CI：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44480382213
+- 本轮 GPT 代码提交：
+  - `996c2885c8879f7a542187b614a4265b485836fa`（top-up 纯逻辑）
+  - `b6169ed8286a896a337d02c48288bc8777b32806`（订单/预留同事务校验）
+  - `07fbe49fd72c3492afd6dfc42d03c7d30dba2bf6`（Earn 调用方快照）
+  - `353828f2601c1f5ffb3cc698273b8b140402521c`（余额不足保护）
+  - `4c4d3c3c0680220ea4bbb6b44e087039e8ee0b88`（top-up 纯逻辑测试）
+  - `8af01ffa26045d83e02367fed665a9a5e7851054`、`69783892fc77f842ada31e48367955118044f779`、`6c0ada99d5ef0d17c9a181926da253348987fadb`（数据校验和 attempt 基线）
+  - `f8b40221903a63c1484446cd16ae848685fc722e`、`ed4a3722082d05eccd1799f54b42b8448f0f3b64`（测试依赖）
+  - `0ddaa859ff788aa79233a7e91d960388dd046d2f`、`0a8e5f7917dec20e2b6e1189557a449eb402d9d0`、`8851313d6897fece3158393b6f3ae2ebba91f797`、`f2f65d0b9d6c1b16b91e2522d3216be8f1c22306`（IndexedDB 测试）
+- **测试边界**：fake-indexeddb 可验证 IndexedDB API/事务行为和同一运行时的多连接竞争，但不是 Chrome 多进程真实标签页测试，也不是浏览器进程重启测试；后两者仍待真实浏览器 E2E 验证。
+
+### 尚未完成
+- 真实浏览器多标签页/多进程并发测试。
+- 浏览器进程重启后的持久化恢复 E2E。
+- IndexedDB transaction abort、blocked schema upgrade、quota exceeded 的故障注入。
+- Grok SELL guard CI 失败尚待 Grok 修复；GPT 不修改其白名单文件。
+- 本轮所有测试均为模拟/测试数据库；未发送 Binance 订单、未操作真实资金，实盘开关保持关闭。
