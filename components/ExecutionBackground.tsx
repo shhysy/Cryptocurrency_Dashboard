@@ -10,8 +10,8 @@ import { syncSellOrderFromBinance } from "@/lib/execution/sync-sell-order.browse
 import { dispatchPendingTradeNotifications } from "@/lib/execution/notification-dispatch.browser";
 import {
   LIVE_EARN_REDEMPTION_ENABLED,
-  LIVE_SPOT_ORDER_SUBMISSION_ENABLED,
-  LIVE_SPOT_SELL_SUBMISSION_ENABLED,
+  BINANCE_SPOT_BUY_SUBMISSION_ENABLED,
+  BINANCE_SPOT_SELL_SUBMISSION_ENABLED,
 } from "@/lib/binance.browser";
 import { prepareQueuedBuyDryRun } from "@/lib/execution/binance-order.browser";
 import { submitQueuedBuyOrder } from "@/lib/execution/buy-order-submit.browser";
