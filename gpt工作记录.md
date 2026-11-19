@@ -317,3 +317,12 @@
 - 最新代码 CI run `44480800615`：`store.browser.test.ts` 12/12 通过；全套 40 个测试文件中 39 个通过、323 项测试通过；TypeScript typecheck 通过。唯一失败仍为 Grok 的 `sell-guard.test.ts`「底仓减仓未显式允许时拒绝」。
 - CI：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44480800615
 - 新增提交：`ec6940586bbabf0c04bd0be78efb4691b2f91e7a`（全量预留行 fail-closed）、`4f41f521562a1f4aa16443e76b890a62d32e08d8`（对应测试）、`2ab8522dd26856c997da2a96ab01aa6e8c6602b3`（transaction abort 测试）、`d91a67f77d2dd5a7336e79d071ed6074203d043d`（测试 spy 类型修复）、`4df656e96db793c3df63baa91ab25338f5b6753a`（top-up 交易对校验）。
+
+
+### Phase 32 最新验证（2026-11-19）
+- 新增 10 个订单并发预留压力用例：10 个订单同时争用 100 USDT，恰好按可用额度预留，累计不会超过 100 USDT。
+- 新增预留金额不能超过当前订单剩余金额、订单剩余金额无效时拒绝预留的校验。
+- 最新 CI run `44481270903`：`fund-reservation.test.ts` 24/24 通过，`store.browser.test.ts` 13/13 通过；全套 40 个测试文件中 39 个通过、326 项测试通过；唯一失败仍为 Grok 负责的 `sell-guard.test.ts`「底仓减仓未显式允许时拒绝」；TypeScript typecheck 通过。
+- CI：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44481270903
+- 本轮新增提交：`6d55d3a492353d77aa12fc93368198db95c8963a`（10 订单并发压力测试）、`a972fa1cfb7b1a34cfd038968a4cd878e96e1705`（金额上限规则）、`8774ce03ab62a7472f997ac84ada20de9c7bd65b`（事务内传入实时订单剩余金额）、`8fc9daee7a9af4ce56c7de43107d57d0481a33c7`、`599022bbbb8d1b7fd250c64455752d6d79619beb`、`8f7b4caeb26bc7eb4bab3dff49d2f33c3c5f26a3`（相关边界测试）、`9f4318986d600ca0fd53ada2707c3c9fd639af92`（测试分组修复）。
+- GPT 负责的 BUY / IndexedDB 测试均通过；当前全量 CI 仍因 Grok 的 SELL guard 用例失败而非绿色，必须由 Grok 在其文件边界内修复后再确认整库通过。
