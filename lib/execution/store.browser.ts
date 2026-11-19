@@ -2,7 +2,7 @@ import type { ExecutionFill, QueuedBuyOrder, TradeLedgerEntry } from "./types";
 import { isCurrentBuyAttempt } from "./buy-attempt";
 import { assertDuplicateExecutionFillMatches } from "./fill-reconcile";
 import { applyConfirmedBuyFill } from "./queue";
-import { planBuyFundsReservation, remainingReservationAfterFill, type BuyFundsReservation } from "./fund-reservation";
+import { planBuyFundsReservation, reconcileBuyFundsReservation, type BuyFundsReservation } from "./fund-reservation";
 import { buildTradeFillNotificationEvent, isTradeNotificationClaimable, type TradeNotificationOutboxEvent } from "./notification-outbox";
 import { transitionEarnRedemption, type EarnRedemptionIntent, type EarnRedemptionStatus } from "./earn-redemption";
 
@@ -515,16 +515,12 @@ export async function applyConfirmedBuyReservationSpend(
           return;
         }
         try {
-          const remaining = remainingReservationAfterFill(current, cumulativeConfirmedSpendUsdt);
-          updated = {
-            ...current,
-            reservedUsdt: exchangeOrderTerminal ? 0 : remaining,
-            originalReservedUsdt: current.originalReservedUsdt ?? current.reservedUsdt,
-            consumedUsdt: cumulativeConfirmedSpendUsdt,
-            status: exchangeOrderTerminal || remaining <= 1e-8 ? "released" : "active",
-            updatedAt: now,
-            releaseReason: exchangeOrderTerminal ? "Binance 已确认订单进入终态" : null,
-          };
+          updated = reconcileBuyFundsReservation(
+            current,
+            cumulativeConfirmedSpendUsdt,
+            exchangeOrderTerminal,
+            now,
+          );
           store.put(updated);
         } catch (error) {
           fatal = error instanceof Error ? error : new Error("更新资金预留失败");
