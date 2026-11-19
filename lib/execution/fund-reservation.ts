@@ -45,6 +45,9 @@ export function buyOrderReservationBlockReason(
     return `待买订单当前状态为 ${order.status}，禁止新建或扩展资金预留`;
   }
   if (!order.symbol || !order.quoteAsset) return "待买订单缺少交易对信息";
+  if (!Number.isFinite(order.remainingUsdt) || order.remainingUsdt < 0) {
+    return "待买订单剩余金额无效，拒绝资金预留";
+  }
   const pair = order.symbol.endsWith(order.quoteAsset)
     ? order.symbol
     : order.symbol + order.quoteAsset;
