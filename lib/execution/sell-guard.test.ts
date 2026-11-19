@@ -80,6 +80,32 @@ describe("自动卖出幂等与仓位保护", () => {
     expect(guardSellIntent({
       symbol: "BTC", kind: "base_reduce", eventKey: "base-1",
       desiredQty: 0.01, cycleAvailableQty: 0.02, baseAvailableQty: 0.02, now: 1,
+    }, state())).toMatchObject({ allowed: false, qty: 0 });
+  });
+
+  it("底仓减仓 allowBaseReduction 为 false 时拒绝", () => {
+    expect(guardSellIntent({
+      symbol: "BTC", kind: "base_reduce", eventKey: "base-false",
+      desiredQty: 0.01, cycleAvailableQty: 0.02, baseAvailableQty: 0.02, now: 1,
+      allowBaseReduction: false,
     }, state()).allowed).toBe(false);
+  });
+
+  it("底仓减仓 allowBaseReduction 为 true 时按底仓 50% 放行", () => {
+    expect(guardSellIntent({
+      symbol: "BTC", kind: "base_reduce", eventKey: "base-true",
+      desiredQty: 0.02, cycleAvailableQty: 0.08, baseAvailableQty: 0.01, now: 1,
+      allowBaseReduction: true,
+    }, state())).toMatchObject({ allowed: true, qty: 0.005 });
+  });
+
+  it("拒绝无效卖出数量（0、负数、NaN、Infinity）", () => {
+    const base = {
+      symbol: "BTC", kind: "take_profit" as const, eventKey: "bad-qty",
+      cycleAvailableQty: 0.1, baseAvailableQty: 0.05, now: 1,
+    };
+    for (const desiredQty of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(guardSellIntent({ ...base, desiredQty, eventKey: `bad-${desiredQty}` }, state()).allowed).toBe(false);
+    }
   });
 });
