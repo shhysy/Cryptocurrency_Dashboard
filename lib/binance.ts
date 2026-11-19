@@ -285,3 +285,40 @@ export async function fetchBuyTrades(base: string, quote: string): Promise<Trade
       return { id: `bn-${pair}-${t.id}`, symbol: base, time: t.time, price, qty: Number(t.qty), fee, source: "binance" as const };
     });
 }
+
+
+const SIGNED_READ_PARAMS: Record<string, ReadonlySet<string>> = {
+  "/api/v3/account": new Set(["omitZeroBalances"]),
+  "/api/v3/myTrades": new Set(["symbol", "limit", "fromId"]),
+  "/api/v3/order": new Set(["symbol", "orderId", "origClientOrderId"]),
+  "/api/v3/exchangeInfo": new Set(["symbol", "symbols"]),
+  "/sapi/v1/simple-earn/flexible/position": new Set(["asset", "current", "size"]),
+  "/sapi/v1/simple-earn/locked/position": new Set(["asset", "current", "size"]),
+  "/sapi/v1/simple-earn/flexible/history/redemptionRecord": new Set([
+    "asset", "startTime", "endTime", "current", "size", "redeemId", "productId",
+  ]),
+};
+
+/** Narrow server-side allowlist for browser-originated read-only signed requests. */
+export async function fetchSignedBinanceRead<T>(
+  path: string,
+  params: Record<string, string | number> = {},
+): Promise<T> {
+  const allowed = SIGNED_READ_PARAMS[path];
+  if (!allowed) throw new Error("Binance signed-read endpoint is not allowlisted");
+  if (SPOT_TESTNET && path.startsWith("/sapi/")) {
+    throw new Error("Binance Spot Testnet does not support Simple Earn SAPI");
+  }
+  for (const [key, value] of Object.entries(params)) {
+    if (!allowed.has(key) || !["string", "number"].includes(typeof value)) {
+      throw new Error("Binance signed-read parameter is not allowlisted");
+    }
+    if (typeof value === "number" && !Number.isFinite(value)) {
+      throw new Error("Binance signed-read numeric parameter is invalid");
+    }
+    if (typeof value === "string" && value.length > 128) {
+      throw new Error("Binance signed-read parameter is too long");
+    }
+  }
+  return signedGet<T>(path, params);
+}
