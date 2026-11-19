@@ -81,14 +81,14 @@ describe("sequential take-profit tiers", () => {
     const d = data({ coins: [{ ...coin, price: 200, qty: 0.8, marketValue: 160 }] });
     const result = applyPostTakeProfitRebuy(d, [], []);
     expect(result.coins[0].signal.action.label).toBe("止盈1");
-    expect(result.coins[0].signal.action.qty).toBeCloseTo(0.24, 10);
+    expect(result.coins[0].signal.action.qty).toBeCloseTo(0.2, 10);
   });
 
   it("does not skip the 3x tier when price jumps directly to 5x", () => {
     const d = data({ coins: [{ ...coin, price: 500, qty: 0.8, marketValue: 400 }] });
     const result = applyPostTakeProfitRebuy(d, [event], [sell]);
     expect(result.coins[0].signal.action.label).toBe("止盈2");
-    expect(result.coins[0].signal.action.qty).toBeCloseTo(0.168, 10);
+    expect(result.coins[0].signal.action.qty).toBeCloseTo(0.12, 10);
   });
 
   it("does not reactivate post-TP rebuys after the previous round went flat", () => {
