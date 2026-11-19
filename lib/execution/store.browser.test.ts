@@ -236,11 +236,11 @@ describe("IndexedDB BUY reservation and claim integration", () => {
     const spy = vi.spyOn(IDBDatabase.prototype, "transaction");
     spy.mockImplementation(function (
       this: IDBDatabase,
-      storeNames: string | string[],
+      storeNames: string | Iterable<string>,
       mode?: IDBTransactionMode,
       options?: IDBTransactionOptions,
     ) {
-      const transaction = original.call(this, storeNames, mode, options);
+      const transaction = Reflect.apply(original, this, [storeNames, mode, options]) as IDBTransaction;
       queueMicrotask(() => {
         try { transaction.abort(); } catch { /* already completed */ }
       });
