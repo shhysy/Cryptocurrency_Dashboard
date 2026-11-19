@@ -1117,6 +1117,11 @@ export async function topUpBuyFundsReservationAfterEarnCredit(input: {
         }
         const all = getAll.result as BuyFundsReservation[];
         const current = all.find((item) => item.orderId === input.orderId) ?? null;
+        if (current && current.symbol !== input.symbol) {
+          fatal = new Error("同一订单 ID 对应的资金预留交易对不一致，必须人工核对");
+          tx.abort();
+          return;
+        }
         const plan = planBuyFundsReservationTopUp({
           orderId: input.orderId,
           requestedRemainingUsdt: input.requestedRemainingUsdt,
