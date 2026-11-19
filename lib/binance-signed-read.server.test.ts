@@ -15,6 +15,6 @@ describe("server-side Binance signed-read allowlist", () => {
     await expect(fetchSignedBinanceRead("/api/v3/myTrades", { symbol: "BTCUSDT", limit: Infinity }))
       .rejects.toThrow("numeric parameter is invalid");
     await expect(fetchSignedBinanceRead("/api/v3/order", { symbol: "x".repeat(129) }))
-      .rejects.toThrow("parameter is not allowlisted");
+      .rejects.toThrow("parameter is too long");
   });
 });
