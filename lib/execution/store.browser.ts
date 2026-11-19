@@ -2,7 +2,7 @@ import type { ExecutionFill, QueuedBuyOrder, TradeLedgerEntry } from "./types";
 import { isCurrentBuyAttempt } from "./buy-attempt";
 import { assertDuplicateExecutionFillMatches } from "./fill-reconcile";
 import { applyConfirmedBuyFill } from "./queue";
-import { planBuyFundsReservation, reconcileBuyFundsReservation, type BuyFundsReservation } from "./fund-reservation";
+import { buyOrderReservationBlockReason, planBuyFundsReservation, planBuyFundsReservationTopUp, reconcileBuyFundsReservation, type BuyFundsReservation } from "./fund-reservation";
 import { buildTradeFillNotificationEvent, isTradeNotificationClaimable, type TradeNotificationOutboxEvent } from "./notification-outbox";
 import { transitionEarnRedemption, type EarnRedemptionIntent, type EarnRedemptionStatus } from "./earn-redemption";
 
@@ -477,12 +477,25 @@ export async function reserveBuyFunds(input: {
   const db = await openDb();
   try {
     return await new Promise((resolve, reject) => {
-      const tx = db.transaction(RESERVATIONS, "readwrite");
+      // Read the live order and reserve against the shared reservation store in
+      // one transaction. A stale preflight cannot reserve for a closed order.
+      const tx = db.transaction([ORDERS, RESERVATIONS], "readwrite");
+      const orderRequest = tx.objectStore(ORDERS).get(input.orderId);
       const store = tx.objectStore(RESERVATIONS);
       const getAll = store.getAll();
+      let orderReady = false;
+      let reservationsReady = false;
+      let currentOrder: QueuedBuyOrder | undefined;
       let result: { reservation: BuyFundsReservation | null; plan: ReturnType<typeof planBuyFundsReservation> } | undefined;
       let fatal: Error | null = null;
-      getAll.onsuccess = () => {
+      const finish = () => {
+        if (!orderReady || !reservationsReady || result || fatal) return;
+        const blockReason = buyOrderReservationBlockReason(currentOrder, input.orderId, input.symbol);
+        if (blockReason) {
+          fatal = new Error(blockReason);
+          tx.abort();
+          return;
+        }
         const all = getAll.result as BuyFundsReservation[];
         const existing = all.find((item) => item.orderId === input.orderId);
         const plan = planBuyFundsReservation({
@@ -500,12 +513,8 @@ export async function reserveBuyFunds(input: {
           if (existing.symbol !== input.symbol) {
             result = {
               reservation: null,
-              plan: {
-                ...plan,
-                ok: false,
-                reserveUsdt: 0,
-                reason: "同一订单 ID 对应的资金预留交易对不一致，必须人工核对",
-              },
+              plan: { ...plan, ok: false, reserveUsdt: 0,
+                reason: "同一订单 ID 对应的资金预留交易对不一致，必须人工核对" },
             };
             return;
           }
@@ -527,6 +536,13 @@ export async function reserveBuyFunds(input: {
         store.put(reservation);
         result = { reservation, plan };
       };
+      orderRequest.onsuccess = () => {
+        currentOrder = orderRequest.result as QueuedBuyOrder | undefined;
+        orderReady = true;
+        finish();
+      };
+      getAll.onsuccess = () => { reservationsReady = true; finish(); };
+      orderRequest.onerror = () => { fatal = orderRequest.error ?? new Error("读取待买订单失败"); tx.abort(); };
       getAll.onerror = () => { fatal = getAll.error ?? new Error("读取资金预留失败"); tx.abort(); };
       tx.oncomplete = () => result ? resolve(result) : reject(fatal ?? new Error("资金预留事务未生成结果"));
       tx.onerror = () => reject(fatal ?? tx.error ?? new Error("资金预留事务失败"));
@@ -1057,65 +1073,84 @@ export async function topUpBuyFundsReservationAfterEarnCredit(input: {
   symbol: string;
   requestedRemainingUsdt: number;
   observedFreeUsdt: number;
+  expectedAttemptCount: number;
+  expectedOrderUpdatedAt: number;
   now?: number;
 }): Promise<BuyFundsReservation | null> {
   if (!input.orderId || !input.symbol ||
       ![input.requestedRemainingUsdt, input.observedFreeUsdt].every(Number.isFinite) ||
       input.requestedRemainingUsdt < 0 || input.observedFreeUsdt < 0 ||
+      !Number.isInteger(input.expectedAttemptCount) || input.expectedAttemptCount < 0 ||
+      !Number.isSafeInteger(input.expectedOrderUpdatedAt) || input.expectedOrderUpdatedAt <= 0 ||
       (input.now !== undefined && (!Number.isSafeInteger(input.now) || input.now <= 0))) {
     throw new Error("理财到账后的资金预留参数无效");
   }
   const db = await openDb();
   try {
     return await new Promise((resolve, reject) => {
-      const tx = db.transaction(RESERVATIONS, "readwrite");
+      const tx = db.transaction([ORDERS, RESERVATIONS], "readwrite");
+      const orderRequest = tx.objectStore(ORDERS).get(input.orderId);
       const store = tx.objectStore(RESERVATIONS);
       const getAll = store.getAll();
+      let orderReady = false;
+      let reservationsReady = false;
+      let currentOrder: QueuedBuyOrder | undefined;
       let result: BuyFundsReservation | null = null;
       let fatal: Error | null = null;
-      getAll.onsuccess = () => {
-        const all = getAll.result as BuyFundsReservation[];
-        const current = all.find((item) => item.orderId === input.orderId);
-        if (input.requestedRemainingUsdt <= 1e-8) {
-          result = current ?? null;
+      const finish = () => {
+        if (!orderReady || !reservationsReady || fatal) return;
+        const blockReason = buyOrderReservationBlockReason(currentOrder, input.orderId, input.symbol);
+        if (blockReason) {
+          fatal = new Error(blockReason);
+          tx.abort();
           return;
         }
-        const plan = planBuyFundsReservation({
+        if (currentOrder!.attemptCount !== input.expectedAttemptCount ||
+            currentOrder!.updatedAt !== input.expectedOrderUpdatedAt ||
+            Math.abs(currentOrder!.remainingUsdt - input.requestedRemainingUsdt) > 1e-8) {
+          fatal = new Error("待买订单在理财到账后已变化，拒绝使用旧快照扩展资金预留");
+          tx.abort();
+          return;
+        }
+        const all = getAll.result as BuyFundsReservation[];
+        const current = all.find((item) => item.orderId === input.orderId) ?? null;
+        const plan = planBuyFundsReservationTopUp({
           orderId: input.orderId,
-          requestedUsdt: input.requestedRemainingUsdt,
+          requestedRemainingUsdt: input.requestedRemainingUsdt,
           observedFreeUsdt: input.observedFreeUsdt,
           activeReservations: all,
-          minNotionalUsdt: 0,
+          currentReservation: current,
         });
         if (!plan.ok) {
           fatal = new Error(plan.reason ?? "活动资金预留数据无效，无法扩展预留");
           tx.abort();
           return;
         }
-        if (current?.symbol && current.symbol !== input.symbol) {
-          fatal = new Error("同一订单 ID 对应的资金预留交易对不一致，必须人工核对");
-          tx.abort();
-          return;
-        }
-        const remainingToReserve = Math.min(input.requestedRemainingUsdt, plan.availableUsdt);
-        if (remainingToReserve <= 1e-8) {
-          result = current ?? null;
+        if (plan.additionalUsdt <= 1e-8) {
+          result = current;
           return;
         }
         const consumedUsdt = current?.consumedUsdt ?? 0;
+        const now = input.now ?? Date.now();
         result = {
           orderId: input.orderId,
           symbol: input.symbol,
-          reservedUsdt: remainingToReserve,
-          originalReservedUsdt: consumedUsdt + remainingToReserve,
+          reservedUsdt: plan.reservedUsdt,
+          originalReservedUsdt: Math.max(
+            current?.originalReservedUsdt ?? consumedUsdt,
+            consumedUsdt + plan.reservedUsdt,
+          ),
           consumedUsdt,
           status: "active",
-          createdAt: current?.createdAt ?? (input.now ?? Date.now()),
-          updatedAt: input.now ?? Date.now(),
+          createdAt: current?.createdAt ?? now,
+          updatedAt: now,
           releaseReason: null,
         };
         store.put(result);
       };
+      orderRequest.onsuccess = () => { currentOrder = orderRequest.result as QueuedBuyOrder | undefined; orderReady = true; finish(); };
+      getAll.onsuccess = () => { reservationsReady = true; finish(); };
+      orderRequest.onerror = () => { fatal = orderRequest.error ?? new Error("读取待买订单失败"); tx.abort(); };
       getAll.onerror = () => { fatal = getAll.error ?? new Error("读取资金预留失败"); tx.abort(); };
       tx.oncomplete = () => resolve(result);
       tx.onerror = () => reject(fatal ?? tx.error ?? new Error("理财到账后扩展资金预留失败"));
