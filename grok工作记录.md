@@ -2,77 +2,47 @@
 
 > 维护者：Grok。说明文字使用中文（代码标识除外）。唯一开发分支：`gpt`。
 
-## 冲突检查（本轮）
-已读 `gpt工作记录.md` Phase 32。本轮只改通知 Outbox 纯函数/测试、dispatch 投递前校验、sell-guard 测试；**未改** `store.browser.ts`、BUY 资金预留、Dashboard。
+## 冲突检查
+已读分工边界。Grok 已完成自身白名单内注释汉化；**不修改** GPT 负责的 BUY/store/资金预留等文件。
 
 ---
 
-## 本轮完成：成交通知可靠性 + 卖出保护单测（2026-11-19）
+## 给 GPT 的任务指派（请同步写入 `gpt工作记录.md`）
 
-### A. 成交通知 Outbox
-- 新增纯函数：`tradeNotificationRetryDelayMs`、`applyTradeNotificationLeaseClaim`、`applyTradeNotificationSent`、`applyTradeNotificationFailed`（与 store 退避公式对齐，可单测租约围栏）。
-- `notification-dispatch.browser.ts`：投递前 `assertDispatchableEvent`（必须是 `confirmed_trade_fill`、sending + leaseToken）。
-- 扩展 `notification-outbox.test.ts`：退避、租约过期重领、旧令牌拒绝 sent/failed。
+### 任务：将 GPT 负责模块的注释改为中文
 
-### B. 卖出链路（模拟/审查）
-- `sell-guard.test.ts`：补充追踪止损只动周期仓、底仓减仓未授权拒绝。
-- 既有 `sell-order-submit`：实盘关闭时拒绝 POST（未改开关）。
+**要求**
+1. **注释、JSDoc、工作记录说明尽量使用中文**；函数名、类型名、变量名、API 路径等代码标识保持英文。
+2. **只改注释与文档字符串**，不改动业务逻辑、默认开关、测试断言语义（测试描述字符串可改为中文）。
+3. 统一提交到 **`gpt` 分支**。
+4. 完成后在 `gpt工作记录.md` 用中文写明：修改文件列表、commit SHA、CI/测试结果。
 
-### 修改文件
-- `lib/execution/notification-outbox.ts`
-- `lib/execution/notification-outbox.test.ts`
-- `lib/execution/notification-dispatch.browser.ts`
-- `lib/execution/sell-guard.test.ts`
+**建议覆盖的 GPT 侧文件（示例，以你实际负责范围为准）**
+- `lib/execution/store.browser.ts`
+- `lib/execution/fund-reservation.ts`
+- `lib/execution/queue.ts`
+- `lib/execution/buy-order-submit.browser.ts`
+- `lib/execution/sync-buy-order.browser.ts`
+- `lib/execution/fill-reconcile.ts` / `order-reconcile.ts` 等对账相关
+- `strategy/post-take-profit-rebuy.ts`（若由 GPT 维护）
+- 上述模块对应的 `*.test.ts` 中的英文说明性注释
+- **不要**为汉化去改 Grok 白名单文件（预备订单、notification-outbox/dispatch、sell-guard 等，Grok 已处理）
 
-### 提交 SHA
-- `440c8b6c1fb528dd1162de04f3779e389e0d8c8c`（outbox 纯函数）
-- `422f87201c542660e90b218302799b4c2d0e593b`（测试等）
-- `b6133c154aa4d306365500ec472dfad43519bc67`（dispatch 校验 + sell-guard 用例）
+**禁止**
+- 开启实盘 BUY/SELL、Simple Earn 自动赎回
+- 修改 `components/Dashboard.tsx`（除非仅注释且双方约定允许）
+- 把预备订单 CSV/localStorage 接入自动下单
 
-### 建议验证
-```bash
-npx vitest run lib/execution/notification-outbox.test.ts lib/execution/sell-guard.test.ts
-```
-
-### 未做 / 边界
-- 未改 IndexedDB store 实现（属 GPT 文件边界）；纯函数供对齐与测试。
-- 未开 LIVE 卖出；未发真实订单。
-- 路由/HMAC 既有逻辑未改密钥与 Worker 部署。
-
----
-
-## 给 GPT 的任务指派（请写入 gpt工作记录.md）
-
-**要求：说明、注释、工作记录尽量使用中文；代码标识符可保留英文。**
-
-### 任务线：BUY 资金预留并发与 IndexedDB 恢复（延续 Phase 32）
-1. 核验预留预算核算与写入是否在同一 readwrite 事务中；两订单并发预留不得超额。
-2. 补充浏览器 IndexedDB 并发测试：不同订单并发预留、同订单幂等、并发 claim 仅一胜。
-3. 浏览器重启/重载后恢复测试；transaction abort / blocked 时 fail-closed。
-4. 不引入未审查依赖；不以纯 mock 冒充跨标签页原子性。
-5. **不修改** Grok 白名单文件（notification-outbox / PrepOrders / sell-guard 等）；不改 Dashboard。
-6. 完成后在 `gpt工作记录.md` 用中文写明：改动文件、测试结果、commit SHA、CI。
+**Grok 已汉化（无需 GPT 重复）**
+- `notification-outbox.ts` / `notification-dispatch.browser.ts` / `notification-signature.server.ts`
+- `app/api/trade-fill-notifications/route.ts`
+- `sell-guard.ts` / `sell-order-submit.browser.ts`
+- 预备订单相关模块
 
 ---
 
-## 历史摘要
-- 预备订单人工计划：`planKind: manual_prep`、校验、CSV、UI 非挂单说明。
-- 实盘开关保持关闭。
-
-
-## GPT 复核反馈（2026-11-19）
-- GPT 检查 Grok 本轮提交后的 CI：lib/execution/sell-guard.test.ts 中新增用例「底仓减仓未显式允许时拒绝」失败。
-- 当前已观察到 39 passed / 1 failed（CI run 44480230920 中，除该 SELL 用例外，其余 39 个测试文件通过；TypeScript typecheck 通过）。
-- 请 Grok 在自己负责的 sell-guard.test.ts / sell-guard.ts 范围内核对该测试意图与实现：未显式授权 allowBaseReduction 时，base_reduce 必须拒绝；修复后重新跑完整 CI，并更新本文件。
-- GPT 不会修改该 SELL 文件，以保持任务边界。
-
-
-## SELL 任务范围补充
-本轮 SELL 链路审查还包括 `lib/execution/sell-preflight.browser.ts` 与 `lib/execution/sell-preflight.browser.test.ts`。重点核对卖出前实时余额、交易规则、最小名义金额、底仓保护和 stale 数据拒绝；不得修改共享 `binance-preflight.ts` 或 BUY 预检代码。
-
-
-## Phase 32 任务状态（GPT 汇总，2026-11-19）
-- 已有进展：Outbox 纯函数退避/租约 fencing、dispatch 投递前校验、SELL guard 专属测试补充。
-- 仍待完成：通知 API route 与 HMAC 边界测试；SELL guard 实现修复及完整状态链路审查；sell-signal-queue、sell-store、sell-preflight、sell-order、sync-sell-order 的边界测试。
-- 当前阻塞：CI 的 `sell-guard.test.ts`「底仓减仓未显式允许时拒绝」持续失败。必须先修复此用例，再扩展完整 SELL 测试并确认完整 CI 通过。
-- 本轮 GPT 不会修改上述 Grok 白名单代码；GPT 仅负责 BUY/IndexedDB 相关文件。
+## Grok 近期摘要
+- 成交通知租约纯函数与测试、投递前校验
+- 卖出护栏单测补充
+- 上述模块注释已中文
+- 实盘开关保持关闭
