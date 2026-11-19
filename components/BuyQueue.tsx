@@ -6,7 +6,7 @@ import type { QueuedBuyOrder } from "@/lib/execution/types";
 import { listBuyOrders, listEarnRedemptionIntents } from "@/lib/execution/store.browser";
 import { downloadQueuedOrdersCsv } from "@/lib/execution/csv";
 import { prepareQueuedBuyDryRun, type BuyDryRunResult } from "@/lib/execution/binance-order.browser";
-import { LIVE_SPOT_ORDER_SUBMISSION_ENABLED } from "@/lib/binance.browser";
+import { BINANCE_SPOT_BUY_SUBMISSION_ENABLED } from "@/lib/binance.browser";
 import { submitQueuedBuyOrder } from "@/lib/execution/buy-order-submit.browser";
 import { syncBuyOrderFromBinance } from "@/lib/execution/sync-buy-order.browser";
 import { prepareQueuedBuyEarnRedemption, reconcileEarnRedemptionIntent } from "@/lib/execution/earn-redemption.browser";
