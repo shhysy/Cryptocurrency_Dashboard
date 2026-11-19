@@ -1,4 +1,5 @@
 import type { ExecutionFill, QueuedBuyOrder, TradeLedgerEntry } from "./types";
+import { isCurrentBuyAttempt } from "./buy-attempt";
 import { assertDuplicateExecutionFillMatches } from "./fill-reconcile";
 import { applyConfirmedBuyFill } from "./queue";
 import { planBuyFundsReservation, remainingReservationAfterFill, type BuyFundsReservation } from "./fund-reservation";
@@ -122,7 +123,7 @@ export async function recordConfirmedBuyFill(
           return;
         }
         if (expectedAttempt !== undefined &&
-            (currentOrder.attemptCount !== expectedAttempt + 1 || currentOrder.status !== "reconcile_required")) {
+            !isCurrentBuyAttempt(currentOrder, expectedAttempt)) {
           fatalError = new Error("该成交属于过期 attempt；当前买入任务已变化，拒绝修改队列和台账");
           tx.abort();
           return;
@@ -290,7 +291,7 @@ export async function markBuyOrderReconcileRequired(
       request.onsuccess = () => {
         const current = request.result as QueuedBuyOrder | undefined;
         if (!current || (expectedAttempt !== undefined &&
-            (current.attemptCount !== expectedAttempt + 1 || current.status !== "reconcile_required"))) {
+            !isCurrentBuyAttempt(current, expectedAttempt))) {
           tx.abort();
           return;
         }
