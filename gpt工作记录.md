@@ -362,3 +362,11 @@
 - 新增规则追踪文档 `docs/RULES_IMPLEMENTATION_MATRIX.md`，列出版本冲突、配置差异、数据周期风险和待用户确认事项。
 - 文档提交：规则矩阵 `3e48fb7ab74be6c090ba1ee096aff34bb227d14d`；数据周期审查 `61b66568412ab3167615af708a1f8065872bd673`；策略说明同步 `732de9b94ffca9bee4a23a59fc404018d1b3c3fc`（后续修订另见最新文件历史）。
 - Grok 任务已追加到 `grok工作记录.md`，要求先修复 SELL guard 显式底仓授权失败，再完成通知 HMAC/Outbox 安全测试及 SELL 全链路模拟验收；Gro k不得改 GPT 的 BUY/资金预留与共享策略文件。
+
+
+### Phase 33 文档审查补充（续）
+- 进一步审查 `lib/service.ts` 与 `lib/dashboard.ts`：恐惧贪婪接口失败时被降为 null，当前核心资产仍可能凭其他分项达到门槛；ticker 缺失时回退最后一根周线 close，未明确标记 stale；Yahoo/Futures 单品种失败只写 notes；恐惧贪婪与周线没有共同 asOf 对齐检查。
+- 这些行为与 V2.0“关键数据缺失不产生买入许可”的要求存在差异，但 V3.3 仓库文档对恐惧贪婪缺失另有“该项记0”的规定。继续列为待用户确认，不擅自更改买入许可。
+- 建议后续分离 fresh / stale_display_only / incomplete_block_execution / invalid_block_all 数据状态，并将 signalAsOf 与 executionPrice 拆开。
+- 文档提交：`STRATEGY.md` 指标止盈说明修正 `2284a41478b9aa91632871504cd04f3c53efadfc`；规则矩阵数据完整性扩展 `daa99a34d66c76086ca0e4039f78bbb1c0dda776`。
+- 本轮均为文档审查/文案修正，未修改策略业务逻辑；未重新运行测试。CI 最近已确认基线仍是 run `44481270903`，其唯一失败仍交由 Grok 处理。
