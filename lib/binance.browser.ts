@@ -10,7 +10,7 @@ import { normalizeFlexibleEarnPosition, sumSimpleEarnUsdtPositions, type SimpleE
  */
 import type { Candle, Trade } from "@/strategy/types";
 import { FALLBACK_BINANCE_API_KEY, FALLBACK_BINANCE_API_SECRET } from "./credentials";
-import { resolveBinanceSpotEnvironment } from "./binance-environment";
+import { assertSimpleEarnSupported, resolveBinanceSpotEnvironment } from "./binance-environment";
 
 // NEXT_PUBLIC_* 会被打包到客户端，浏览器直连模式无法对使用者隐藏 Secret。
 const SPOT_ENVIRONMENT = resolveBinanceSpotEnvironment({
@@ -29,9 +29,7 @@ export const BINANCE_SPOT_ENVIRONMENT = SPOT_ENVIRONMENT.mode;
 export const BINANCE_SPOT_API_BASE = SPOT_ENVIRONMENT.apiBase;
 
 function assertSimpleEarnProductionOnly(): void {
-  if (BINANCE_SPOT_ENVIRONMENT === "testnet") {
-    throw new Error("Binance Spot Testnet 不支持 Simple Earn；已阻止访问生产理财接口");
-  }
+  assertSimpleEarnSupported(BINANCE_SPOT_ENVIRONMENT);
 }
 
 async function getJson<T>(url: string, headers?: Record<string, string>): Promise<T> {
