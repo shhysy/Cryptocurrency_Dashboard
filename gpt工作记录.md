@@ -300,3 +300,11 @@
 - IndexedDB transaction abort、blocked schema upgrade、quota exceeded 的故障注入。
 - Grok SELL guard CI 失败尚待 Grok 修复；GPT 不修改其白名单文件。
 - 本轮所有测试均为模拟/测试数据库；未发送 Binance 订单、未操作真实资金，实盘开关保持关闭。
+
+
+### Phase 32 验证补充（2026-11-19）
+- `store.browser.test.ts` 已增加到 11 项：新增旧版本连接阻塞 schema upgrade 时，打开数据库应立即 fail-closed 的测试。
+- 最新 CI run `44480553523`：BUY IndexedDB 测试文件 11/11 通过；全套 40 个测试文件中 39 个通过、320 项测试通过；另 1 个失败仍为 Grok 负责的 `sell-guard.test.ts`「底仓减仓未显式允许时拒绝」；TypeScript typecheck 通过。
+- CI：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44480553523
+- 新增测试提交：`619698e22a7ca66493bb579f8700dd79a5531b74`。
+- 已覆盖 fake-indexeddb 的并发事务、重复预留、并发 claim、重开连接、stale order、Earn top-up、无 IndexedDB 和 blocked upgrade。仍未覆盖真实浏览器跨进程多标签页、浏览器进程重启、quota exceeded 和强制 transaction abort。
