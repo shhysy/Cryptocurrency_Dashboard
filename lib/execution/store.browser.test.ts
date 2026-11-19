@@ -87,6 +87,31 @@ describe("IndexedDB BUY reservation and claim integration", () => {
     expect(reservations.every((item) => item.status === "active")).toBe(true);
   });
 
+  it("stress-tests ten concurrent orders without exceeding the shared free-balance cap", async () => {
+    const orders = Array.from({ length: 10 }, (_, index) =>
+      makeOrder(`BTC:add:stress-${index}`, 100 + index),
+    );
+    await Promise.all(orders.map((order) => enqueueBuyOrder(order)));
+
+    const results = await Promise.all(orders.map((order, index) =>
+      reserveBuyFunds({
+        orderId: order.id,
+        symbol: "BTCUSDT",
+        requestedUsdt: 20,
+        observedFreeUsdt: 100,
+        minNotionalUsdt: 5,
+        now: 200 + index,
+      }),
+    ));
+    const reservations = await listBuyFundsReservations();
+    const reservedTotal = reservations.reduce((sum, item) => sum + item.reservedUsdt, 0);
+
+    expect(results.filter((item) => item.plan.ok)).toHaveLength(5);
+    expect(reservations).toHaveLength(5);
+    expect(reservedTotal).toBeLessThanOrEqual(100 + 1e-8);
+    expect(reservedTotal).toBeCloseTo(100, 8);
+  });
+
   it("keeps concurrent reserve calls for one order idempotent", async () => {
     const order = makeOrder("BTC:add:week-same");
     await enqueueBuyOrder(order);
