@@ -82,6 +82,21 @@ describe("buy reconciliation stale-attempt protection", () => {
     );
   });
 
+  it("fences zero-fill terminal reservation release with the originating attempt", async () => {
+    mocks.fetchSpotOrderByClientId.mockResolvedValue({
+      ...snapshot,
+      status: "CANCELED",
+      executedQty: "0",
+      cummulativeQuoteQty: "0",
+      clientOrderId: clientOrderIdForEvent(order.eventKey, 0),
+    });
+    const result = await syncBuyOrderFromBinance(order.id, 0);
+    expect(result.action).toBe("safe_to_retry");
+    expect(mocks.releaseBuyFundsReservation).toHaveBeenCalledWith(
+      order.id, true, "Binance 已确认订单终态且零成交", 0,
+    );
+  });
+
   it("passes the originating attempt into the reservation transaction", async () => {
     await syncBuyOrderFromBinance(order.id, 0);
     expect(mocks.applyConfirmedBuyReservationSpend).toHaveBeenCalledWith(
