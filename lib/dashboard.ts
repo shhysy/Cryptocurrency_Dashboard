@@ -107,6 +107,7 @@ export function buildDashboard(
         price: t.price,
         qty: t.qty,
         costUsdt: t.price * t.qty + (INCLUDE_FEE ? t.fee : 0),
+        orderId: t.orderId,
         position: positionAt(weekly, t.time, t.price).position,
       })),
       signal,
