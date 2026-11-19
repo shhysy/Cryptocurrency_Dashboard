@@ -33,7 +33,7 @@ export default function StrategyInfo({ bare = false }: { bare?: boolean }) {
       title: "固定额度（不按账户规模）",
       tone: "text-sub",
       items: [
-        `单币累计真实买入成本上限：积极型 ${core.capUsdt}，保守型 ${alt.capUsdt}；卖出不会释放额度`,
+        `单币剩余持仓成本上限：积极型 ${core.capUsdt}，保守型 ${alt.capUsdt}`,
         `最多同时持有 ${pf.altMaxCount} 个山寨币；不再按账户净值、最低现金比例或每周净值比例缩减计划金额`,
         "买入资金只使用 Binance 现货 USDT free；余额不足时允许部分买入，未买金额保留在待买队列",
         `最小下单金额约 ${c.minOrderUsdt}，最终还需通过 Binance 数量步长、最小名义金额和交易对状态校验`,
@@ -43,7 +43,7 @@ export default function StrategyInfo({ bare = false }: { bare?: boolean }) {
       title: "卖出",
       tone: "text-down",
       items: [
-        `止盈：价格 ≥ 均价 × 倍数时卖周期仓一部分。积极型 ${core.takeProfit.map((t) => `${t.mult}x 卖 ${p(t.ratio)}`).join(" / ")}；保守型 ${alt.takeProfit.map((t) => `${t.mult}x 卖 ${p(t.ratio)}`).join(" / ")}`,
+        `止盈：按顺序触发 ×2 卖当前周期仓 50%、×3 再卖当前周期仓 30%、×5 再卖当前周期仓 80%；同一档只执行一次`,
         `指标止盈：周线 RSI > ${c.rsi.overheat} 或恐惧贪婪 ≥ ${c.fearGreed.overheat}，且价格高于均价：卖周期仓的 ${p(c.indicatorProfit.sellRatio)}`,
         `追踪止损：价格曾达均价 × ${core.trailStart}（保守型 × ${alt.trailStart}）后，自峰值回撤 ${p(core.trailDrawdown)}（保守型 ${p(alt.trailDrawdown)}）退出周期仓`,
         `底仓：累计买入量的 ${p(core.baseRatio)}（保守型 ${p(alt.baseRatio)}）锁定不卖；价格 ≥ 均价 × ${c.baseReduce.mult} 且 RSI > ${c.baseReduce.rsi}、恐惧贪婪过热时，才减底仓的 ${p(c.baseReduce.ratio)}`,
@@ -82,8 +82,11 @@ export default function StrategyInfo({ bare = false }: { bare?: boolean }) {
    <b className="text-sub">今日结论优先级：</b>减仓 &gt; 强烈买入 &gt; 适合加仓 &gt; 今日不宜操作。没有任何信号时默认「不宜操作」。
         </p>
         <p>
-          <b className="text-sub">成本价：</b>加权平均，仅统计买入，手续费计入成本：Σ(价格 × 数量 + 手续费) ÷ Σ 数量。所有阈值在 strategy.config.ts 修改。
- </p>
+          <b className="text-sub">止盈后回补：</b>任意止盈档确认成交后，旧头仓价补仓和备用金关闭；只按当前均价重新执行 4 档回补。持仓归零后下一轮恢复头仓规则。
+        </p>
+        <p>
+          <b className="text-sub">成本价：</b>按买卖成交回放加权平均成本；卖出按卖出前均价扣减持仓成本，回补买入后重新计算。所有阈值在 strategy.config.ts 修改。
+        </p>
       </div>
     </details>
   );
