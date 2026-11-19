@@ -86,3 +86,14 @@ export function resolveServerBinanceEnvironment(env: ServerBinanceEnvironment) {
     apiSecret: env.BINANCE_API_SECRET ?? "",
   };
 }
+
+export function isTestnetOrderSubmissionEnabled(
+  mode: "testnet" | "production",
+  side: "BUY" | "SELL",
+  env: { BINANCE_TESTNET_BUY_ENABLED?: string; BINANCE_TESTNET_SELL_ENABLED?: string },
+): boolean {
+  if (mode !== "testnet") return false;
+  return side === "BUY"
+    ? env.BINANCE_TESTNET_BUY_ENABLED === "1"
+    : env.BINANCE_TESTNET_SELL_ENABLED === "1";
+}
