@@ -121,8 +121,18 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
     try {
       const res = await fetch(`/api/dashboard${sc ? `?scenario=${sc}` : ""}`, { cache: "no-store" });
       if (!res.ok) throw new Error(String(res.status));
-      const nextData = await res.json();
-      setData(nextData);
+      const nextData = await res.json() as DashboardData;
+      if (nextData.source === "binance") {
+        const sellStore = await import("@/lib/execution/sell-store.browser");
+        const executionStore = await import("@/lib/execution/store.browser");
+        const rebuy = await import("@/strategy/post-take-profit-rebuy");
+        const [sellEvents, ledger] = await Promise.all([
+          sellStore.listSellEvents(), executionStore.listTradeLedger(),
+        ]);
+        setData(rebuy.applyPostTakeProfitRebuy(nextData, sellEvents, ledger));
+      } else {
+        setData(nextData);
+      }
       setDirectReady(nextData.source === "binance" && !nextData.stale);
       setErr(null);
     } catch (e) {
