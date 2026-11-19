@@ -6,6 +6,7 @@ import BuyQueue from "./BuyQueue";
 import PrepOrdersPanel from "./PrepOrdersPanel";
 import SellQueue from "./SellQueue";
 import ExecutionBackground from "./ExecutionBackground";
+import ExecutionStatusPanel from "./ExecutionStatusPanel";
 import CoinCardView from "./CoinCard";
 import CoinCardCompact from "./CoinCardCompact";
 import Hero from "./Hero";
@@ -366,6 +367,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
                 {tab === "strategy" && <StrategyInfo bare />}
                 {tab === "queue" && (
                   <>
+                    <ExecutionStatusPanel refreshKey={queueVersion} />
                     <BuyQueue data={data} refreshKey={queueVersion} />
                     <PrepOrdersPanel data={data} refreshKey={queueVersion} />
                     <SellQueue refreshKey={queueVersion} />
@@ -402,6 +404,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
       </section>
 
       <Timeline trades={data.trades} symbols={symbols} />
+      <ExecutionStatusPanel refreshKey={queueVersion} />
       <BuyQueue data={data} refreshKey={queueVersion} />
       <PrepOrdersPanel data={data} refreshKey={queueVersion} />
       <SellQueue refreshKey={queueVersion} />
