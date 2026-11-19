@@ -109,6 +109,12 @@ describe("monotonic buy reservation reconciliation", () => {
       .toThrow("记录损坏");
   });
 
+  it("rejects a changed cumulative fill total after reservation release", () => {
+    const released = reconcileBuyFundsReservation(active("order-a", 50), 0, true, 20);
+    expect(() => reconcileBuyFundsReservation(released, 5, true, 30))
+      .toThrow("释放后成交累计值发生变化");
+  });
+
   it("allows an idempotent terminal refresh", () => {
     const released = reconcileBuyFundsReservation(active("order-a", 50), 20, true, 20);
     expect(reconcileBuyFundsReservation(released, 20, true, 30))
