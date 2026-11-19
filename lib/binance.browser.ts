@@ -1,12 +1,8 @@
 import { normalizeFlexibleEarnPosition, sumSimpleEarnUsdtPositions, type SimpleEarnPositionPage, type UsdtWalletBuckets } from "./execution/wallet-funds";
 /**
- * 币安接口 · 浏览器直连版。
- *
- * 用途：部署在 Cloudflare 后，Workers 出口 IP 被币安拉黑；改用用户浏览器直连，
- * 让币安看到的是用户本机宽带 IP。公开行情同样走 api.binance.com（需 CORS Unblock 插件配合）。
- *
- * 安全：Key/Secret 写在 lib/credentials.ts 并打进前端 bundle。
- * 只给自己用，并务必在币安后台给 Key 设 IP 白名单（只允许你家 IP），避免 bundle 泄露被滥用。
+ * Browser-facing Binance adapter.
+ * Public market data may be fetched directly; signed reads are routed through
+ * the same-origin server proxy. No API credential is included in this module.
  */
 import type { Candle, Trade } from "@/strategy/types";
 import { assertSimpleEarnSupported } from "./binance-environment";
@@ -24,10 +20,6 @@ const API_SECRET = "";
 const BASE = BINANCE_SPOT_API_BASE;
 export const BINANCE_SPOT_BUY_SUBMISSION_ENABLED = false;
 export const BINANCE_SPOT_SELL_SUBMISSION_ENABLED = false;
-
-function assertSimpleEarnProductionOnly(): void {
-  assertSimpleEarnSupported(BINANCE_SPOT_ENVIRONMENT);
-}
 
 function assertSimpleEarnProductionOnly(): void {
   assertSimpleEarnSupported(BINANCE_SPOT_ENVIRONMENT);
