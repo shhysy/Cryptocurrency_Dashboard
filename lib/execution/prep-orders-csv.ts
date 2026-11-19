@@ -26,9 +26,9 @@ function csvCell(value: unknown): string {
 }
 
 export function prepPlanToCsv(plan: PrepPlan): string {
-  const header = ["phase", "group", ...columns].join(",");
+  const header = ["planKind", "phase", "group", ...columns].join(",");
   const lines = plan.orders.map((row) =>
-    [plan.phase, plan.group, ...columns.map((key) => csvCell(row[key]))].join(","),
+    [plan.planKind ?? "manual_prep", plan.phase, plan.group, ...columns.map((key) => csvCell(row[key]))].join(","),
   );
   return [header, ...lines].join("\r\n");
 }
@@ -50,6 +50,6 @@ export function downloadPrepPlanCsv(plan: PrepPlan, filename?: string): void {
 }
 
 export function prepPlansToCsv(plans: PrepPlan[]): string {
-  if (!plans.length) return "phase,group," + columns.join(",");
+  if (!plans.length) return "planKind,phase,group," + columns.join(",");
   return plans.map(prepPlanToCsv).join("\r\n\r\n");
 }

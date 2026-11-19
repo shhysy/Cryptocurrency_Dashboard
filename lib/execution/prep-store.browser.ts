@@ -1,9 +1,14 @@
 import type { PrepPlan } from "./prep-orders";
 import {
+  PREP_PLAN_KIND,
   buildInitialPrepPlan,
   rebuildPrepPlanAfterTakeProfit,
   refreshTakeProfitsAfterReplenish,
 } from "./prep-orders";
+
+function normalizePlan(plan: PrepPlan): PrepPlan {
+  return { ...plan, planKind: PREP_PLAN_KIND };
+}
 
 const KEY = "prep-order-plans-v1";
 
@@ -22,18 +27,20 @@ function writeAll(map: Record<string, PrepPlan>) {
 }
 
 export function listPrepPlans(): PrepPlan[] {
-  return Object.values(readAll()).sort((a, b) => a.symbol.localeCompare(b.symbol));
+  return Object.values(readAll()).map(normalizePlan).sort((a, b) => a.symbol.localeCompare(b.symbol));
 }
 
 export function getPrepPlan(symbol: string): PrepPlan | null {
-  return readAll()[symbol] ?? null;
+  const plan = readAll()[symbol];
+  return plan ? normalizePlan(plan) : null;
 }
 
 export function savePrepPlan(plan: PrepPlan): PrepPlan {
+  const normalized = normalizePlan(plan);
   const map = readAll();
-  map[plan.symbol] = plan;
+  map[normalized.symbol] = normalized;
   writeAll(map);
-  return plan;
+  return normalized;
 }
 
 /** 第一笔头仓后生成预备订单（补仓+止盈） */
