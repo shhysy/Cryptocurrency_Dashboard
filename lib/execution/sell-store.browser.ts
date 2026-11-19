@@ -21,6 +21,17 @@ const DB_NAME = "long-term-investment-sell-events";
 const DB_VERSION = 1;
 const STORE = "sell-events";
 
+export function canTransitionSellEventStatus(current: SellEventStatus, next: SellEventStatus): boolean {
+  const allowed: Record<SellEventStatus, SellEventStatus[]> = {
+    pending: ["pending", "reconcile_required", "partially_filled", "executed", "blocked"],
+    reconcile_required: ["reconcile_required", "partially_filled", "executed", "blocked"],
+    partially_filled: ["partially_filled", "reconcile_required", "executed", "blocked"],
+    blocked: ["blocked"],
+    executed: ["executed"],
+  };
+  return allowed[current].includes(next);
+}
+
 function openDb(): Promise<IDBDatabase> {
   if (typeof indexedDB === "undefined") return Promise.reject(new Error("当前环境不支持 IndexedDB"));
   return new Promise((resolve, reject) => {
@@ -73,14 +84,7 @@ export async function updateSellEvent(record: SellEventRecord): Promise<void> {
           tx.abort();
           return;
         }
-        const allowed: Record<SellEventStatus, SellEventStatus[]> = {
-          pending: ["pending", "reconcile_required", "partially_filled", "executed", "blocked"],
-          reconcile_required: ["reconcile_required", "partially_filled", "executed", "blocked"],
-          partially_filled: ["partially_filled"],
-          blocked: ["blocked"],
-          executed: ["executed"],
-        };
-        if (!allowed[current.status].includes(record.status)) {
+        if (!canTransitionSellEventStatus(current.status, record.status)) {
           tx.abort();
           return;
         }
