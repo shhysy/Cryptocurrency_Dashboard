@@ -5,6 +5,20 @@ import {
 } from "./store.browser";
 import type { TradeNotificationOutboxEvent } from "./notification-outbox";
 
+function assertDispatchableEvent(event: TradeNotificationOutboxEvent): void {
+  if (event.type !== "confirmed_trade_fill") throw new Error("仅投递已确认成交事件");
+  if (!event.id || !event.fillId || !event.symbol || !event.exchangeOrderId) {
+    throw new Error("成交通知事件缺少标识字段");
+  }
+  if (event.side !== "BUY" && event.side !== "SELL") throw new Error("成交通知方向无效");
+  if (!(event.filledQty > 0) || !(event.fillPrice > 0) || !(event.quoteQty > 0)) {
+    throw new Error("成交通知数量或价格无效");
+  }
+  if (event.status !== "sending" || !event.leaseToken) {
+    throw new Error("成交通知必须在持有租约的 sending 状态下投递");
+  }
+}
+
 function workerEvent(event: TradeNotificationOutboxEvent) {
   return {
     id: event.id,
@@ -39,6 +53,7 @@ export async function dispatchPendingTradeNotifications(): Promise<{
 
   let failure: string | null = null;
   try {
+    for (const event of batch) assertDispatchableEvent(event);
     const response = await fetch("/api/trade-fill-notifications", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -69,9 +84,7 @@ export async function dispatchPendingTradeNotifications(): Promise<{
       claimed: batch.length,
       sent: 0,
       failed,
-      reason: updates.some((item) => item.status === "rejected")
-        ? failure + "；部分事件租约已失效，交由当前持有者继续处理"
-        : failure,
+      reason: failure,
     };
   }
 
@@ -79,12 +92,5 @@ export async function dispatchPendingTradeNotifications(): Promise<{
     markTradeNotificationSent(event.id, event.leaseToken ?? ""),
   ));
   const sent = updates.filter((item) => item.status === "fulfilled").length;
-  return {
-    claimed: batch.length,
-    sent,
-    failed: 0,
-    reason: sent === batch.length
-      ? null
-      : "通知服务已接受事件，但部分本地租约已被其他调度器接管；不会由旧调度器覆盖新租约",
-  };
+  return { claimed: batch.length, sent, failed: 0, reason: null };
 }
