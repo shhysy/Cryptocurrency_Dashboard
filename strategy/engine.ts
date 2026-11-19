@@ -176,7 +176,7 @@ function planSell(c: Ctx): Action | null {
   for (let i = profile.takeProfit.length - 1; i >= 0; i--) {
     const tp = profile.takeProfit[i];
     if (input.price < input.avgCost * tp.mult) continue;
-    const qty = Math.min(boughtQty * (1 - profile.baseRatio) * tp.ratio, cycleQty);
+    const qty = Math.min(cycleQty * tp.ratio, cycleQty);
     if (qty <= 0) continue;
     return { kind: "takeProfit", label: `止盈${i + 1}`, side: "sell", plannedUsdt: null, usdt: qty * input.price, qty, sellPct: qty / input.qty, limits: [], blocked: [], notes: [`价格 ≥ 均价 × ${tp.mult}（档位 ${i + 1}）；读不到卖出记录，已卖过的档位请忽略`, ...notes] };
   }
