@@ -781,3 +781,243 @@ NEXT_PUBLIC_BINANCE_SPOT_TESTNET=1
 NEXT_PUBLIC_BINANCE_TESTNET_API_KEY=your_testnet_key
 NEXT_PUBLIC_BINANCE_TESTNET_API_SECRET=your_testnet_secret
 ```
+
+
+---
+
+<!-- 原文件：lib/execution/PHASE_20.md -->
+
+# 第二十阶段：Binance 服务端密钥隔离与只读代理
+
+## 已完成
+
+- .env 和 .env.production 已从当前分支删除；新增无密钥 .env.example。
+- .gitignore 忽略 .env、.env.*，仅允许跟踪 .env.example。
+- Dashboard 不再根据 NEXT_PUBLIC_DIRECT_BINANCE 切换到浏览器直连，数据读取统一走 /api/dashboard。
+- lib/binance.ts 只从服务端 process.env 读取凭证。
+- 新增 resolveServerBinanceEnvironment：
+  - BINANCE_SPOT_ENVIRONMENT=testnet 时固定使用 https://testnet.binance.vision 和 BINANCE_TESTNET_API_KEY/SECRET。
+  - 其他模式只使用 BINANCE_API_KEY/SECRET。
+  - Testnet 不回退生产凭证，也不接受生产自定义 endpoint。
+- 浏览器端 lib/binance.browser.ts 不再读取 NEXT_PUBLIC_* Key/Secret，私密签名 GET 通过同源 /api/binance/signed-read 代理。
+- 服务端 signed-read endpoint 采用 endpoint + query 参数 allowlist；只允许只读账户、订单查询、成交查询、交易对信息及 Simple Earn 读取路径。
+- Testnet 模式在服务端拒绝所有 Simple Earn SAPI 路径。
+- BUY/SELL POST 仍然关闭；没有通过此代理开放任何交易或赎回 POST。
+- 增加服务端环境选择与 signed-read allowlist 单元测试。
+
+## 当前未完成
+
+- BUY/SELL 下单 POST 尚未迁移为服务端专用执行 API。
+- 队列按钮和自动执行调度尚未接入测试网专用开关。
+- 当前不能从 UI 提交测试网订单。
+- 尚未运行真实 Spot Testnet 下单、订单查询、逐笔成交、部分成交和超时恢复演练。
+- Simple Earn 在 Testnet 不可用，资金调度仍需 Mock 验证。
+
+## 本地配置
+
+复制 .env.example 为 .env.local，密钥只填写在本地文件，不要提交到 GitHub：
+
+- 测试网：BINANCE_SPOT_ENVIRONMENT=testnet，填写 BINANCE_TESTNET_API_KEY/SECRET，并设置非秘密的 NEXT_PUBLIC_BINANCE_SPOT_TESTNET=1。
+- 生产：BINANCE_SPOT_ENVIRONMENT=production，填写 BINANCE_API_KEY/SECRET，并移除或设为 NEXT_PUBLIC_BINANCE_SPOT_TESTNET=0。
+
+## 安全边界
+
+- 所有 API Secret 仅存在服务端运行环境。
+- 浏览器只知道环境模式，不持有任何 Key/Secret。
+- 生产 BUY/SELL 与 Earn redemption 均保持关闭。
+- 本阶段没有发送任何交易或赎回 POST。
+
+
+---
+
+<!-- 原文件：lib/execution/PHASE_21.md -->
+
+# 第二十一阶段：Spot Testnet BUY / SELL 服务端提交
+
+## 已完成
+
+- 新增 POST /api/binance/testnet-order。
+- 服务端只接受 BUY / SELL、symbol、amount、clientOrderId 四个字段；拒绝额外字段。
+- 强制同源 Origin、JSON content-type、请求体大小限制。
+- 要求设置 DASHBOARD_PASSWORD；未配置时订单接口 fail closed。
+- 服务端固定 Testnet endpoint，只读取 BINANCE_TESTNET_API_KEY/SECRET。
+- 服务端分别检查 BINANCE_TESTNET_BUY_ENABLED / BINANCE_TESTNET_SELL_ENABLED。
+- 浏览器只允许通过同源 API 请求订单；不再自行 HMAC 签名或接触 Secret。
+- 前端分别使用 NEXT_PUBLIC_BINANCE_TESTNET_BUY_ENABLED / SELL_ENABLED 展示测试网按钮。
+- 买入/卖出队列执行器和后台自动调度接入测试网开关。
+- 生产环境服务端执行器硬拒绝，前端生产环境开关也始终为 false。
+- 新增纯函数测试，验证服务端 BUY/SELL 开关隔离。
+
+## 本地启用顺序
+
+1. 复制 .env.example 为 .env.local。
+2. 设置 BINANCE_SPOT_ENVIRONMENT=testnet 与 NEXT_PUBLIC_BINANCE_SPOT_TESTNET=1。
+3. 填写独立 Testnet Key/Secret。
+4. 设置 DASHBOARD_PASSWORD。
+5. 先只开启 BUY 的前后端两个开关；完成买入与对账验证后，再考虑单独开启 SELL。
+6. 不要把 .env.local 提交到 GitHub。
+
+## 尚未完成
+
+- 尚未使用用户本地 Testnet Key 发出真实 Testnet 订单。
+- 尚未完成真实部分成交、超时、网络中断后的 clientOrderId 恢复演练。
+- 尚未验证不同 Testnet 交易对的精度、最小名义金额和流动性差异。
+- Simple Earn 不支持 Spot Testnet，相关资金调度继续使用 Mock。
+- 需要在本地运行 build 和完整测试；GitHub Actions 结果以本阶段提交对应的最新 run 为准。
+
+## 资金与权限边界
+
+- 这里只能路由到 Binance Spot Testnet，不会调用生产订单 endpoint。
+- 没有增加提现、划转、合约或 Earn 赎回接口。
+- 生产 BUY/SELL 与 Earn 赎回仍关闭。
+- 真实账户资金不参与本阶段。
+
+
+## 第二十二阶段安全加固补充
+
+- 订单 API 不再只检查 DASHBOARD_PASSWORD 是否存在；接口内部也验证 Basic Auth 密码。
+- Basic Auth 比较使用固定时间循环，避免普通字符串直接比较。
+- 请求体改为读取原始文本后按 UTF-8 字节数限制，不能依赖客户端可伪造/省略的 Content-Length。
+- 严格拒绝跨源请求、非 JSON、无效 JSON、超大请求体和未声明字段。
+- BINANCE_SPOT_ENVIRONMENT 显式填写了非 testnet/production 的值时直接拒绝，不会因拼写错误静默回退生产环境。
+- API route security tests 已纳入 Vitest include，确保 CI 实际执行路由测试。
+
+认证说明：浏览器必须先通过全站 Basic Auth；订单 API 自身再次核对相同密码。部署时必须设置强 DASHBOARD_PASSWORD，并使用 HTTPS。
+
+
+---
+
+<!-- 原文件：lib/execution/PHASE_27.md -->
+
+# Phase 27 — Monotonic BUY reservation reconciliation
+
+## Scope
+
+This phase hardens local USDT reservation accounting when multiple browser tabs reconcile the same BUY order and when a page is closed or refreshed during an in-flight order.
+
+## Changes
+
+- Added `reconcileBuyFundsReservation` as the single pure transition for applying cumulative exchange-confirmed quote spend plus USDT-equivalent commission.
+- Rejects cumulative spend snapshots older than the amount already persisted. This prevents an older tab from restoring previously consumed reservation capacity.
+- Rejects non-terminal snapshots attempting to reactivate a reservation released after a confirmed terminal order state.
+- Keeps a reservation in `active` state while the exchange order is still open, even when its remaining reserved amount reaches zero. A fill alone is not proof of terminal order status.
+- Uses the same transition from both atomic fill recording and later cumulative order reconciliation.
+- Added tests for cumulative partial spend, out-of-order snapshots, zero remaining reservation on an open order, terminal release, and idempotent terminal refresh.
+
+## Cross-tab and recovery behavior
+
+- `reserveBuyFunds` uses an IndexedDB `readwrite` transaction over the reservation store. Concurrent tabs therefore serialize allocation against the shared local reservation list.
+- Repeated reservation attempts for the same order reuse its active reservation rather than allocating it twice.
+- `claimBuyOrderSubmission` separately uses an atomic order-store transaction. Only one tab can move a given pending order into `reconcile_required` and claim the attempt; other tabs are rejected.
+- Submitted or ambiguous attempts remain persisted as `reconcile_required`. When the dashboard is mounted again, `ExecutionBackground` scans these records immediately and every 30 seconds and resumes read-only Binance reconciliation.
+- An ambiguous POST is not automatically resent. Recovery uses the persisted attempt number and deterministic `clientOrderId`.
+
+## Important limitations
+
+- IndexedDB coordination applies only to tabs sharing the same browser origin and browser profile. It is not a server-side or exchange-side balance lock and does not coordinate separate devices or browser profiles.
+- Closing a tab preserves IndexedDB state, but reconciliation only resumes after the dashboard is opened again; there is no background service running while the browser is fully closed.
+- Clearing browser site data can erase the local queue and reservation records. The exchange remains authoritative; do not infer that a missing local record means an order was never submitted.
+- Automated tests validate the pure reservation transition and TypeScript build. They do not constitute a real multi-tab browser test or a real Binance Testnet order test.
+- Production order submission and Earn redemption remain disabled.
+
+## Validation
+
+Latest GitHub Actions run for this phase:
+- 36 test files passed
+- 271 tests passed
+- TypeScript typecheck passed
+
+
+---
+
+<!-- 原文件：lib/execution/PHASE_28.md -->
+
+# Phase 28 — Sequential take-profit and post-TP average-cost rebuy
+
+## User-confirmed rules
+
+- Long-term base inventory is protected; ordinary take-profit operates on cycle inventory.
+- TP tiers are sequential and each tier is once-only:
+  - 2x current average cost: sell 50% of current cycle inventory.
+  - 3x current average cost, only after tier 1 has confirmed fills: sell 30% of then-current cycle inventory.
+  - 5x current average cost, only after tier 2 has confirmed fills: sell 80% of then-current cycle inventory.
+- A partial terminal fill counts as that tier having executed; actual fills, not requested quantity, are recorded.
+- After any confirmed take-profit fill in the current holding round, disable the old head-price add ladder and reserve tier.
+- Rebuy from current average cost, beginning again at add tier 1. Core drops remain 15/30/45/60%; conservative drops remain 30/50/65/80%; amounts reuse the corresponding profile add amounts.
+- Each rebuy tier is counted once per exchange order. A fully closed position ends the round; the next holding round returns to normal head-order rules.
+- Rebuy remains subject to score, stabilization, cooldown, market-state and per-asset cost-cap constraints.
+
+## Implementation
+
+- Updated both profile take-profit arrays to 2x/3x/5x with 50%/30%/80%.
+- Changed the strategy engine to calculate each TP fraction from the currently remaining cycle quantity.
+- Added `strategy/post-take-profit-rebuy.ts`, which hydrates server-computed signals using confirmed SELL events and the browser's exchange-confirmed execution ledger.
+- TP tier state is inferred only from confirmed `take_profit` sell events with recorded fill IDs; pending events do not switch the strategy to post-TP mode.
+- TP events are strictly sequential. A price jump directly to 5x cannot skip the 2x and 3x tiers.
+- The post-TP rebuy ladder uses the replayed remaining average cost and counts distinct BUY order IDs after the first TP fill, so multiple partial fills of one order do not consume several rebuy tiers.
+- Replays BUY costs and SELL quantities from dashboard buys plus local confirmed SELL fills. Base-asset commissions are included in disposed quantity.
+- If TP history is present but fill details are missing, or replayed quantity does not match current holdings, rebuy is blocked rather than falling back to the old head-price ladder.
+- If the replay reaches zero holdings before a later new buy, the new position is treated as a new round.
+- Dashboard strategy queue creation runs after local sell history is loaded and applied.
+
+## Persistence boundary and limitations
+
+- Confirmed sell-kind history and execution fills currently live in browser IndexedDB. They are not synchronized across devices or browser profiles.
+- Clearing site data can erase this history. If TP history cannot be reconciled with its fills and current balance, the strategy blocks the post-TP rebuy path.
+- External/manual trades that are not represented in the local ledger may cause a quantity mismatch; this is intentionally fail-closed.
+- The server-generated signal can be briefly visible before the browser hydrates local IndexedDB on first load; execution queue creation is gated on the fresh dashboard state and then uses the hydrated state.
+- No real order was submitted in this phase. Live production trading remains disabled.
+
+## Validation
+
+- 37 test files passed.
+- 280 tests passed.
+- TypeScript typecheck passed.
+- GitHub Actions: https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44474179915
+
+
+---
+
+<!-- 原文件：lib/execution/PHASE_29.md -->
+
+# Phase 29 — BUY attempt fencing and duplicate-fill integrity
+
+## Changes
+
+### 1. Fence every asynchronous state write by attempt ID
+
+- All error and partial-fill state writes in `sync-buy-order.browser.ts` now pass the attempt number that initiated the reconciliation.
+- Successful and ambiguous POST outcomes in `buy-order-submit.browser.ts` also pass the claimed attempt number.
+- If an older browser tab finishes late after another tab has reconciled the order or claimed a newer attempt, its state write is rejected by the IndexedDB transaction guard.
+- This closes a race where an old partial snapshot or delayed POST callback could put a newer attempt back into `reconcile_required`.
+
+### 2. Verify duplicate BUY fills against persisted facts
+
+- `recordConfirmedBuyFill` now reads the unique fill index and trade ledger in the same readwrite transaction.
+- A duplicate fill is accepted only if both the fill index and ledger row exist and every immutable execution field matches.
+- A duplicate ID with changed quantity, price, quote amount, commission, asset, side, order ID or timestamp is rejected.
+- A fill index without a ledger row, or a ledger row without a fill index, now fails closed.
+- Duplicate BUY reconciliation no longer silently trusts the newest response payload.
+
+### 3. Tests
+
+- Added `sync-buy-order.browser.test.ts` to verify:
+  - partial orders remain locked;
+  - fill-ledger failures carry the originating attempt;
+  - reservation-reconciliation failures carry the originating attempt.
+- Existing tests cover conflicting duplicate fill payloads and monotonic reservation spend.
+
+## Safety boundary
+
+- Production BUY/SELL switches remain disabled.
+- Simple Earn redemption remains disabled.
+- No real order was submitted.
+- These changes improve local browser-tab concurrency and ledger integrity; IndexedDB is still local to a browser profile and does not lock funds on Binance.
+- A timeout or missing order lookup remains in reconciliation/manual review. The system does not blindly resubmit an ambiguous order.
+
+## Validation
+
+- 38 test files passed.
+- 284 tests passed.
+- TypeScript typecheck passed.
+- GitHub Actions: https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44475066618
