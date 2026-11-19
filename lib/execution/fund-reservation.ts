@@ -34,9 +34,11 @@ export function buyOrderReservationBlockReason(
     symbol: string;
     quoteAsset: string;
     status: string;
+    remainingUsdt: number;
   } | null | undefined,
   orderId: string,
   reservationSymbol: string,
+  requestedUsdt?: number,
 ): string | null {
   if (!order || order.id !== orderId) return "资金预留对应的待买订单不存在";
   if (order.status !== "pending" && order.status !== "partially_filled") {
@@ -47,6 +49,11 @@ export function buyOrderReservationBlockReason(
     ? order.symbol
     : order.symbol + order.quoteAsset;
   if (pair !== reservationSymbol) return "资金预留交易对与当前待买订单不一致";
+  if (requestedUsdt !== undefined &&
+      (!Number.isFinite(requestedUsdt) || requestedUsdt < 0 ||
+       requestedUsdt > order.remainingUsdt + 1e-8)) {
+    return "本次资金预留金额超过当前待买订单剩余金额";
+  }
   return null;
 }
 
