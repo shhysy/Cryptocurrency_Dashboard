@@ -1,0 +1,16 @@
+name: 临时检查策略工作簿结构
+on:
+  push:
+    branches: [gpt]
+    paths:
+      - 'scripts/inspect_strategy33_workbook.py'
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install openpyxl
+      - run: python scripts/inspect_strategy33_workbook.py
