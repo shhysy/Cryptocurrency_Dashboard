@@ -108,7 +108,7 @@ export function applyPostTakeProfitRebuy(
     if (tpEvents.length && !replay) {
       return blockedSignal(coin, "买卖成交无法与当前持仓数量核对；暂停止盈后回补，先核对持仓台账");
     }
-    if (!replay) return coin;
+    if (!replay) return blockedSignal(coin, "买入记录与当前持仓数量无法核对；无法可靠判断止盈状态和均价，暂停本币策略操作");
 
     const profile = strategyConfig.profiles[coin.signal.group];
     const avgCost = replay.avgCost;
