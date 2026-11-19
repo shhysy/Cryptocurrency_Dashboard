@@ -35,7 +35,7 @@ interface AverageReplay {
 function replayAverageCost(coin: CoinCard, sells: TradeLedgerEntry[]): AverageReplay | null {
   const events: { time: number; side: "BUY" | "SELL"; qty: number; costUsdt?: number }[] = [
     ...coin.buys.map((buy) => ({
-      time: buy.t, side: "BUY" as const, qty: buy.qty, costUsdt: buy.costUsdt,
+      time: buy.t, side: "BUY" as const, qty: buy.qty, costUsdt: buy.costUsdt ?? buy.price * buy.qty,
     })),
     ...sells.map((fill) => ({
       time: fill.time,
