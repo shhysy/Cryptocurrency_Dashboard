@@ -117,9 +117,15 @@ export function applyPostTakeProfitRebuy(
 
     // The three TP tiers are strictly sequential. A later price target cannot
     // skip an earlier tier; each tier sells a fraction of the then-current cycle inventory.
+    const currentRoundTpFills = replay.lastFlatAt === null
+      ? tpFills
+      : tpFills.filter((fill) => fill.time > replay.lastFlatAt!);
+    const currentRoundTpIds = new Set(currentRoundTpFills.map((fill) => fill.fillId));
+    const currentRoundTpEvents = tpEvents.filter((event) =>
+      event.fillIds.some((fillId) => currentRoundTpIds.has(fillId))
+    );
     const doneTiers = new Set(
-      symbolEvents.filter((event) => event.kind === "take_profit" && confirmed(event))
-        .map(tierOf).filter((tier): tier is number => tier !== null),
+      currentRoundTpEvents.map(tierOf).filter((tier): tier is number => tier !== null),
     );
     const nextTier = [1, 2, 3].find((tier) => !doneTiers.has(tier));
     const baseReduced = symbolSells
@@ -152,7 +158,7 @@ export function applyPostTakeProfitRebuy(
 
     // A confirmed TP activates the rebuy mode only for the same holding round.
     // If the position previously reached zero, the next holding round starts fresh.
-    const firstTpTime = tpFills.length ? Math.min(...tpFills.map((fill) => fill.time)) : null;
+    const firstTpTime = currentRoundTpFills.length ? Math.min(...currentRoundTpFills.map((fill) => fill.time)) : null;
     const postTpMode = firstTpTime !== null &&
       (replay.lastFlatAt === null || replay.lastFlatAt < firstTpTime);
 
