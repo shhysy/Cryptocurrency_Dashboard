@@ -35,6 +35,9 @@ export async function syncBuyOrderFromBinance(
   const initial = orders.find((item) => item.id === queuedOrderId);
   if (!initial) throw new Error("找不到待买订单");
   if (!Number.isInteger(attempt) || attempt < 0) throw new Error("订单 attempt 参数无效");
+  if (initial.attemptCount !== attempt + 1 || initial.status !== "reconcile_required") {
+    throw new Error("该 attempt 已过期或当前订单不在对账锁定状态；拒绝修改当前买入任务");
+  }
 
   const pair = initial.symbol.endsWith(initial.quoteAsset)
     ? initial.symbol
@@ -46,7 +49,7 @@ export async function syncBuyOrderFromBinance(
     snapshot = await fetchSpotOrderByClientId(pair, clientOrderId);
   } catch (error) {
     const reason = error instanceof Error ? error.message : "查询 Binance 订单失败";
-    const blocked = await markBuyOrderReconcileRequired(initial.id, reason);
+    const blocked = await markBuyOrderReconcileRequired(initial.id, reason, attempt);
     return {
       action: "manual_review", newlyRecordedFills: 0, orderStatus: null,
       remainingUsdt: blocked.remainingUsdt, reason,
@@ -55,7 +58,7 @@ export async function syncBuyOrderFromBinance(
 
   if (snapshot.symbol !== pair || snapshot.clientOrderId !== clientOrderId) {
     const reason = "Binance 返回的交易对或 clientOrderId 与本地待买订单不一致";
-    const blocked = await markBuyOrderReconcileRequired(initial.id, reason);
+    const blocked = await markBuyOrderReconcileRequired(initial.id, reason, attempt);
     return {
       action: "manual_review", newlyRecordedFills: 0, orderStatus: snapshot.status,
       remainingUsdt: blocked.remainingUsdt, reason,
@@ -77,7 +80,7 @@ export async function syncBuyOrderFromBinance(
     };
   }
   if (decision.action === "manual_review") {
-    const blocked = await markBuyOrderReconcileRequired(initial.id, decision.reason);
+    const blocked = await markBuyOrderReconcileRequired(initial.id, decision.reason, attempt);
     return {
       action: "manual_review", newlyRecordedFills: 0, orderStatus: snapshot.status,
       remainingUsdt: blocked.remainingUsdt, reason: decision.reason,
@@ -87,7 +90,7 @@ export async function syncBuyOrderFromBinance(
     // Confirmed terminal zero-fill orders can leave the reconciliation hold,
     // but a separate caller must still decide whether to create a new attempt.
     await releaseBuyFundsReservation(initial.id, true, "Binance 已确认订单终态且零成交");
-    const ready = await markBuyOrderReconciled(initial.id);
+    const ready = await markBuyOrderReconciled(initial.id, attempt);
     return {
       action: "safe_to_retry", newlyRecordedFills: 0, orderStatus: snapshot.status,
       remainingUsdt: ready.remainingUsdt, reason: decision.reason,
@@ -99,7 +102,7 @@ export async function syncBuyOrderFromBinance(
     trades = await fetchSpotTradesForOrder(snapshot.symbol, snapshot.orderId);
   } catch (error) {
     const reason = error instanceof Error ? error.message : "读取成交明细失败";
-    const blocked = await markBuyOrderReconcileRequired(initial.id, reason);
+    const blocked = await markBuyOrderReconcileRequired(initial.id, reason, attempt);
     return {
       action: "manual_review", newlyRecordedFills: 0, orderStatus: snapshot.status,
       remainingUsdt: blocked.remainingUsdt, reason,
@@ -116,7 +119,7 @@ export async function syncBuyOrderFromBinance(
     }, trades, baseAsset, initial.quoteAsset);
   } catch (error) {
     const reason = error instanceof Error ? error.message : "成交明细核对失败";
-    const blocked = await markBuyOrderReconcileRequired(initial.id, reason);
+    const blocked = await markBuyOrderReconcileRequired(initial.id, reason, attempt);
     return {
       action: "manual_review", newlyRecordedFills: 0, orderStatus: snapshot.status,
       remainingUsdt: blocked.remainingUsdt, reason,
@@ -125,7 +128,7 @@ export async function syncBuyOrderFromBinance(
 
   if (!reconciled.complete) {
     const reason = reconciled.reason ?? "成交明细不完整";
-    const blocked = await markBuyOrderReconcileRequired(initial.id, reason);
+    const blocked = await markBuyOrderReconcileRequired(initial.id, reason, attempt);
     return {
       action: "manual_review", newlyRecordedFills: 0, orderStatus: snapshot.status,
       remainingUsdt: blocked.remainingUsdt, reason,
@@ -136,7 +139,7 @@ export async function syncBuyOrderFromBinance(
   let newlyRecordedFills = 0;
   try {
     for (const fill of reconciled.fills) {
-      const saved = await recordConfirmedBuyFill(fill, current.id);
+      const saved = await recordConfirmedBuyFill(fill, current.id, attempt);
       current = saved.order;
       if (saved.recorded) newlyRecordedFills += 1;
     }
@@ -184,7 +187,7 @@ export async function syncBuyOrderFromBinance(
     };
   }
 
-  current = await markBuyOrderReconciled(current.id);
+  current = await markBuyOrderReconciled(current.id, attempt);
   return {
     action: snapshot.status === "FILLED" ? "complete" : "partial",
     newlyRecordedFills,
