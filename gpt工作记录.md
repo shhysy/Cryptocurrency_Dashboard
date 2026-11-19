@@ -233,3 +233,7 @@
 - GPT 最新 HEAD（分工开始前）：`f1b6025e9b8f9f2874b01106ca1b73d472ee61b6`。
 - 最近 CI：39 个测试文件、297 个测试通过；TypeScript typecheck 通过。
 - CI：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44478709778
+
+
+### Grok SELL 范围补充
+另包含 `lib/execution/sell-preflight.browser.ts` 与其专属测试；只审查 SELL 专属预检，不修改共享 `binance-preflight.ts`、BUY 预检或资金预留。
