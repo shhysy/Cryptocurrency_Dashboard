@@ -14,8 +14,8 @@ import {
 import { strategyConfig } from "@/strategy.config";
 
 /**
- * 预备订单：头仓后生成后续买/止盈 CSV；止盈后改按均价回补并重算止盈。
- * 仅本地计划 + 导出，不向交易所下单。
+ * 预备订单：本地「人工计划」与 CSV 导出。
+ * 不是交易所挂单，不接入自动下单；自动策略真源仍是成交台账。
  */
 export default function PrepOrdersPanel({ data, refreshKey }: { data: DashboardData; refreshKey: number }) {
   const [plans, setPlans] = useState<PrepPlan[]>([]);
@@ -58,7 +58,7 @@ export default function PrepOrdersPanel({ data, refreshKey }: { data: DashboardD
       return;
     }
     forceInitialPrepPlan(symbol, coin.avgCost, coin.avgCost);
-    setMsg(`已按头仓/均价生成 ${symbol} 预备订单（补仓+止盈）`);
+    setMsg(`已生成 ${symbol} 人工预备计划（补仓+止盈，非挂单）`);
     reload();
   };
 
@@ -74,7 +74,7 @@ export default function PrepOrdersPanel({ data, refreshKey }: { data: DashboardD
       tier,
     ];
     applyTakeProfitToPrepPlan(symbol, plan.headPrice, coin.avgCost, [...new Set(done)]);
-    setMsg(`${symbol} 已记止盈${tier}：旧补仓关闭，已按均价生成回补并重算止盈`);
+    setMsg(`${symbol} 已记止盈${tier}：旧补仓关闭，已按均价生成回补并重算止盈（仍为人工计划）`);
     reload();
   };
 
@@ -97,10 +97,10 @@ export default function PrepOrdersPanel({ data, refreshKey }: { data: DashboardD
     <section className="glass space-y-3 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold text-fg">预备订单</h3>
+          <h3 className="text-sm font-semibold text-fg">预备订单（人工计划）</h3>
           <p className="mt-0.5 text-[11px] leading-relaxed text-mute">
-            第一笔头仓后生成后续补仓/备用金与止盈触发价到 CSV。出现止盈后关闭原补仓，按均价从第 1
-            档回补，并重算止盈单。仅本地计划，不自动下单。
+            本地人工计划与 CSV 导出工具，<strong className="text-sub">不是</strong>交易所挂单，也
+            <strong className="text-sub">不会</strong>自动下单。头仓后可生成补仓/备用金与止盈触发价；点「记止盈」后关闭原头仓补仓，按均价回补并重算止盈。自动策略真源仍是成交台账，与本面板独立。
           </p>
         </div>
         <button
@@ -130,7 +130,7 @@ export default function PrepOrdersPanel({ data, refreshKey }: { data: DashboardD
 
       {plans.length === 0 ? (
         <p className="rounded-lg border border-dashed border-line px-3 py-5 text-center text-xs text-mute">
-          暂无预备订单。有头仓/持仓后点「生成」，或等待持仓自动生成。
+          暂无人工预备计划。有头仓/持仓后点「生成」，或等待持仓自动生成（仍仅本地，非挂单）。
         </p>
       ) : (
         <div className="max-h-80 space-y-3 overflow-y-auto pr-1">
@@ -144,7 +144,7 @@ export default function PrepOrdersPanel({ data, refreshKey }: { data: DashboardD
                   <div>
                     <span className="font-semibold text-fg">{plan.symbol}</span>
                     <span className="ml-2 text-mute">
-                      {plan.phase === "initial" ? "初始（头仓锚定）" : "止盈后（均价回补）"}
+                      {plan.phase === "initial" ? "人工·初始（头仓锚定）" : "人工·止盈后（均价回补）"}
                       {" · "}均价 {plan.avgCost}
                       {" · "}头仓价 {plan.headPrice}
                     </span>
