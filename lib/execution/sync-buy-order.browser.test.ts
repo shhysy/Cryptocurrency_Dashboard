@@ -82,6 +82,13 @@ describe("buy reconciliation stale-attempt protection", () => {
     );
   });
 
+  it("passes the originating attempt into the reservation transaction", async () => {
+    await syncBuyOrderFromBinance(order.id, 0);
+    expect(mocks.applyConfirmedBuyReservationSpend).toHaveBeenCalledWith(
+      order.id, 100, false, 0,
+    );
+  });
+
   it("tags reservation reconciliation failures with the same attempt", async () => {
     mocks.applyConfirmedBuyReservationSpend.mockRejectedValue(new Error("simulated reservation conflict"));
     const result = await syncBuyOrderFromBinance(order.id, 0);
