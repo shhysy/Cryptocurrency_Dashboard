@@ -98,6 +98,7 @@ node scripts/import-csv.mjs data/manual-trades.example.csv
 
 ```dotenv
 BINANCE_SPOT_ENVIRONMENT=testnet
+NEXT_PUBLIC_BINANCE_SPOT_TESTNET=1
 BINANCE_TESTNET_API_KEY=你的测试网_API_Key
 BINANCE_TESTNET_API_SECRET=你的测试网_API_Secret
 ENABLE_ACCOUNT=1
