@@ -36,3 +36,5 @@ print("SHEETS",check.sheetnames)
 print("FORMULAS",formulas)
 print("VALIDATIONS",validations)
 assert len(check.sheetnames)==11 and formulas==2291 and validations==13
+
+print('BACKTEST_REFERENCES_REMOVED')
