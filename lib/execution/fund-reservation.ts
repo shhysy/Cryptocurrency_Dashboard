@@ -30,20 +30,39 @@ export function planBuyFundsReservation(input: {
   minNotionalUsdt: number;
 }): ReservationPlan {
   const { orderId, requestedUsdt, observedFreeUsdt, activeReservations, minNotionalUsdt } = input;
-  if (!orderId || ![requestedUsdt, observedFreeUsdt, minNotionalUsdt].every(Number.isFinite)
-    || requestedUsdt <= 0 || observedFreeUsdt < 0 || minNotionalUsdt < 0) {
+  if (!orderId || !Array.isArray(activeReservations) ||
+      ![requestedUsdt, observedFreeUsdt, minNotionalUsdt].every(Number.isFinite) ||
+      requestedUsdt <= 0 || observedFreeUsdt < 0 || minNotionalUsdt < 0) {
     return {
       ok: false, reserveUsdt: 0, availableUsdt: 0,
       totalReservedUsdt: 0, reason: "资金预留参数无效",
     };
   }
 
-  const existing = activeReservations.find(
-    (item) => item.status === "active" && item.orderId === orderId,
-  );
-  const totalReservedUsdt = activeReservations
-    .filter((item) => item.status === "active" && item.orderId !== orderId)
-    .reduce((sum, item) => sum + Math.max(0, item.reservedUsdt), 0);
+  // Corrupt local reservation rows must never be ignored while allocating a
+  // shared balance snapshot. One bad active row blocks the entire allocation.
+  const active = activeReservations.filter((item) => item?.status === "active");
+  const seenOrderIds = new Set<string>();
+  for (const item of active) {
+    const original = item.originalReservedUsdt ?? item.reservedUsdt;
+    const consumed = item.consumedUsdt ?? 0;
+    if (!item.orderId || seenOrderIds.has(item.orderId) ||
+        ![item.reservedUsdt, original, consumed].every(Number.isFinite) ||
+        item.reservedUsdt < 0 || original <= 0 || consumed < 0 ||
+        consumed > original + 1e-8 ||
+        item.reservedUsdt > original - consumed + 1e-8) {
+      return {
+        ok: false, reserveUsdt: 0, availableUsdt: 0,
+        totalReservedUsdt: 0, reason: "检测到损坏或重复的活动资金预留记录，已停止分配并要求人工核对",
+      };
+    }
+    seenOrderIds.add(item.orderId);
+  }
+
+  const existing = active.find((item) => item.orderId === orderId);
+  const totalReservedUsdt = active
+    .filter((item) => item.orderId !== orderId)
+    .reduce((sum, item) => sum + item.reservedUsdt, 0);
   const availableUsdt = Math.max(0, observedFreeUsdt - totalReservedUsdt);
   // An existing reservation is reused as-is; this function never silently
   // increases it on a repeated preview.
@@ -100,10 +119,18 @@ export function reconcileBuyFundsReservation(
   if (!Number.isSafeInteger(now) || now <= 0) {
     throw new Error("资金预留更新时间无效");
   }
+  const original = reservation.originalReservedUsdt ?? reservation.reservedUsdt;
+  const consumed = reservation.consumedUsdt ?? 0;
+  if (!reservation.orderId || !["active", "released"].includes(reservation.status) ||
+      ![reservation.reservedUsdt, original, consumed].every(Number.isFinite) ||
+      reservation.reservedUsdt < 0 || original <= 0 || consumed < 0 ||
+      consumed > original + 1e-8 || reservation.reservedUsdt > original - consumed + 1e-8) {
+    throw new Error("现有资金预留记录损坏，必须人工复核");
+  }
   if (!Number.isFinite(cumulativeConfirmedSpendUsdt) || cumulativeConfirmedSpendUsdt < 0) {
     throw new Error("累计成交支出无效");
   }
-  if (cumulativeConfirmedSpendUsdt + 1e-8 < reservation.consumedUsdt) {
+  if (cumulativeConfirmedSpendUsdt + 1e-8 < consumed) {
     throw new Error("收到较旧的成交快照，拒绝回退已确认支出和资金预留");
   }
   if (reservation.status === "released" && !exchangeOrderTerminal) {
