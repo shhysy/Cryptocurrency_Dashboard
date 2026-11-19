@@ -583,6 +583,15 @@ export async function listTradeNotificationOutbox(): Promise<TradeNotificationOu
  * IndexedDB readwrite serialization prevents concurrent tabs from claiming
  * the same event. Expired leases are recoverable after a crashed tab.
  */
+function createNotificationLeaseToken(): string {
+  if (typeof crypto === "undefined" || typeof crypto.getRandomValues !== "function") {
+    throw new Error("当前环境无法安全生成成交通知租约令牌");
+  }
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export async function claimTradeNotificationOutboxBatch(
   limit = 20,
   now = Date.now(),
@@ -609,6 +618,7 @@ export async function claimTradeNotificationOutboxBatch(
           ...event,
           status: "sending",
           leaseUntil: now + leaseMs,
+          leaseToken: createNotificationLeaseToken(),
           updatedAt: now,
           lastError: null,
         }));
@@ -625,57 +635,100 @@ export async function claimTradeNotificationOutboxBatch(
 }
 
 /** Mark an outbox event sent only after the notification endpoint confirms acceptance. */
-export async function markTradeNotificationSent(id: string, now = Date.now()): Promise<void> {
+export async function markTradeNotificationSent(
+  id: string,
+  leaseToken: string,
+  now = Date.now(),
+): Promise<void> {
+  if (!id || !leaseToken || !Number.isSafeInteger(now) || now <= 0) {
+    throw new Error("成交通知完成参数无效");
+  }
   const db = await openDb();
   try {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(NOTIFICATION_OUTBOX, "readwrite");
       const store = tx.objectStore(NOTIFICATION_OUTBOX);
       const request = store.get(id);
+      let fatal: Error | null = null;
       request.onsuccess = () => {
         const current = request.result as TradeNotificationOutboxEvent | undefined;
-        if (!current) { tx.abort(); return; }
+        if (!current) {
+          fatal = new Error("成交通知事件不存在");
+          tx.abort();
+          return;
+        }
         if (current.status === "sent") return;
-        store.put({ ...current, status: "sent", leaseUntil: null, nextAttemptAt: null, sentAt: now, updatedAt: now, lastError: null });
+        if (current.status !== "sending" || current.leaseToken !== leaseToken) {
+          fatal = new Error("成交通知租约已失效，拒绝旧调度器覆盖新状态");
+          tx.abort();
+          return;
+        }
+        store.put({
+          ...current,
+          status: "sent",
+          leaseUntil: null,
+          leaseToken: null,
+          nextAttemptAt: null,
+          sentAt: now,
+          updatedAt: now,
+          lastError: null,
+        });
       };
+      request.onerror = () => { fatal = request.error ?? new Error("读取成交通知事件失败"); tx.abort(); };
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error("更新成交通知状态失败"));
-      tx.onabort = () => reject(tx.error ?? new Error("成交通知事件不存在"));
+      tx.onerror = () => reject(fatal ?? tx.error ?? new Error("更新成交通知状态失败"));
+      tx.onabort = () => reject(fatal ?? tx.error ?? new Error("成交通知事件更新事务中止"));
     });
   } finally {
     db.close();
   }
 }
 
-/** Record a delivery failure without deleting the confirmed trade event. */
+/** Record a delivery failure only when the caller still owns the current lease. */
 export async function markTradeNotificationFailed(
   id: string,
+  leaseToken: string,
   reason: string,
   now = Date.now(),
 ): Promise<void> {
+  if (!id || !leaseToken || !Number.isSafeInteger(now) || now <= 0) {
+    throw new Error("成交通知失败参数无效");
+  }
   const db = await openDb();
   try {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(NOTIFICATION_OUTBOX, "readwrite");
       const store = tx.objectStore(NOTIFICATION_OUTBOX);
       const request = store.get(id);
+      let fatal: Error | null = null;
       request.onsuccess = () => {
         const current = request.result as TradeNotificationOutboxEvent | undefined;
-        if (!current) { tx.abort(); return; }
+        if (!current) {
+          fatal = new Error("成交通知事件不存在");
+          tx.abort();
+          return;
+        }
         if (current.status === "sent") return;
+        if (current.status !== "sending" || current.leaseToken !== leaseToken) {
+          fatal = new Error("成交通知租约已失效，拒绝旧调度器覆盖新状态");
+          tx.abort();
+          return;
+        }
         store.put({
           ...current,
           status: "failed",
           leaseUntil: null,
+          leaseToken: null,
           attemptCount: current.attemptCount + 1,
           nextAttemptAt: now + Math.min(60 * 60_000, 30_000 * (2 ** Math.min(current.attemptCount, 7))),
           updatedAt: now,
           lastError: reason.slice(0, 500),
         });
       };
+      request.onerror = () => { fatal = request.error ?? new Error("读取成交通知事件失败"); tx.abort(); };
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error("记录成交通知失败状态失败"));
-      tx.onabort = () => reject(tx.error ?? new Error("成交通知事件不存在"));
+      tx.onerror = () => reject(fatal ?? tx.error ?? new Error("记录成交通知失败状态失败"));
+      tx.onabort = () => reject(fatal ?? tx.error ?? new Error("成交通知失败状态事务中止"));
     });
   } finally {
     db.close();
