@@ -28,7 +28,22 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(NOTIFICATION_OUTBOX)) db.createObjectStore(NOTIFICATION_OUTBOX, { keyPath: "id" });
       if (!db.objectStoreNames.contains(EARN_REDEMPTIONS)) db.createObjectStore(EARN_REDEMPTIONS, { keyPath: "id" });
     };
-    request.onsuccess = () => resolve(request.result);
+    let blocked = false;
+    request.onblocked = () => {
+      blocked = true;
+      reject(new Error("执行数据库升级被其他浏览器标签页阻塞；请关闭旧标签页后重试"));
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      // Release old-version connections promptly so a future schema upgrade
+      // cannot remain blocked by a dormant dashboard tab.
+      db.onversionchange = () => db.close();
+      if (blocked) {
+        db.close();
+        return;
+      }
+      resolve(db);
+    };
     request.onerror = () => reject(request.error ?? new Error("打开执行数据库失败"));
   });
 }
