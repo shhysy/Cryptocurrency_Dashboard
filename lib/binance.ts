@@ -1,14 +1,18 @@
 import type { Candle, Trade } from "@/strategy/types";
-const SPOT_TESTNET = process.env.BINANCE_SPOT_ENVIRONMENT === "testnet";
-const SPOT_BASE = SPOT_TESTNET
-  ? "https://testnet.binance.vision"
-  : (process.env.BINANCE_BASE_URL || "https://api.binance.com");
-const apiKey = () => SPOT_TESTNET
-  ? (process.env.BINANCE_TESTNET_API_KEY || "")
-  : (process.env.BINANCE_API_KEY || "");
-const apiSecret = () => SPOT_TESTNET
-  ? (process.env.BINANCE_TESTNET_API_SECRET || "")
-  : (process.env.BINANCE_API_SECRET || "");
+import { resolveServerBinanceEnvironment } from "./binance-environment";
+
+const SPOT_ENV = resolveServerBinanceEnvironment({
+  BINANCE_SPOT_ENVIRONMENT: process.env.BINANCE_SPOT_ENVIRONMENT,
+  BINANCE_TESTNET_API_KEY: process.env.BINANCE_TESTNET_API_KEY,
+  BINANCE_TESTNET_API_SECRET: process.env.BINANCE_TESTNET_API_SECRET,
+  BINANCE_API_KEY: process.env.BINANCE_API_KEY,
+  BINANCE_API_SECRET: process.env.BINANCE_API_SECRET,
+  BINANCE_BASE_URL: process.env.BINANCE_BASE_URL,
+});
+const SPOT_TESTNET = SPOT_ENV.mode === "testnet";
+const SPOT_BASE = SPOT_ENV.apiBase;
+const apiKey = () => SPOT_ENV.apiKey;
+const apiSecret = () => SPOT_ENV.apiSecret;
 
 /**
  * 币安接口封装。
