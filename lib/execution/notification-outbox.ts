@@ -17,6 +17,8 @@ export interface TradeNotificationOutboxEvent {
   status: "pending" | "sending" | "sent" | "failed";
   /** Lease prevents two browser tabs from delivering the same event concurrently. */
   leaseUntil: number | null;
+  /** Fencing token: stale dispatchers cannot complete a lease reclaimed by another tab. */
+  leaseToken: string | null;
   nextAttemptAt: number | null;
   attemptCount: number;
   createdAt: number;
@@ -81,6 +83,7 @@ export function buildTradeFillNotificationEvent(
     filledAt: fill.time,
     status: "pending",
     leaseUntil: null,
+    leaseToken: null,
     nextAttemptAt: null,
     attemptCount: 0,
     createdAt: now,
