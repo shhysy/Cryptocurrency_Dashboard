@@ -60,3 +60,29 @@ export function resolveBinanceSpotSubmissionSwitches(
     sellEnabled: env.NEXT_PUBLIC_BINANCE_SPOT_TESTNET_SELL_ENABLED === "1",
   };
 }
+
+export interface ServerBinanceEnvironment {
+  BINANCE_SPOT_ENVIRONMENT?: string;
+  BINANCE_TESTNET_API_KEY?: string;
+  BINANCE_TESTNET_API_SECRET?: string;
+  BINANCE_API_KEY?: string;
+  BINANCE_API_SECRET?: string;
+  BINANCE_BASE_URL?: string;
+}
+
+export function resolveServerBinanceEnvironment(env: ServerBinanceEnvironment) {
+  if (env.BINANCE_SPOT_ENVIRONMENT === "testnet") {
+    return {
+      mode: "testnet" as const,
+      apiBase: "https://testnet.binance.vision",
+      apiKey: env.BINANCE_TESTNET_API_KEY ?? "",
+      apiSecret: env.BINANCE_TESTNET_API_SECRET ?? "",
+    };
+  }
+  return {
+    mode: "production" as const,
+    apiBase: env.BINANCE_BASE_URL || "https://api.binance.com",
+    apiKey: env.BINANCE_API_KEY ?? "",
+    apiSecret: env.BINANCE_API_SECRET ?? "",
+  };
+}
