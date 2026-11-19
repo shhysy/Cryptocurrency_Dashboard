@@ -493,7 +493,7 @@ export async function reserveBuyFunds(input: {
       let fatal: Error | null = null;
       const finish = () => {
         if (!orderReady || !reservationsReady || result || fatal) return;
-        const blockReason = buyOrderReservationBlockReason(currentOrder, input.orderId, input.symbol);
+        const blockReason = buyOrderReservationBlockReason(currentOrder, input.orderId, input.symbol, input.requestedUsdt);
         if (blockReason) {
           fatal = new Error(blockReason);
           tx.abort();
@@ -1102,7 +1102,7 @@ export async function topUpBuyFundsReservationAfterEarnCredit(input: {
       let fatal: Error | null = null;
       const finish = () => {
         if (!orderReady || !reservationsReady || fatal) return;
-        const blockReason = buyOrderReservationBlockReason(currentOrder, input.orderId, input.symbol);
+        const blockReason = buyOrderReservationBlockReason(currentOrder, input.orderId, input.symbol, input.requestedRemainingUsdt);
         if (blockReason) {
           fatal = new Error(blockReason);
           tx.abort();
