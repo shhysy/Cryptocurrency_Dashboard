@@ -30,7 +30,7 @@ export interface CoinCard {
   toDoublePct: number | null; // 距翻倍还差多少（百分点），已翻倍为 0
   doubleProgress: number; // 0-1
   series: { t: number; c: number }[]; // 周线收盘
-  buys: { id: string; t: number; price: number; qty: number; costUsdt?: number; position: Position }[];
+  buys: { id: string; t: number; price: number; qty: number; costUsdt?: number; orderId?: string; position: Position }[];
   signal: CoinSignal;
 }
 
