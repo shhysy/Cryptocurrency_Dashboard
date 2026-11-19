@@ -104,3 +104,56 @@
 - CI：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44477012135
 - 面板代码提交：`7df38d462b00efdd46f69351eb972298806d1564`；Dashboard 挂载提交：`3bc72689986c91205ec8f142c3e1e48391d5ccd5`。
 - 与 Grok 预备订单模块无文件重叠，本阶段不修改 prep-orders / PrepOrdersPanel，也不将 CSV 计划作为自动执行真源。
+
+
+## 八、Phase 31 — GPT / Grok 并行分工（2026-11-19）
+
+### 分工原则
+- 两条任务线在文件层隔离，统一提交到 `gpt` 分支。
+- Grok 负责预备订单人工计划及 CSV 工具；GPT 负责资金预留、买入订单状态恢复和 IndexedDB 安全。
+- 两边不得擅自修改对方负责的核心文件；若发现必须跨边界修改，先在两份记录中提出并等待用户确认/协商。
+- 双方均不修改 `components/Dashboard.tsx`，避免 UI 集成冲突。
+- 不将 Grok 的 localStorage/CSV 计划状态接入自动下单；自动执行真源仍是已确认交易所订单与成交台账。
+- LIVE BUY/SELL 与 Simple Earn 自动赎回继续关闭，不使用真实余额或发送真实订单测试。
+
+### Grok 负责（不与 GPT 本阶段冲突）
+**允许修改：**
+- `lib/execution/prep-orders.ts`
+- `lib/execution/prep-orders-csv.ts`
+- `lib/execution/prep-store.browser.ts`
+- `components/PrepOrdersPanel.tsx`
+- 与上述文件直接对应的独立测试、预备订单说明文档。
+
+**任务目标：**
+1. 完善人工计划生成、止盈后重建、回补后触发价刷新规则。
+2. 加强计划状态和 CSV 导出的一致性、输入校验及异常处理。
+3. 为预备订单核心逻辑补充单元测试；明确 CSV 是导出快照，不是执行真源。
+4. UI 继续明确标注人工计划，不展示为交易所已挂单或自动执行状态。
+5. 不修改 `Dashboard.tsx`、资金预留、买入提交/对账、成交台账和自动执行开关。
+6. 更新本文件 `grok工作记录.md`，记录文件、测试、commit SHA 和 CI。
+
+### GPT 负责（当前继续执行）
+**允许修改：**
+- `lib/execution/fund-reservation.ts`
+- `lib/execution/store.browser.ts`
+- `lib/execution/buy-order-submit.browser.ts`
+- `lib/execution/sync-buy-order.browser.ts`
+- 上述资金预留/恢复逻辑的独立测试文件，以及必要的执行层技术文档。
+
+**任务目标：**
+1. 审查并发资金预留是否在同一 IndexedDB 事务内完成预算核算与写入，避免多标签页超额预留。
+2. 验证同一订单重复 reserve、两个不同订单并发 reserve、并发 claim 的幂等与互斥行为。
+3. 验证部分成交后累计已确认支出单调增加，预留不会被错误恢复或重复扣减。
+4. 验证非终态、POST 结果不明确、交易所查询失败时资金预留持续锁定。
+5. 验证交易所明确终态后只释放未使用金额，且旧 attempt 的迟到结果不能修改新状态。
+6. 验证浏览器重启/重新打开页面后可恢复 pending / reconcile_required 状态；IndexedDB 打开、读写、事务失败时 fail-closed。
+7. 先盘点现有测试再补充缺口，不重复造已有测试；不得把 mock/CI 结果说成真实交易验证。
+8. 更新本文件，记录测试结果、commit SHA 和 CI。
+
+### 本阶段验收边界
+- Grok 的预备订单计划状态与 GPT 的执行台账状态仍是两个不同层级，不做隐式自动同步。
+- 本阶段只做代码和模拟测试；不打开实盘开关、不提交 Binance 订单、不操作资金。
+- 若发现同一文件或策略语义冲突，先暂停冲突部分并记录，不以覆盖对方代码的方式解决。
+
+### 分工日志
+- 2026-11-19：完成 Grok / GPT 任务拆分；Grok 负责预备订单计划层，GPT 负责资金预留与订单恢复安全；明确文件白名单及禁止修改的共享 Dashboard 文件。
