@@ -523,36 +523,61 @@ export async function applyConfirmedBuyReservationSpend(
   orderId: string,
   cumulativeConfirmedSpendUsdt: number,
   exchangeOrderTerminal: boolean,
+  expectedAttempt: number,
   now = Date.now(),
 ): Promise<BuyFundsReservation | null> {
+  if (!Number.isInteger(expectedAttempt) || expectedAttempt < 0) {
+    throw new Error("资金预留 attempt 参数无效");
+  }
   const db = await openDb();
   try {
     return await new Promise((resolve, reject) => {
-      const tx = db.transaction(RESERVATIONS, "readwrite");
-      const store = tx.objectStore(RESERVATIONS);
-      const request = store.get(orderId);
+      // Fence reservation writes with the persisted order attempt. A late
+      // response from an older tab must not consume/release a newer attempt.
+      const tx = db.transaction([ORDERS, RESERVATIONS], "readwrite");
+      const orders = tx.objectStore(ORDERS);
+      const reservations = tx.objectStore(RESERVATIONS);
+      const orderRequest = orders.get(orderId);
+      const reservationRequest = reservations.get(orderId);
+      let orderReady = false;
+      let reservationReady = false;
+      let currentOrder: QueuedBuyOrder | undefined;
+      let currentReservation: BuyFundsReservation | undefined;
       let updated: BuyFundsReservation | undefined;
       let fatal: Error | null = null;
-      request.onsuccess = () => {
-        const current = request.result as BuyFundsReservation | undefined;
-        if (!current) {
-          updated = undefined;
+      const finish = () => {
+        if (!orderReady || !reservationReady || fatal) return;
+        if (!isCurrentBuyAttempt(currentOrder, expectedAttempt)) {
+          fatal = new Error("资金预留更新属于过期 attempt，拒绝修改当前预留");
+          tx.abort();
           return;
         }
+        if (!currentReservation) return;
         try {
           updated = reconcileBuyFundsReservation(
-            current,
+            currentReservation,
             cumulativeConfirmedSpendUsdt,
             exchangeOrderTerminal,
             now,
           );
-          store.put(updated);
+          reservations.put(updated);
         } catch (error) {
           fatal = error instanceof Error ? error : new Error("更新资金预留失败");
           tx.abort();
         }
       };
-      request.onerror = () => { fatal = request.error ?? new Error("读取资金预留失败"); tx.abort(); };
+      orderRequest.onsuccess = () => {
+        currentOrder = orderRequest.result as QueuedBuyOrder | undefined;
+        orderReady = true;
+        finish();
+      };
+      reservationRequest.onsuccess = () => {
+        currentReservation = reservationRequest.result as BuyFundsReservation | undefined;
+        reservationReady = true;
+        finish();
+      };
+      orderRequest.onerror = () => { fatal = orderRequest.error ?? new Error("读取待买订单失败"); tx.abort(); };
+      reservationRequest.onerror = () => { fatal = reservationRequest.error ?? new Error("读取资金预留失败"); tx.abort(); };
       tx.oncomplete = () => resolve(updated ?? null);
       tx.onerror = () => reject(fatal ?? tx.error ?? new Error("资金预留更新失败"));
       tx.onabort = () => reject(fatal ?? tx.error ?? new Error("资金预留更新事务中止"));
@@ -562,38 +587,67 @@ export async function applyConfirmedBuyReservationSpend(
   }
 }
 
-/** Release a reservation only when the caller has positively confirmed a terminal exchange order. */
+/** Release a reservation only after a terminal snapshot for the current attempt. */
 export async function releaseBuyFundsReservation(
   orderId: string,
   exchangeTerminalConfirmed: boolean,
   reason: string,
+  expectedAttempt: number,
   now = Date.now(),
 ): Promise<BuyFundsReservation | null> {
   if (!exchangeTerminalConfirmed) {
     throw new Error("未确认 Binance 订单终态，不允许释放资金预留");
   }
+  if (!Number.isInteger(expectedAttempt) || expectedAttempt < 0 || !reason ||
+      !Number.isSafeInteger(now) || now <= 0) {
+    throw new Error("资金预留释放参数无效");
+  }
   const db = await openDb();
   try {
     return await new Promise((resolve, reject) => {
-      const tx = db.transaction(RESERVATIONS, "readwrite");
-      const store = tx.objectStore(RESERVATIONS);
-      const request = store.get(orderId);
+      const tx = db.transaction([ORDERS, RESERVATIONS], "readwrite");
+      const orders = tx.objectStore(ORDERS);
+      const reservations = tx.objectStore(RESERVATIONS);
+      const orderRequest = orders.get(orderId);
+      const reservationRequest = reservations.get(orderId);
+      let orderReady = false;
+      let reservationReady = false;
+      let currentOrder: QueuedBuyOrder | undefined;
+      let currentReservation: BuyFundsReservation | undefined;
       let updated: BuyFundsReservation | null = null;
-      request.onsuccess = () => {
-        const current = request.result as BuyFundsReservation | undefined;
-        if (!current) return;
+      let fatal: Error | null = null;
+      const finish = () => {
+        if (!orderReady || !reservationReady || fatal) return;
+        if (!isCurrentBuyAttempt(currentOrder, expectedAttempt)) {
+          fatal = new Error("资金预留释放属于过期 attempt，拒绝释放当前预留");
+          tx.abort();
+          return;
+        }
+        if (!currentReservation) return;
         updated = {
-          ...current,
+          ...currentReservation,
           reservedUsdt: 0,
           status: "released",
           updatedAt: now,
           releaseReason: reason,
         };
-        store.put(updated);
+        reservations.put(updated);
       };
+      orderRequest.onsuccess = () => {
+        currentOrder = orderRequest.result as QueuedBuyOrder | undefined;
+        orderReady = true;
+        finish();
+      };
+      reservationRequest.onsuccess = () => {
+        currentReservation = reservationRequest.result as BuyFundsReservation | undefined;
+        reservationReady = true;
+        finish();
+      };
+      orderRequest.onerror = () => { fatal = orderRequest.error ?? new Error("读取待买订单失败"); tx.abort(); };
+      reservationRequest.onerror = () => { fatal = reservationRequest.error ?? new Error("读取资金预留失败"); tx.abort(); };
       tx.oncomplete = () => resolve(updated);
-      tx.onerror = () => reject(tx.error ?? new Error("释放资金预留失败"));
-      tx.onabort = () => reject(tx.error ?? new Error("释放资金预留事务中止"));
+      tx.onerror = () => reject(fatal ?? tx.error ?? new Error("释放资金预留失败"));
+      tx.onabort = () => reject(fatal ?? tx.error ?? new Error("资金预留事务中止"));
     });
   } finally {
     db.close();
