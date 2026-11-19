@@ -9,39 +9,25 @@ import { normalizeFlexibleEarnPosition, sumSimpleEarnUsdtPositions, type SimpleE
  * 只给自己用，并务必在币安后台给 Key 设 IP 白名单（只允许你家 IP），避免 bundle 泄露被滥用。
  */
 import type { Candle, Trade } from "@/strategy/types";
-import { FALLBACK_BINANCE_API_KEY, FALLBACK_BINANCE_API_SECRET } from "./credentials";
-import { assertSimpleEarnSupported, resolveBinanceSpotEnvironment, resolveBinanceSpotSubmissionSwitches } from "./binance-environment";
+import { assertSimpleEarnSupported } from "./binance-environment";
 
-// NEXT_PUBLIC_* 会被打包到客户端，浏览器直连模式无法对使用者隐藏 Secret。
-const SPOT_ENVIRONMENT = resolveBinanceSpotEnvironment({
-  NEXT_PUBLIC_BINANCE_SPOT_TESTNET: process.env.NEXT_PUBLIC_BINANCE_SPOT_TESTNET,
-  NEXT_PUBLIC_BINANCE_TESTNET_API_KEY: process.env.NEXT_PUBLIC_BINANCE_TESTNET_API_KEY,
-  NEXT_PUBLIC_BINANCE_TESTNET_API_SECRET: process.env.NEXT_PUBLIC_BINANCE_TESTNET_API_SECRET,
-  NEXT_PUBLIC_BINANCE_API_KEY: process.env.NEXT_PUBLIC_BINANCE_API_KEY,
-  NEXT_PUBLIC_BINANCE_API_SECRET: process.env.NEXT_PUBLIC_BINANCE_API_SECRET,
-  fallbackApiKey: FALLBACK_BINANCE_API_KEY,
-  fallbackApiSecret: FALLBACK_BINANCE_API_SECRET,
-});
-const API_KEY = SPOT_ENVIRONMENT.apiKey;
-const API_SECRET = SPOT_ENVIRONMENT.apiSecret;
-const BASE = SPOT_ENVIRONMENT.apiBase;
-export const BINANCE_SPOT_ENVIRONMENT = SPOT_ENVIRONMENT.mode;
-export const BINANCE_SPOT_API_BASE = SPOT_ENVIRONMENT.apiBase;
-const TESTNET_SUBMISSION_SWITCHES = resolveBinanceSpotSubmissionSwitches(
-  SPOT_ENVIRONMENT.mode,
-  {
-    NEXT_PUBLIC_BINANCE_SPOT_TESTNET_BUY_ENABLED: process.env.NEXT_PUBLIC_BINANCE_SPOT_TESTNET_BUY_ENABLED,
-    NEXT_PUBLIC_BINANCE_SPOT_TESTNET_SELL_ENABLED: process.env.NEXT_PUBLIC_BINANCE_SPOT_TESTNET_SELL_ENABLED,
-  },
-);
-export const BINANCE_SPOT_BUY_SUBMISSION_ENABLED =
-  SPOT_ENVIRONMENT.mode === "testnet"
-    ? TESTNET_SUBMISSION_SWITCHES.buyEnabled
-    : false;
-export const BINANCE_SPOT_SELL_SUBMISSION_ENABLED =
-  SPOT_ENVIRONMENT.mode === "testnet"
-    ? TESTNET_SUBMISSION_SWITCHES.sellEnabled
-    : false;
+// 浏览器端只保留公开 Spot endpoint 选择，不再读取或签署任何 API 凭证。
+// 所有需要 Key/Secret 的账户、成交和交易请求必须迁移到服务端代理。
+export const BINANCE_SPOT_ENVIRONMENT =
+  process.env.NEXT_PUBLIC_BINANCE_SPOT_TESTNET === "1" ? "testnet" : "production";
+export const BINANCE_SPOT_API_BASE =
+  BINANCE_SPOT_ENVIRONMENT === "testnet"
+    ? "https://testnet.binance.vision"
+    : "https://api.binance.com";
+const API_KEY = "";
+const API_SECRET = "";
+const BASE = BINANCE_SPOT_API_BASE;
+export const BINANCE_SPOT_BUY_SUBMISSION_ENABLED = false;
+export const BINANCE_SPOT_SELL_SUBMISSION_ENABLED = false;
+
+function assertSimpleEarnProductionOnly(): void {
+  assertSimpleEarnSupported(BINANCE_SPOT_ENVIRONMENT);
+}
 
 function assertSimpleEarnProductionOnly(): void {
   assertSimpleEarnSupported(BINANCE_SPOT_ENVIRONMENT);
@@ -84,6 +70,9 @@ async function serverNow(): Promise<number> {
 }
 
 async function signedGet<T>(path: string, params: Record<string, string | number> = {}): Promise<T> {
+  if (!API_KEY || !API_SECRET) {
+    throw new Error("浏览器端私密 API 已禁用；请通过服务端签名代理访问账户和成交接口");
+  }
   const qs = new URLSearchParams(
     Object.entries({ ...params, recvWindow: 10000, timestamp: Math.round(await serverNow()) }).map(([k, v]) => [k, String(v)]),
   ).toString();
