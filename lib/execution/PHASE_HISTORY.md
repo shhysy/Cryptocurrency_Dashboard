@@ -273,3 +273,306 @@ Worker 验证签名、时间窗口和字段后，过滤 KV 已发送事件，发
 ## 安全边界
 
 只有通过 Binance 只读订单快照与逐笔成交完整核对的 SELL fills 才能调用入账函数。第三资产手续费无法可靠换算时，整个订单的自动记账必须暂停，不能只记录净额或忽略手续费。
+
+
+---
+
+<!-- 原文件：lib/execution/PHASE_8.md -->
+
+# 第八阶段：签名成交邮件接收端
+
+## 目标
+
+把“Binance 已确认成交 → IndexedDB Outbox”与邮件发送服务建立安全协议，但不在浏览器中保存任何邮件服务密钥或 Binance 密钥。
+
+## 本阶段提交
+
+- `workers/trade-fill-email.js`：独立的买卖成交通知 Worker。
+- `wrangler.trade-fill-email.jsonc`：独立 Worker 配置与 KV binding。
+- `workers/TRADE_FILL_EMAIL_SETUP.md`：部署说明、安全边界与幂等限制。
+- `lib/execution/notification-signature.server.ts`：服务端 HMAC-SHA256 签名 helper。
+- `lib/execution/notification-signature.server.test.ts`：签名 helper 测试。
+
+## 接收协议
+
+请求头：
+- `X-Trade-Timestamp`：Unix 毫秒时间戳。
+- `X-Trade-Signature`：HMAC-SHA256 十六进制签名。
+
+签名原文：
+```text
+<timestamp>.<raw-request-body>
+```
+
+请求体：
+```json
+{
+  "events": [
+    {
+      "id": "trade-fill:BTCUSDT:123456",
+      "type": "confirmed_trade_fill",
+      "side": "BUY",
+      "symbol": "BTCUSDT",
+      "fillId": "123456",
+      "exchangeOrderId": "987654",
+      "filledQty": 0.001,
+      "fillPrice": 65000,
+      "quoteQty": 65,
+      "commission": 0.000001,
+      "commissionAsset": "BTC",
+      "commissionUsdt": 0.065,
+      "filledAt": 1795000000000
+    }
+  ]
+}
+```
+
+Worker 验证签名、时间窗口和字段后，过滤 KV 已发送事件，发送邮件，再写入 KV。客户端不能传收件人，也不能通过策略信号字段触发邮件。
+
+## 仍然关闭的部分
+
+- Worker 尚未部署。
+- 尚未创建/绑定 KV、Resend Secret 或邮件收件人配置。
+- 浏览器 Outbox 尚未接入 dispatcher。
+- 同源服务端转发 API 尚未创建，因为当前项目没有可确认的身份验证机制；不能开放匿名转发接口。
+- SELL 成交仍没有完整的 Binance 对账与统一台账写入流程。
+- 没有 Binance 下单 POST，也没有自动卖出；实盘继续关闭。
+
+## 下一阶段前置条件
+
+1. 先确认看板的身份验证方式：优先 Cloudflare Access，或项目已有的可靠登录态。
+2. 服务端路由验证身份后才可读取/接收 Outbox 事件；禁止仅凭 Origin、CORS 或公开 URL 授权。
+3. 由服务端签名并转发至 Worker；浏览器不得持有 HMAC Secret。
+4. 成功确认后才将 Outbox 事件标记 sent；失败保留 pending/failed 并可重试。
+5. 如果要求强并发幂等，使用 Durable Object 原子 claim，而不是把 KV 描述为强一致锁。
+
+
+---
+
+<!-- 原文件：lib/execution/PHASE_9.md -->
+
+# 第九阶段：卖出成交核对与原子入账基础
+
+## 已完成
+
+- 新增 `reconcileConfirmedSellFills`，按 Binance SELL 订单累计成交量/金额核对逐笔成交。
+- 校验逐笔成交方向必须为 SELL，且交易对、订单 ID 匹配。
+- USDT 手续费直接计入手续费估值；基础币手续费按该笔成交价格估值；第三资产手续费不做猜测，要求人工复核。
+- 新增 `recordConfirmedSellFill`，在同一个 IndexedDB 事务中写入唯一成交键、成交台账和邮件 Outbox。
+- 买入/卖出 Outbox 使用相同事件结构和稳定成交 ID。
+- 测试覆盖卖出方向错误、第三资产手续费、订单累计值不匹配和 SELL 通知事件。
+
+## 仍未完成
+
+- 目前没有真实卖单提交端，也没有订单 ID 生成与绑定流程。
+- 没有 `syncSellOrderFromBinance` 调度器；卖出事件的 exchangeOrderId 尚无安全的生产写入来源。
+- SELL 成交写入统一台账后，卖出事件状态尚未在同一事务中更新（两个模块目前使用不同 IndexedDB 数据库）。
+- 没有实现持仓成本分摊、周期仓/底仓剩余数量和实现盈亏。
+- 自动卖出仍然关闭；不会发送 Binance 订单 POST。
+
+## 安全边界
+
+只有通过 Binance 只读订单快照与逐笔成交完整核对的 SELL fills 才能调用入账函数。第三资产手续费无法可靠换算时，整个订单的自动记账必须暂停，不能只记录净额或忽略手续费。
+
+
+---
+
+<!-- 原文件：lib/execution/PHASE_10.md -->
+
+# 第十阶段：卖出订单只读对账
+
+## 已完成
+
+1. 新增 Binance 现货订单 ID 查询 `fetchSpotOrderById`，只读 GET。
+2. 新增卖出事件订单 ID 绑定函数，校验数字 ID，且一旦绑定不可替换。
+3. 新增 `syncSellOrderFromBinance`：
+   - 读取已绑定事件；
+   - 按交易对和 Binance 订单 ID 读取订单快照；
+   - 根据订单状态判断等待、部分成交、完成或人工复核；
+   - 拉取该订单的逐笔成交；
+   - 校验 SELL 方向、成交明细与订单累计数量/金额；
+   - 原子写入成交唯一键、成交台账、邮件 Outbox；
+   - 更新卖出事件已核对的成交 ID 和真实累计成交量。
+4. 增加 `partially_filled` 终态，避免把撤单后部分成交错误记成全量执行。
+5. 指标止盈的累计量在终态部分成交时使用实际成交数量。
+6. 增加终态部分成交额度与重复止盈事件保护测试。
+
+## 安全限制
+
+- 不存在 Binance 下单 POST、撤单、自动重试。
+- 目前没有生产卖单提交器，所以没有自动来源能为事件绑定真实订单 ID。
+- 只有外部执行器在收到 Binance 成功订单响应后，才能调用绑定函数。
+- 订单 ID 不存在、查询失败、成交数据不一致、第三资产手续费无法估值时，流程停止并保留复核状态。
+- 事件状态和成交台账分属两个 IndexedDB 数据库；跨库事务无法保证原子性。若成交已入账而事件更新失败，重复对账会通过成交 ID 去重后重试状态更新。
+
+## 下一阶段
+
+- 审查并统一持仓账本：FIFO/加权成本规则、基础币手续费净数量、卖出手续费、周期仓/底仓拆分、已实现盈亏。
+- 在自动卖出设计前，完成卖出订单提交的幂等 ID、超时查询、重复 POST 防护与本地订单状态机审查。
+- 继续保持 DRY_RUN，不请求 Binance 交易权限。
+
+
+---
+
+<!-- 原文件：lib/execution/PHASE_11.md -->
+
+# 第十一阶段：加权平均持仓账本回放
+
+## 目标
+
+从交易所已确认成交记录重建每个资产的长期底仓、周期仓、成本、均价与实现盈亏，为后续卖出预检提供可核验的本地数据来源。
+
+## 已完成
+
+- 新增 position-accounting.ts，按成交时间顺序回放 BUY/SELL，使用加权平均成本法。
+- BUY fill 根据 V3.3 底仓比例拆分长期底仓与周期仓。
+- 普通止盈、指标止盈、追踪止损只能减少周期仓；底仓减仓只减少长期底仓。
+- BUY 基础币手续费：净买入数量扣除手续费，不重复加成本。
+- BUY USDT/第三资产手续费：计入成本。
+- SELL 基础币手续费：增加被处置数量，不再从 quote proceeds 重复扣手续费。
+- SELL USDT/第三资产手续费：从净卖出收入扣除。
+- 计算每笔卖出时的平均成本、成本移除额与累计实现盈亏。
+- TradeLedgerEntry.sellKind 持久化卖出事件类别；卖出同步传入事件类别。
+- 新增 getReconciledPositionFromLedger，读取本地成交台账并重建单币快照。
+- 新增 fetchSpotAssetBalance 和 getSellPositionSnapshotFromBinance，读取 Binance free/locked，并要求交易所总持仓与本地台账数量一致，否则拒绝输出卖出预检快照。
+- 新增 prepareQueuedSellDryRunFromBinance，只有本地成交账本和 Binance free/locked 对账一致后才进入只读卖出预检；新增集成测试覆盖成功路径与数量不一致阻断。
+- 测试覆盖买卖费用、底仓/周期仓边界和异常成交数据。
+
+## 当前计算口径
+
+- BUY 基础币手续费：netQty = qty - commission，cost = quoteQty。
+- BUY 报价币/第三资产手续费：netQty = qty，cost = quoteQty + commissionUsdt。
+- SELL 基础币手续费：disposedQty = qty + commission，proceeds = quoteQty。
+- SELL 报价币/第三资产手续费：disposedQty = qty，proceeds = quoteQty - commissionUsdt。
+- 卖出实现盈亏：netProceeds - averageCost × disposedQty。
+
+## 安全限制
+
+- 本地回放只代表已核验成交；getSellPositionSnapshotFromBinance 会额外与 Binance free/locked 总量核对，二者不一致就拒绝提供卖出预检快照。
+- 手动交易、转入/转出、其他设备交易或遗漏历史成交会造成台账与交易所余额差异。
+- 当前底仓比例从 V3.3 配置读取；将来若改变比例，必须保存历史策略参数或做显式迁移。
+- 已接入只读 DRY_RUN 卖出预检；仍然没有任何真实下单调用。
+- 未确认成交、第三资产手续费未可靠估值或超过仓位的卖出，必须暂停并人工复核。
+- 不包含订单提交、撤单、自动重试；实盘保持关闭。
+
+
+---
+
+<!-- 原文件：lib/execution/PHASE_12.md -->
+
+# 第十二阶段：买入历史参数固化
+
+## 目标
+
+让每笔买入使用其产生时的策略参数拆分底仓/周期仓，禁止未来策略参数变化重算历史仓位。
+
+## 已完成
+
+- 新买入信号入队时写入 `baseRatioAtSignal`，核心资产按当时配置取积极型比例，其他资产取保守型比例。
+- 买入队列创建时验证比例在 [0, 1] 范围内。
+- 已确认 BUY fill 入账时从对应队列订单读取冻结比例，并将 `baseRatioAtBuy` 保存到 TradeLedgerEntry。
+- 同一待买订单多次部分成交都使用相同冻结比例。
+- 持仓账本逐笔读取 `baseRatioAtBuy`，不再依赖当前策略配置。
+- 对缺少历史比例的旧待买订单拒绝新成交入账；旧成交记录缺参时拒绝持仓回放。
+- 测试覆盖 40%/20% profile、混合历史比例回放、无效比例和旧记录缺参阻断。
+- 修正基础币手续费的 USDT 支出口径：基础币手续费只减少/增加净持仓数量，不再重复计入 USDT 成本或收入费用；USDT 手续费仍按 quote 金额处理，第三资产手续费仍拒绝自动入账。
+
+## 兼容与迁移
+
+- 不需要升级 IndexedDB store schema；新增字段随记录写入。
+- 已有 IndexedDB 记录不会自动补字段或被删除。
+- 对于旧成交台账，不能仅凭当前配置推断历史底仓比例。需先核对成交发生时的策略版本/参数，再制定显式迁移；在此之前卖出预检保持阻断。
+- 旧待买队列订单如果没有 `baseRatioAtSignal`，其后续成交入账将失败并进入人工复核流程，避免静默套用新比例。
+
+## 当前安全边界
+
+- 仍然没有 Binance 下单 POST、撤单或自动重试。
+- 本阶段不请求交易权限，不会产生真实交易。
+- 新字段只记录买入拆分比例；后续仍需固化其他影响仓位分类/成本计算的策略参数，并完善手动转入转出核对。
+
+
+---
+
+<!-- 原文件：lib/execution/PHASE_13.md -->
+
+# 第十三阶段：持仓差异诊断报告（只读）
+
+## 目标
+
+当本地已确认成交台账与 Binance 现货余额不一致时，向用户展示明确的差异方向和数量，而不是只返回一个笼统异常；同时保持自动卖出 fail-closed。
+
+## 已完成
+
+- 新增 `buildPositionReconciliationReport`，分类：
+  - `matched`：本地台账与交易所总持仓在容差内一致。
+  - `exchange_higher`：交易所持仓高于本地台账，可能是外部转入、漏同步成交或其他账户操作。
+  - `ledger_higher`：本地台账高于交易所持仓，可能是转出、手动卖出或未同步账户变化。
+  - `exchange_components_invalid`：Binance free + locked 与 total 自身不一致。
+- 报告包含 ledger、free、locked、total、delta、tolerance、canSell 和解释文本。
+- 新增 `getPositionReconciliationReportFromBinance`，整合本地成交回放和 Binance 只读余额。
+- 新增测试覆盖四种状态。
+
+## 安全边界
+
+- 不自动把余额差额当作买入、卖出或转账。
+- 不自动调整成本、底仓、周期仓或成交台账。
+- 诊断报告不是卖出授权；卖出预检继续使用原有严格核对函数。
+- 只有数量匹配时报告才返回 `canSell=true`，但这仍不代表交易已获授权或真实下单已启用。
+- 仍无 Binance 下单 POST；实盘保持关闭。
+
+
+---
+
+<!-- 原文件：lib/execution/PHASE_14.md -->
+
+# 第十四阶段：Spot 优先、Simple Earn 活期补足（资金调度规划）
+
+## 用户确认的资金策略
+
+- 闲置 USDT 留在 Simple Earn Flexible 赚取利息。
+- 买入时优先使用 Spot USDT。
+- Spot 不足时只赎回 Simple Earn Flexible 的差额。
+- 不自动赎回 Locked Earn。
+- Spot + Flexible Earn 仍不足时，保留未满足金额在待买队列，不扩大额度、不挪用其他资产。
+
+## 本阶段代码
+
+- `wallet-funds.ts`：Spot 优先资金分配纯函数。
+- `earn-redemption.ts`：按 Flexible 产品 productId 分配赎回金额、创建稳定幂等意图、限制状态迁移、处理超时复核和到账核验。
+- `earn-redemption.browser.ts`：读取 Spot、Flexible 持仓和本地预留，先原子预留本订单的 Spot 份额，再为缺口生成赎回计划；已有活动意图直接复用，不重复生成。
+- 新增 `submitPlannedEarnRedemption`：重新读取指定 productId 的可赎回余额，原子领取 planned 意图后才允许进入一次 POST；并发标签页不能重复领取。
+- 新增 `redeemFlexibleEarnUsdt`：实现 Binance Flexible redeem POST，固定 `destAccount=SPOT`、精确 productId 和金额；`LIVE_EARN_REDEMPTION_ENABLED=false`，默认 fail-closed，不会发送请求。
+- POST 返回 redeemId 后持久化；超时、响应异常或本地保存异常均转入 `reconcile_required`，禁止自动重发。
+- 若 POST 成功但浏览器未能保存 redeemId，可按 productId + USDT + 精确金额 + SPOT 目的账户查询历史；只有唯一匹配才恢复 redeemId，多条或零条匹配均人工复核。
+- 赎回到账后，只有通过 redemption history + Spot free 基线核验，才扩展该订单的本地 Spot 预留；普通预览不会扩大预留。
+- `store.browser.ts`：IndexedDB 升级到 v4，新增 `earn-redemption-intents`，以事务方式保存赎回意图和状态。
+- `binance.browser.ts`：按 Binance 实际返回字段读取 Flexible 持仓（`totalAmount`、`productId`、`canRedeem`、`collateralAmount`），归一化后保留 productId；Locked 持仓按 `amount` / `redeemingAmt` 读取；另有只读赎回历史查询。
+- 不再把现货账户的 `LDUSDT` / `LD...` 代码猜测性地转换为基础资产；Simple Earn 持仓以专用 position API 为准。
+- `BuyQueue.tsx`：新增“资金来源规划”，展示现货使用、活期计划赎回和未满足金额。
+- 新增测试覆盖多产品拆分、同一产品重复意图、跨订单本地预留、超时转复核、赎回历史匹配和 Spot 到账确认。
+
+## 资金计划规则
+
+1. Spot free 先扣除其他买单的活动本地预留。
+2. Spot 可用金额优先覆盖本次待买金额。
+3. 只对差额分配 Flexible Earn USDT。
+4. 分配按具体 productId 进行，并扣除交易所冻结、赎回中和其他订单本地赎回预留。
+5. Locked Earn 永远不进入自动赎回分配。
+6. 活期余额不足时返回未满足金额，不能扩大本次计划金额。
+
+## 赎回幂等与恢复
+
+- 每个买单 + Flexible productId 生成稳定意图 ID；重复刷新复用已有意图。
+- 状态流转：planned → submitting → submitted → redeeming → credited。
+- 请求超时或响应不明确时转 `reconcile_required`，不允许盲目重复提交。
+- 赎回历史优先匹配确切的 Binance redemptionId、USDT、金额和 SPOT 目的账户；丢失 redemptionId 时仅允许按 productId + 金额等字段唯一恢复。
+- 只有赎回历史核实且 Spot free 相对赎回前基线增加足额，才标记 credited。
+- 无 redemptionId、历史记录不唯一、金额不匹配或余额未到账时，转人工复核/继续等待，不允许启动买单。
+
+## 当前执行边界（非常重要）
+
+- 当前 `LIVE_EARN_REDEMPTION_ENABLED=false`，虽然已实现 POST 适配器和单次提交/失败复核流程，但所有入口仍 fail-closed，不会调用 Binance redeem POST；也没有 Spot order POST。
+- 当前用户 API Key 仍为只读，不能执行赎回。Binance 官方将 Flexible redeem 定义为 `POST /sapi/v1/simple-earn/flexible/redeem`，权限分类为 `TRADE`；赎回历史是 GET USER_DATA。参考：[Binance Simple Earn API](https://developers.binance.com/en/docs/catalog/investment-and-services-simple-earn/api/rest-api/flexible-locked)。
+- 用户选择私人自用的浏览器直连模式，并接受 API Secret 会进入前端 bundle 的风险。该方案不是安全隔离：只能使用专用 Key、绑定固定 IP、禁止提现/划转/合约权限，不可把 Key/Secret 写入源码或提交 Git；若不能绑定 IP，不应开启交易权限。
+- 启用前仍需用户明确确认、换用专用 TRADE Key，并在 Binance Testnet/小额受控环境完成验证；当前不会要求用户现在开启权限。
+- IndexedDB 是本浏览器本地状态；清除站点数据会丢失赎回意图。不能把本地意图当作 Binance 已赎回的事实。
