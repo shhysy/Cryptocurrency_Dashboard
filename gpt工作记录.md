@@ -326,3 +326,28 @@
 - CI：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44481270903
 - 本轮新增提交：`6d55d3a492353d77aa12fc93368198db95c8963a`（10 订单并发压力测试）、`a972fa1cfb7b1a34cfd038968a4cd878e96e1705`（金额上限规则）、`8774ce03ab62a7472f997ac84ada20de9c7bd65b`（事务内传入实时订单剩余金额）、`8fc9daee7a9af4ce56c7de43107d57d0481a33c7`、`599022bbbb8d1b7fd250c64455752d6d79619beb`、`8f7b4caeb26bc7eb4bab3dff49d2f33c3c5f26a3`（相关边界测试）、`9f4318986d600ca0fd53ada2707c3c9fd639af92`（测试分组修复）。
 - GPT 负责的 BUY / IndexedDB 测试均通过；当前全量 CI 仍因 Grok 的 SELL guard 用例失败而非绿色，必须由 Grok 在其文件边界内修复后再确认整库通过。
+
+
+## 十二、Phase 33 — 规则手册对照与并行任务（2026-11-19）
+
+### 规则来源核验
+- 已读取仓库 `STRATEGY.md` 与 `strategy.config.ts`。
+- 已从用户文件库检索并读取《长期投资策略_V2.0.xlsx》完整 10 个工作表。
+- `STRATEGY.md` 声明当前规则来自《长期投资策略 V3.3》，但目前检索到的原始工作簿是 V2.0；仓库内不存在预期的 `docs/规则手册.md`。因此 V2.0 不能直接当作 V3.3 的最终授权规则，需用户确认/提供最新 V3.3 原表。
+- 已发现 V2.0 与当前仓库 V3.3 文档/代码有重大差异：底仓比例、评分维度、现金比例限制、补仓档位、止盈档位、追踪止损等；另有 `STRATEGY.md` 自身门槛文案与 `strategy.config.ts` 实际 100 分制阈值不一致。
+- 已新增 `docs/RULES_IMPLEMENTATION_MATRIX.md` 作为差异清单。未擅自更改任何策略参数、交易行为或生产开关。
+
+### Grok 新任务
+- 已在 `grok工作记录.md` 指派：P0 修复 SELL guard 显式底仓授权失败；P0 完成通知 Outbox/HMAC API 安全边界测试；P1 完成 SELL 全链路状态机审查与模拟测试。
+- Grok 只改其 SELL/通知白名单；不得修改 GPT BUY/资金预留、共享 store、策略配置或 Dashboard。
+
+### GPT 后续任务
+1. 基于规则矩阵逐项追踪配置、策略引擎、执行队列、成交台账、UI 文案和测试；先标记“已实现/部分实现/未实现/待确认”，不擅自改策略阈值。
+2. 优先核查数据完整性 fail-closed：未收盘周线、历史长度不足、指标缺失、数据源时间不一致、缓存过期时是否会产生买入/卖出执行许可。
+3. 继续补真实浏览器 IndexedDB 多标签页与重启恢复测试；fake-indexeddb 只证明模拟 API 行为，不等同真实浏览器跨进程验证。
+4. 完成历史回测框架与基准比较前，不建议进入生产实盘；先用历史数据与模拟成交验证，不使用真实余额。
+
+### 当前验证基线与限制
+- 最新已确认全量 CI run `44481270903`：39/40 测试文件通过、326 项测试通过、TypeScript typecheck 通过；唯一失败为 Grok 负责的 SELL guard 测试，已重新指派 Grok 修复。
+- GPT 的资金预留 / IndexedDB 测试文件已通过；仍缺真实浏览器跨进程多标签页、浏览器进程重启、quota exceeded 的验证。
+- 生产现货 BUY/SELL 与 Simple Earn 自动赎回保持关闭；未发送真实订单、未操作真实资金。
