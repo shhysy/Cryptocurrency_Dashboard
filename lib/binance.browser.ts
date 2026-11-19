@@ -70,14 +70,27 @@ async function serverNow(): Promise<number> {
 }
 
 async function signedGet<T>(path: string, params: Record<string, string | number> = {}): Promise<T> {
-  if (!API_KEY || !API_SECRET) {
-    throw new Error("浏览器端私密 API 已禁用；请通过服务端签名代理访问账户和成交接口");
+  const response = await fetch("/api/binance/signed-read", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, params }),
+    cache: "no-store",
+    credentials: "same-origin",
+  });
+  const body = await response.text();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    throw new Error("服务端 Binance 只读代理返回了无效响应");
   }
-  const qs = new URLSearchParams(
-    Object.entries({ ...params, recvWindow: 10000, timestamp: Math.round(await serverNow()) }).map(([k, v]) => [k, String(v)]),
-  ).toString();
-  const signature = await hmacHex(API_SECRET, qs);
-  return getJson<T>(`${BASE}${path}?${qs}&signature=${signature}`, { "X-MBX-APIKEY": API_KEY });
+  if (!response.ok) {
+    const detail = parsed && typeof parsed === "object" && "detail" in parsed
+      ? String((parsed as { detail: unknown }).detail)
+      : "Binance 只读请求失败";
+    throw new Error(detail.slice(0, 180));
+  }
+  return parsed as T;
 }
 
 /**
