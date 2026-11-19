@@ -18,6 +18,113 @@ export interface ReservationPlan {
   reason: string | null;
 }
 
+export interface ReservationTopUpPlan {
+  ok: boolean;
+  reservedUsdt: number;
+  additionalUsdt: number;
+  availableUsdt: number;
+  totalReservedUsdt: number;
+  reason: string | null;
+}
+
+/** Validate the live queue row before creating or extending its local reservation. */
+export function buyOrderReservationBlockReason(
+  order: {
+    id: string;
+    symbol: string;
+    quoteAsset: string;
+    status: string;
+  } | null | undefined,
+  orderId: string,
+  reservationSymbol: string,
+): string | null {
+  if (!order || order.id !== orderId) return "资金预留对应的待买订单不存在";
+  if (order.status !== "pending" && order.status !== "partially_filled") {
+    return `待买订单当前状态为 ${order.status}，禁止新建或扩展资金预留`;
+  }
+  if (!order.symbol || !order.quoteAsset) return "待买订单缺少交易对信息";
+  const pair = order.symbol.endsWith(order.quoteAsset)
+    ? order.symbol
+    : order.symbol + order.quoteAsset;
+  if (pair !== reservationSymbol) return "资金预留交易对与当前待买订单不一致";
+  return null;
+}
+
+/**
+ * Extend an existing order reservation without ever shrinking funds already
+ * held for that order. Only the unreserved balance after other orders may fund
+ * the additional amount.
+ */
+export function planBuyFundsReservationTopUp(input: {
+  orderId: string;
+  requestedRemainingUsdt: number;
+  observedFreeUsdt: number;
+  activeReservations: BuyFundsReservation[];
+  currentReservation: BuyFundsReservation | null;
+}): ReservationTopUpPlan {
+  const { orderId, requestedRemainingUsdt, observedFreeUsdt, activeReservations, currentReservation } = input;
+  if (!orderId || !Array.isArray(activeReservations) ||
+      !Number.isFinite(requestedRemainingUsdt) || requestedRemainingUsdt < 0 ||
+      !Number.isFinite(observedFreeUsdt) || observedFreeUsdt < 0) {
+    return {
+      ok: false, reservedUsdt: 0, additionalUsdt: 0, availableUsdt: 0,
+      totalReservedUsdt: 0, reason: "理财到账后的资金预留参数无效",
+    };
+  }
+  if (currentReservation && currentReservation.orderId !== orderId) {
+    return {
+      ok: false, reservedUsdt: 0, additionalUsdt: 0, availableUsdt: 0,
+      totalReservedUsdt: 0, reason: "当前资金预留订单 ID 不匹配",
+    };
+  }
+  if (currentReservation && !["active", "released"].includes(currentReservation.status)) {
+    return {
+      ok: false, reservedUsdt: 0, additionalUsdt: 0, availableUsdt: 0,
+      totalReservedUsdt: 0, reason: "当前资金预留状态无效，必须人工核对",
+    };
+  }
+
+  const active = activeReservations.filter((item) => item?.status === "active");
+  const validation = planBuyFundsReservation({
+    orderId,
+    requestedUsdt: Math.max(requestedRemainingUsdt, 1e-8),
+    observedFreeUsdt,
+    activeReservations,
+    minNotionalUsdt: 0,
+  });
+  if (!validation.ok) {
+    return {
+      ok: false, reservedUsdt: 0, additionalUsdt: 0,
+      availableUsdt: validation.availableUsdt,
+      totalReservedUsdt: validation.totalReservedUsdt,
+      reason: validation.reason,
+    };
+  }
+  const existingActive = active.find((item) => item.orderId === orderId) ?? null;
+  if (existingActive && (!currentReservation || existingActive !== currentReservation)) {
+    return {
+      ok: false, reservedUsdt: 0, additionalUsdt: 0,
+      availableUsdt: validation.availableUsdt,
+      totalReservedUsdt: validation.totalReservedUsdt,
+      reason: "当前活动资金预留快照不一致，必须人工核对",
+    };
+  }
+
+  const currentReserved = existingActive?.reservedUsdt ?? 0;
+  const desiredAdditional = Math.max(0, requestedRemainingUsdt - currentReserved);
+  const additionalCapacity = Math.max(0, validation.availableUsdt - currentReserved);
+  const additionalUsdt = Math.min(desiredAdditional, additionalCapacity);
+  const reservedUsdt = currentReserved + additionalUsdt;
+  return {
+    ok: true,
+    reservedUsdt,
+    additionalUsdt,
+    availableUsdt: validation.availableUsdt,
+    totalReservedUsdt: validation.totalReservedUsdt + reservedUsdt,
+    reason: null,
+  };
+}
+
 /**
  * Calculate a reservation against a fresh Binance USDT free snapshot.
  * Active reservations from other queue orders are deducted first.
