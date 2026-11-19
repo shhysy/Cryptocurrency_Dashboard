@@ -1,8 +1,14 @@
 import type { Candle, Trade } from "@/strategy/types";
-import { FALLBACK_BINANCE_API_KEY, FALLBACK_BINANCE_API_SECRET } from "./credentials";
-
-const apiKey = () => process.env.BINANCE_API_KEY || FALLBACK_BINANCE_API_KEY;
-const apiSecret = () => process.env.BINANCE_API_SECRET || FALLBACK_BINANCE_API_SECRET;
+const SPOT_TESTNET = process.env.BINANCE_SPOT_ENVIRONMENT === "testnet";
+const SPOT_BASE = SPOT_TESTNET
+  ? "https://testnet.binance.vision"
+  : (process.env.BINANCE_BASE_URL || "https://api.binance.com");
+const apiKey = () => SPOT_TESTNET
+  ? (process.env.BINANCE_TESTNET_API_KEY || "")
+  : (process.env.BINANCE_API_KEY || "");
+const apiSecret = () => SPOT_TESTNET
+  ? (process.env.BINANCE_TESTNET_API_SECRET || "")
+  : (process.env.BINANCE_API_SECRET || "");
 
 /**
  * 币安接口封装。
@@ -11,16 +17,14 @@ const apiSecret = () => process.env.BINANCE_API_SECRET || FALLBACK_BINANCE_API_S
  * - 只调用 GET 只读接口，代码里没有任何下单 / 提现请求。
  */
 // 公开行情优先走只读行情域名 data-api.binance.vision（无需 Key，对云厂商 IP 更宽松），失败再回退
-const PUBLIC_BASES = [
-  "https://data-api.binance.vision",
-  process.env.BINANCE_BASE_URL,
-  "https://api.binance.com",
-].filter(Boolean) as string[];
+const PUBLIC_BASES = SPOT_TESTNET
+  ? [SPOT_BASE]
+  : ["https://data-api.binance.vision", process.env.BINANCE_BASE_URL, "https://api.binance.com"].filter(Boolean) as string[];
 
 /** 账户余额 / 成交默认开启（需要主域名 + 签名）。设置 ENABLE_ACCOUNT=0 可关闭（如部署到受限的云环境）。 */
 export const accountEnabled = () => process.env.ENABLE_ACCOUNT !== "0";
 
-const SIGNED_BASE = process.env.BINANCE_BASE_URL || "https://api.binance.com";
+const SIGNED_BASE = SPOT_BASE;
 
 /**
  * 代理：设置 PROXY_URL（如 http://127.0.0.1:7897）后，所有币安请求经该代理发出。
