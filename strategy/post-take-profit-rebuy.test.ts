@@ -105,3 +105,18 @@ describe("sequential take-profit tiers", () => {
     expect(result.coins[0].signal.action.label).not.toContain("均价回补");
   });
 });
+
+
+  it("restarts take-profit at tier 1 after a flat-and-reopen round", () => {
+    const flatSell: TradeLedgerEntry = {
+      ...sell, fillId: "sell-flat-round", time: 30, qty: 0.8, quoteQty: 120,
+      sellKind: "trail_stop",
+    };
+    const freshBuy: CoinCard["buys"][number] = {
+      id: "fresh-round-buy", t: 40, price: 90, qty: 1, costUsdt: 90, position: "mid",
+    };
+    const d = data({ coins: [{ ...coin, price: 200, qty: 1, marketValue: 200, buys: [...coin.buys, freshBuy] }] });
+    const result = applyPostTakeProfitRebuy(d, [event], [sell, flatSell]);
+    expect(result.coins[0].signal.action.label).toBe("止盈1");
+    expect(result.coins[0].signal.action.qty).toBeCloseTo(0.3, 10);
+  });
