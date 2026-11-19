@@ -55,6 +55,25 @@ describe("待买订单与部分买入计划", () => {
     });
   });
 
+  it("在订单尚未完成交易所终态对账时，部分成交不会解除 attempt 锁", () => {
+    const locked = markOrderReconcileRequired(order, "等待交易所订单终态");
+    expect(applyConfirmedBuyFill(locked, 40, 2000)).toMatchObject({
+      status: "reconcile_required",
+      filledUsdt: 40,
+      remainingUsdt: 60,
+      lastError: "等待交易所订单终态",
+    });
+  });
+
+  it("即使队列金额已全部成交，仍需等交易所终态对账后再解除 attempt 锁", () => {
+    const locked = markOrderReconcileRequired(order, "等待交易所订单终态");
+    expect(applyConfirmedBuyFill(locked, 100, 2000)).toMatchObject({
+      status: "reconcile_required",
+      filledUsdt: 100,
+      remainingUsdt: 0,
+    });
+  });
+
   it("实际成交支出超过队列剩余金额时拒绝自动记账", () => {
     expect(() => applyConfirmedBuyFill(order, 101, 2000)).toThrow("实际成交支出超过订单剩余计划金额");
   });
