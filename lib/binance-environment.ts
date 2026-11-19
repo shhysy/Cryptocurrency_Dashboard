@@ -71,6 +71,11 @@ export interface ServerBinanceEnvironment {
 }
 
 export function resolveServerBinanceEnvironment(env: ServerBinanceEnvironment) {
+  if (env.BINANCE_SPOT_ENVIRONMENT !== undefined &&
+      env.BINANCE_SPOT_ENVIRONMENT !== "testnet" &&
+      env.BINANCE_SPOT_ENVIRONMENT !== "production") {
+    throw new Error("BINANCE_SPOT_ENVIRONMENT 只能是 testnet 或 production；已拒绝启动 Binance 服务");
+  }
   if (env.BINANCE_SPOT_ENVIRONMENT === "testnet") {
     return {
       mode: "testnet" as const,
