@@ -178,6 +178,14 @@ describe("live buy-order reservation guard", () => {
     expect(buyOrderReservationBlockReason({ ...order, status: "partially_filled" }, "order-a", "BTCUSDT")).toBeNull();
   });
   it("rejects missing, stale-state, and mismatched-symbol orders", () => {
+  it("rejects a queued order with an invalid remaining amount", () => {
+    expect(buyOrderReservationBlockReason(
+      { ...order, remainingUsdt: Number.NaN },
+      "order-a",
+      "BTCUSDT",
+      10,
+    )).toContain("剩余金额无效");
+  });
   it("rejects a reservation request larger than the live order remainder", () => {
     expect(buyOrderReservationBlockReason(order, "order-a", "BTCUSDT", 101))
       .toContain("超过当前待买订单剩余金额");
