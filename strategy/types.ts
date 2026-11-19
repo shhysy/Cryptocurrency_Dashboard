@@ -30,6 +30,7 @@ export interface Trade {
   qty: number;
   fee: number;
   source: "binance" | "manual";
+  orderId?: string;
 }
 
 export interface Reason {
