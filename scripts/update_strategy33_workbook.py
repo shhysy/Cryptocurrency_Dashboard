@@ -330,3 +330,5 @@ print("BACKTEST_TEXT_REMAINING", [(sh.title, c.coordinate, str(c.value)[:100]) f
 print("FILE_BYTES", path.stat().st_size)
 
 print('STRATEGY33_AUTOMATION_UPDATE_READY')
+
+print('NO_EXTERNAL_RECALC_DEPENDENCY')
