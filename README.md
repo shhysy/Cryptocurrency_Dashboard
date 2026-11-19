@@ -6,7 +6,7 @@
 
 ## 本地运行
 
-需要 Node.js 20.9 以上（推荐 22 LTS）。
+需要 Node.js 20.9 以上（推荐 22 LTS）。先复制 `.env.example` 为 `.env.local`，密钥只填写在本地文件。`.env.local` 已加入 Git 忽略规则。
 
 ```bash
 npm install
