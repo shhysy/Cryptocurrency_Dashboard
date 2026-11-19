@@ -81,3 +81,9 @@
 - 当前分支最新清理仍需以GitHub Actions最终结果为准；本轮未修改策略引擎或订单业务逻辑。
 
 - 补充修正 `workers/SELL_EMAIL_ALERT_SETUP.md`：明确该Worker只发送策略卖出信号提醒，与已确认成交邮件分开；更新为当前服务端 `/api/dashboard` 数据链路，移除旧的浏览器直连说明。
+
+## 清理未接通的浏览器数据入口（2026-11-19）
+- 检查 `app/page.tsx`、`components/Dashboard.tsx` 与 API 路由后确认：页面刷新始终请求同源 `/api/dashboard`；旧 `NEXT_PUBLIC_DIRECT_BINANCE` 分支仅返回 mock 占位数据，没有接入 `getBrowserDashboard`。
+- 删除未被调用的 `lib/service.browser.ts`，并从 `app/page.tsx` 移除无效的浏览器直连占位分支及其 mock 导入；保留仍被执行层调用的 `lib/binance.browser.ts`。
+- 已检索 `NEXT_PUBLIC_DIRECT_BINANCE`、`getBrowserDashboard`、`service.browser` 的仓库代码引用，未发现其他引用。
+- 该项清理涉及页面入口代码，需以最新CI测试与类型检查结果确认。
