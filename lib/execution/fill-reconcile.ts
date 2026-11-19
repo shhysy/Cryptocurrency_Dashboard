@@ -19,6 +19,65 @@ export type BuyFillReconciliation = FillReconciliation;
 
 const EPSILON = 1e-8;
 
+function collectMatchingTrades(
+  order: FillOrderSnapshot,
+  trades: BinanceSpotTrade[],
+  expectedBuyer: boolean,
+): BinanceSpotTrade[] {
+  const unique = new Map<string, BinanceSpotTrade>();
+  for (const trade of trades) {
+    if (trade.symbol !== order.symbol || trade.orderId !== order.orderId) continue;
+    if (trade.isBuyer !== expectedBuyer) {
+      throw new Error(expectedBuyer
+        ? "买入订单成交明细出现卖出方向记录"
+        : "卖出订单成交明细出现买入方向记录");
+    }
+    if (!Number.isSafeInteger(trade.id) || trade.id < 0 ||
+        !Number.isSafeInteger(trade.orderId) || trade.orderId <= 0 ||
+        !trade.symbol ||
+        ![trade.price, trade.qty, trade.quoteQty, trade.commission, trade.time].every(Number.isFinite) ||
+        trade.price <= 0 || trade.qty <= 0 || trade.quoteQty <= 0 ||
+        trade.commission < 0 || trade.time < 0 ||
+        typeof trade.commissionAsset !== "string" || !trade.commissionAsset.trim()) {
+      throw new Error("成交明细数值或资产字段无效");
+    }
+
+    // Binance quoteQty should agree with price × quantity within a small
+    // floating-point tolerance. A mismatch must not enter the cost ledger.
+    const calculatedQuote = trade.price * trade.qty;
+    const quoteTolerance = Math.max(EPSILON, Math.abs(calculatedQuote) * EPSILON);
+    if (Math.abs(calculatedQuote - trade.quoteQty) > quoteTolerance) {
+      throw new Error("成交明细价格、数量与成交金额不一致");
+    }
+
+    const id = String(trade.id);
+    const previous = unique.get(id);
+    if (previous) {
+      const identical = previous.orderId === trade.orderId &&
+        previous.symbol === trade.symbol &&
+        previous.price === trade.price &&
+        previous.qty === trade.qty &&
+        previous.quoteQty === trade.quoteQty &&
+        previous.commission === trade.commission &&
+        previous.commissionAsset === trade.commissionAsset &&
+        previous.time === trade.time &&
+        previous.isBuyer === trade.isBuyer;
+      if (!identical) throw new Error("同一 Binance 成交 ID 返回了冲突的成交数据");
+      continue;
+    }
+    unique.set(id, trade);
+  }
+  return [...unique.values()];
+}
+
+function validateOrderTotals(order: FillOrderSnapshot): void {
+  if (!order.symbol || !Number.isSafeInteger(order.orderId) || order.orderId <= 0 ||
+      ![order.executedQty, order.cummulativeQuoteQty].every(Number.isFinite) ||
+      order.executedQty < 0 || order.cummulativeQuoteQty < 0 ||
+      ((order.executedQty === 0) !== (order.cummulativeQuoteQty === 0))) {
+    throw new Error("订单累计成交数据无效");
+  }
+}
 /**
  * Match actual BUY fills against Binance's cumulative order totals.
  * BNB/third-asset commissions are deliberately not guessed: the caller must
@@ -30,24 +89,8 @@ export function reconcileConfirmedBuyFills(
   baseAsset: string,
   quoteAsset: string,
 ): FillReconciliation {
-  if (!order.symbol || !Number.isSafeInteger(order.orderId) || order.orderId <= 0 ||
-      ![order.executedQty, order.cummulativeQuoteQty].every(Number.isFinite) ||
-      order.executedQty < 0 || order.cummulativeQuoteQty < 0) {
-    throw new Error("订单累计成交数据无效");
-  }
-
-  const unique = new Map<string, BinanceSpotTrade>();
-  for (const trade of trades) {
-    if (trade.symbol !== order.symbol || trade.orderId !== order.orderId) continue;
-    if (!trade.isBuyer) throw new Error("买入订单成交明细出现卖出方向记录");
-    if (![trade.price, trade.qty, trade.quoteQty, trade.commission, trade.time].every(Number.isFinite) ||
-        trade.price <= 0 || trade.qty <= 0 || trade.quoteQty < 0 || trade.commission < 0) {
-      throw new Error("成交明细数值无效");
-    }
-    unique.set(String(trade.id), trade);
-  }
-
-  const matched = [...unique.values()];
+  validateOrderTotals(order);
+  const matched = collectMatchingTrades(order, trades, true);
   const fills: ExecutionFill[] = matched.map((trade) => {
     let commissionUsdt = 0;
     if (trade.commissionAsset === quoteAsset) commissionUsdt = trade.commission;
@@ -97,24 +140,9 @@ export function reconcileConfirmedSellFills(
   baseAsset: string,
   quoteAsset: string,
 ): FillReconciliation {
-  if (!order.symbol || !Number.isSafeInteger(order.orderId) || order.orderId <= 0 ||
-      ![order.executedQty, order.cummulativeQuoteQty].every(Number.isFinite) ||
-      order.executedQty < 0 || order.cummulativeQuoteQty < 0) {
-    throw new Error("订单累计成交数据无效");
-  }
-
-  const unique = new Map<string, BinanceSpotTrade>();
-  for (const trade of trades) {
-    if (trade.symbol !== order.symbol || trade.orderId !== order.orderId) continue;
-    if (trade.isBuyer) throw new Error("卖出订单成交明细出现买入方向记录");
-    if (![trade.price, trade.qty, trade.quoteQty, trade.commission, trade.time].every(Number.isFinite) ||
-        trade.price <= 0 || trade.qty <= 0 || trade.quoteQty <= 0 || trade.commission < 0) {
-      throw new Error("成交明细数值无效");
-    }
-    unique.set(String(trade.id), trade);
-  }
-
-  const fills: ExecutionFill[] = [...unique.values()].map((trade) => {
+  validateOrderTotals(order);
+  const matched = collectMatchingTrades(order, trades, false);
+  const fills: ExecutionFill[] = matched.map((trade) => {
     let commissionUsdt = 0;
     if (trade.commissionAsset === quoteAsset) commissionUsdt = trade.commission;
     else if (trade.commissionAsset === baseAsset) commissionUsdt = 0;
