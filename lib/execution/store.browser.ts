@@ -215,12 +215,32 @@ export async function recordConfirmedSellFill(
       const ledgerStore = tx.objectStore(LEDGER);
       const outbox = tx.objectStore(NOTIFICATION_OUTBOX);
       const getFill = fills.get(id);
+      const getLedger = ledgerStore.get(id);
       let result: { recorded: boolean; ledger: TradeLedgerEntry } | undefined;
       let fatal: Error | null = null;
-      getFill.onsuccess = () => {
+      const finishDuplicateCheck = () => {
+        if (getFill.readyState !== "done" || getLedger.readyState !== "done") return;
         const ledger: TradeLedgerEntry = { ...fill, id, realizedPnlUsdt: null, sellKind };
-        if (getFill.result) {
-          result = { recorded: false, ledger };
+        const existingFillRecord = getFill.result as { id: string; fill: ExecutionFill } | undefined;
+        const existingLedger = getLedger.result as TradeLedgerEntry | undefined;
+        if (existingFillRecord) {
+          if (!existingLedger) {
+            fatal = new Error("成交去重索引与台账记录不一致，暂停卖出记账");
+            tx.abort();
+            return;
+          }
+          try {
+            assertDuplicateExecutionFillMatches(existingFillRecord.fill, existingLedger.sellKind ?? null, fill, sellKind);
+            result = { recorded: false, ledger };
+          } catch (error) {
+            fatal = error instanceof Error ? error : new Error("重复成交数据冲突");
+            tx.abort();
+          }
+          return;
+        }
+        if (existingLedger) {
+          fatal = new Error("成交台账存在记录但去重索引缺失，暂停卖出记账");
+          tx.abort();
           return;
         }
         try {
@@ -233,7 +253,10 @@ export async function recordConfirmedSellFill(
           tx.abort();
         }
       };
+      getFill.onsuccess = finishDuplicateCheck;
+      getLedger.onsuccess = finishDuplicateCheck;
       getFill.onerror = () => { fatal = getFill.error ?? new Error("查询卖出成交 ID 失败"); tx.abort(); };
+      getLedger.onerror = () => { fatal = getLedger.error ?? new Error("查询卖出台账记录失败"); tx.abort(); };
       tx.oncomplete = () => result ? resolve(result) : reject(fatal ?? new Error("卖出成交事务未生成结果"));
       tx.onerror = () => reject(fatal ?? tx.error ?? new Error("写入卖出成交台账失败"));
       tx.onabort = () => reject(fatal ?? tx.error ?? new Error("卖出成交台账事务中止"));
