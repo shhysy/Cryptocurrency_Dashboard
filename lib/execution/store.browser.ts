@@ -1133,19 +1133,25 @@ export async function topUpBuyFundsReservationAfterEarnCredit(input: {
           result = current;
           return;
         }
-        const consumedUsdt = current?.consumedUsdt ?? 0;
+        const startsNewAttempt = current?.status === "released";
+        // A released reservation belongs to a completed exchange attempt.
+        // The next attempt has its own cumulative fill stream, so it must not
+        // inherit the prior attempt's consumed amount.
+        const consumedUsdt = startsNewAttempt ? 0 : (current?.consumedUsdt ?? 0);
         const now = input.now ?? Date.now();
         result = {
           orderId: input.orderId,
           symbol: input.symbol,
           reservedUsdt: plan.reservedUsdt,
-          originalReservedUsdt: Math.max(
-            current?.originalReservedUsdt ?? consumedUsdt,
-            consumedUsdt + plan.reservedUsdt,
-          ),
+          originalReservedUsdt: startsNewAttempt
+            ? plan.reservedUsdt
+            : Math.max(
+                current?.originalReservedUsdt ?? consumedUsdt,
+                consumedUsdt + plan.reservedUsdt,
+              ),
           consumedUsdt,
           status: "active",
-          createdAt: current?.createdAt ?? now,
+          createdAt: startsNewAttempt ? now : (current?.createdAt ?? now),
           updatedAt: now,
           releaseReason: null,
         };
