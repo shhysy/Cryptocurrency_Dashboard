@@ -53,11 +53,11 @@ export async function dispatchPendingTradeNotifications(): Promise<{
         result.accepted! + result.duplicate! !== batch.length) {
       throw new Error(result?.error ?? `成交通知服务返回 HTTP ${response.status}`);
     }
-    await Promise.all(batch.map((event) => markTradeNotificationSent(event.id)));
+    await Promise.all(batch.map((event) => markTradeNotificationSent(event.id, event.leaseToken ?? "")));
     return { claimed: batch.length, sent: batch.length, failed: 0, reason: null };
   } catch (error) {
     const reason = error instanceof Error ? error.message : "成交通知投递失败";
-    await Promise.all(batch.map((event) => markTradeNotificationFailed(event.id, reason)));
+    await Promise.all(batch.map((event) => markTradeNotificationFailed(event.id, event.leaseToken ?? "", reason)));
     return { claimed: batch.length, sent: 0, failed: batch.length, reason };
   }
 }
