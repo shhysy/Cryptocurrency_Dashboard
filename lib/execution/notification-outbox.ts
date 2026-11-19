@@ -92,3 +92,90 @@ export function buildTradeFillNotificationEvent(
     sentAt: null,
   };
 }
+
+/** 失败重试退避（毫秒）：与 store 中 markFailed 公式一致，便于单测 */
+export function tradeNotificationRetryDelayMs(attemptCount: number): number {
+  const n = Number.isFinite(attemptCount) ? Math.max(0, Math.floor(attemptCount)) : 0;
+  return Math.min(60 * 60_000, 30_000 * (2 ** Math.min(n, 7)));
+}
+
+const DEFAULT_LEASE_MS = 60_000;
+
+/**
+ * 纯函数：领取租约后的事件状态（不写库）。
+ * 仅当 isTradeNotificationClaimable 为真时调用。
+ */
+export function applyTradeNotificationLeaseClaim(
+  event: TradeNotificationOutboxEvent,
+  now: number,
+  leaseToken: string,
+  leaseMs = DEFAULT_LEASE_MS,
+): TradeNotificationOutboxEvent {
+  if (!isTradeNotificationClaimable(event, now)) {
+    throw new Error("成交通知事件当前不可领取");
+  }
+  if (!leaseToken || typeof leaseToken !== "string") {
+    throw new Error("成交通知租约令牌无效");
+  }
+  if (!Number.isSafeInteger(now) || now <= 0 || !Number.isFinite(leaseMs) || leaseMs <= 0) {
+    throw new Error("成交通知租约时间参数无效");
+  }
+  return {
+    ...event,
+    status: "sending",
+    leaseUntil: now + leaseMs,
+    leaseToken,
+    updatedAt: now,
+    lastError: null,
+  };
+}
+
+/**
+ * 纯函数：租约令牌匹配时标记已发送。令牌不匹配则抛错（模拟围栏拒绝）。
+ */
+export function applyTradeNotificationSent(
+  event: TradeNotificationOutboxEvent,
+  leaseToken: string,
+  now: number,
+): TradeNotificationOutboxEvent {
+  if (!Number.isSafeInteger(now) || now <= 0) throw new Error("时间戳无效");
+  if (event.status !== "sending" || event.leaseToken !== leaseToken) {
+    throw new Error("成交通知租约令牌不匹配或状态不是 sending，拒绝标记已发送");
+  }
+  return {
+    ...event,
+    status: "sent",
+    leaseUntil: null,
+    leaseToken: null,
+    nextAttemptAt: null,
+    sentAt: now,
+    updatedAt: now,
+    lastError: null,
+  };
+}
+
+/**
+ * 纯函数：租约匹配时标记失败并设置指数退避。
+ */
+export function applyTradeNotificationFailed(
+  event: TradeNotificationOutboxEvent,
+  leaseToken: string,
+  error: string,
+  now: number,
+): TradeNotificationOutboxEvent {
+  if (!Number.isSafeInteger(now) || now <= 0) throw new Error("时间戳无效");
+  if (event.status !== "sending" || event.leaseToken !== leaseToken) {
+    throw new Error("成交通知租约令牌不匹配或状态不是 sending，拒绝标记失败");
+  }
+  const attemptCount = event.attemptCount + 1;
+  return {
+    ...event,
+    status: "failed",
+    leaseUntil: null,
+    leaseToken: null,
+    attemptCount,
+    nextAttemptAt: now + tradeNotificationRetryDelayMs(attemptCount),
+    updatedAt: now,
+    lastError: error || "成交通知投递失败",
+  };
+}
