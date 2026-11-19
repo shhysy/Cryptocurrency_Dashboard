@@ -453,7 +453,12 @@ export async function reserveBuyFunds(input: {
   minNotionalUsdt: number;
   now?: number;
 }): Promise<{ reservation: BuyFundsReservation | null; plan: ReturnType<typeof planBuyFundsReservation> }> {
-  if (!input.orderId || !input.symbol) throw new Error("资金预留缺少订单或交易对标识");
+  if (!input.orderId || !input.symbol ||
+      ![input.requestedUsdt, input.observedFreeUsdt, input.minNotionalUsdt].every(Number.isFinite) ||
+      input.requestedUsdt <= 0 || input.observedFreeUsdt < 0 || input.minNotionalUsdt < 0 ||
+      (input.now !== undefined && (!Number.isSafeInteger(input.now) || input.now <= 0))) {
+    throw new Error("资金预留参数无效");
+  }
   const db = await openDb();
   try {
     return await new Promise((resolve, reject) => {
@@ -1038,7 +1043,8 @@ export async function topUpBuyFundsReservationAfterEarnCredit(input: {
 }): Promise<BuyFundsReservation | null> {
   if (!input.orderId || !input.symbol ||
       ![input.requestedRemainingUsdt, input.observedFreeUsdt].every(Number.isFinite) ||
-      input.requestedRemainingUsdt < 0 || input.observedFreeUsdt < 0) {
+      input.requestedRemainingUsdt < 0 || input.observedFreeUsdt < 0 ||
+      (input.now !== undefined && (!Number.isSafeInteger(input.now) || input.now <= 0))) {
     throw new Error("理财到账后的资金预留参数无效");
   }
   const db = await openDb();
