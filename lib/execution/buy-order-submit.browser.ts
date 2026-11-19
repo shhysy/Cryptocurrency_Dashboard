@@ -44,7 +44,7 @@ export async function submitQueuedBuyOrder(
   remainingAssetCapUsdt: number,
 ): Promise<BuyOrderSubmissionResult> {
   if (!BINANCE_SPOT_BUY_SUBMISSION_ENABLED) {
-    throw new Error("现货实盘买入尚未启用；当前不会发送 Binance 订单 POST");
+    throw new Error("测试网买入未启用；当前不会发送 Binance 订单 POST");
   }
   const orders = await listBuyOrders();
   const order = orders.find((item) => item.id === queuedOrderId);
