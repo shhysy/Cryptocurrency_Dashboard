@@ -10,7 +10,7 @@ import { normalizeFlexibleEarnPosition, sumSimpleEarnUsdtPositions, type SimpleE
  */
 import type { Candle, Trade } from "@/strategy/types";
 import { FALLBACK_BINANCE_API_KEY, FALLBACK_BINANCE_API_SECRET } from "./credentials";
-import { assertSimpleEarnSupported, resolveBinanceSpotEnvironment } from "./binance-environment";
+import { assertSimpleEarnSupported, resolveBinanceSpotEnvironment, resolveBinanceSpotSubmissionSwitches } from "./binance-environment";
 
 // NEXT_PUBLIC_* 会被打包到客户端，浏览器直连模式无法对使用者隐藏 Secret。
 const SPOT_ENVIRONMENT = resolveBinanceSpotEnvironment({
@@ -27,6 +27,21 @@ const API_SECRET = SPOT_ENVIRONMENT.apiSecret;
 const BASE = SPOT_ENVIRONMENT.apiBase;
 export const BINANCE_SPOT_ENVIRONMENT = SPOT_ENVIRONMENT.mode;
 export const BINANCE_SPOT_API_BASE = SPOT_ENVIRONMENT.apiBase;
+const TESTNET_SUBMISSION_SWITCHES = resolveBinanceSpotSubmissionSwitches(
+  SPOT_ENVIRONMENT.mode,
+  {
+    NEXT_PUBLIC_BINANCE_SPOT_TESTNET_BUY_ENABLED: process.env.NEXT_PUBLIC_BINANCE_SPOT_TESTNET_BUY_ENABLED,
+    NEXT_PUBLIC_BINANCE_SPOT_TESTNET_SELL_ENABLED: process.env.NEXT_PUBLIC_BINANCE_SPOT_TESTNET_SELL_ENABLED,
+  },
+);
+export const BINANCE_SPOT_BUY_SUBMISSION_ENABLED =
+  SPOT_ENVIRONMENT.mode === "testnet"
+    ? TESTNET_SUBMISSION_SWITCHES.buyEnabled
+    : LIVE_SPOT_ORDER_SUBMISSION_ENABLED;
+export const BINANCE_SPOT_SELL_SUBMISSION_ENABLED =
+  SPOT_ENVIRONMENT.mode === "testnet"
+    ? TESTNET_SUBMISSION_SWITCHES.sellEnabled
+    : LIVE_SPOT_SELL_SUBMISSION_ENABLED;
 
 function assertSimpleEarnProductionOnly(): void {
   assertSimpleEarnSupported(BINANCE_SPOT_ENVIRONMENT);
@@ -104,7 +119,7 @@ export async function submitSpotMarketSell(input: {
   quantity: string;
   clientOrderId: string;
 }): Promise<BinanceSpotOrderSubmitResponse> {
-  if (!LIVE_SPOT_SELL_SUBMISSION_ENABLED) {
+  if (!BINANCE_SPOT_SELL_SUBMISSION_ENABLED) {
     throw new Error("Binance 现货实盘卖出尚未启用；当前不会发送订单 POST");
   }
   if (!API_KEY || !API_SECRET) throw new Error("缺少 Binance API Key/Secret");
@@ -156,7 +171,7 @@ export async function submitSpotMarketBuy(input: {
   quoteOrderQty: string;
   clientOrderId: string;
 }): Promise<BinanceSpotOrderSubmitResponse> {
-  if (!LIVE_SPOT_ORDER_SUBMISSION_ENABLED) {
+  if (!BINANCE_SPOT_BUY_SUBMISSION_ENABLED) {
     throw new Error("Binance 现货实盘买入尚未启用；当前不会发送订单 POST");
   }
   if (!API_KEY || !API_SECRET) throw new Error("缺少 Binance API Key/Secret");
