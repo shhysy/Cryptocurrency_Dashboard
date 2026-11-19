@@ -17,6 +17,15 @@ export interface FillReconciliation {
 
 export type BuyFillReconciliation = FillReconciliation;
 
+/** Reject a stored fill ID if later polling changes exchange data or its sell classification. */
+export function assertDuplicateExecutionFillMatches(existing: ExecutionFill, existingSellKind: string | null, incoming: ExecutionFill, incomingSellKind: string | null): void {
+  const fields: Array<keyof ExecutionFill> = ["fillId", "orderId", "symbol", "side", "time", "price", "qty", "quoteQty", "commission", "commissionAsset", "commissionUsdt"];
+  if (!fields.every((field) => existing[field] === incoming[field]) || existingSellKind !== incomingSellKind) {
+    throw new Error("已入账的 Binance 成交 ID 再次返回了不同成交数据或卖出分类，暂停记账并人工复核");
+  }
+}
+
+
 const EPSILON = 1e-8;
 
 function collectMatchingTrades(
