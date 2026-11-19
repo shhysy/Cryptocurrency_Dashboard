@@ -120,3 +120,11 @@ describe("sequential take-profit tiers", () => {
     expect(result.coins[0].signal.action.label).toBe("止盈1");
     expect(result.coins[0].signal.action.qty).toBeCloseTo(0.3, 10);
   });
+
+
+  it("blocks strategy actions when buy history cannot reconcile the current balance", () => {
+    const d = data({ coins: [{ ...coin, qty: 0.5, marketValue: 40 }] });
+    const result = applyPostTakeProfitRebuy(d, [], []);
+    expect(result.coins[0].signal.tag).toBe("暂缓");
+    expect(result.coins[0].signal.action.blocked.join()).toContain("无法核对");
+  });
