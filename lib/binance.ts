@@ -357,7 +357,7 @@ export async function submitTestnetSpotMarketOrder(
   if (!enabled) throw new Error("测试网该方向的订单提交开关未在服务端启用");
   if (!apiKey() || !apiSecret()) throw new Error("服务端缺少 Binance Testnet API Key/Secret");
   if (!/^[A-Z0-9]{5,24}$/.test(input.symbol)) throw new Error("交易对格式无效");
-  if (!/^(?:0|[1-9]\\d*)(?:\\.\\d{1,8})?$/.test(input.amount) || Number(input.amount) <= 0) {
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(input.amount) || Number(input.amount) <= 0) {
     throw new Error("订单数量或金额无效");
   }
   if (!/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) throw new Error("clientOrderId 格式无效");
