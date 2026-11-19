@@ -74,3 +74,33 @@ describe("post-take-profit average-cost rebuy", () => {
     expect(result.coins[0].signal.action.label).not.toContain("均价回补");
   });
 });
+
+
+describe("sequential take-profit tiers", () => {
+  it("sells 50% of the current cycle inventory at 2x", () => {
+    const d = data({ coins: [{ ...coin, price: 200, qty: 0.8, marketValue: 160 }] });
+    const result = applyPostTakeProfitRebuy(d, [], []);
+    expect(result.coins[0].signal.action.label).toBe("止盈1");
+    expect(result.coins[0].signal.action.qty).toBeCloseTo(0.24, 10);
+  });
+
+  it("does not skip the 3x tier when price jumps directly to 5x", () => {
+    const d = data({ coins: [{ ...coin, price: 500, qty: 0.8, marketValue: 400 }] });
+    const result = applyPostTakeProfitRebuy(d, [event], [sell]);
+    expect(result.coins[0].signal.action.label).toBe("止盈2");
+    expect(result.coins[0].signal.action.qty).toBeCloseTo(0.168, 10);
+  });
+
+  it("does not reactivate post-TP rebuys after the previous round went flat", () => {
+    const flatSell: TradeLedgerEntry = {
+      ...sell, fillId: "sell-flat", time: 30, qty: 0.8, quoteQty: 120,
+      sellKind: "trail_stop",
+    };
+    const freshBuy: CoinCard["buys"][number] = {
+      id: "fresh-buy", t: 40, price: 90, qty: 1, costUsdt: 90, position: "mid",
+    };
+    const d = data({ coins: [{ ...coin, price: 80, qty: 1, marketValue: 80, buys: [...coin.buys, freshBuy] }] });
+    const result = applyPostTakeProfitRebuy(d, [event], [sell, flatSell]);
+    expect(result.coins[0].signal.action.label).not.toContain("均价回补");
+  });
+});
