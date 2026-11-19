@@ -157,3 +157,56 @@
 
 ### 分工日志
 - 2026-11-19：完成 Grok / GPT 任务拆分；Grok 负责预备订单计划层，GPT 负责资金预留与订单恢复安全；明确文件白名单及禁止修改的共享 Dashboard 文件。
+
+
+## 九、Phase 31 — 资金预留与买入 attempt 安全加固（进行中）
+
+### 已完成的代码修复
+1. **资金预留写入增加 attempt fencing**
+   - `applyConfirmedBuyReservationSpend` 与 `releaseBuyFundsReservation` 现在在同一 IndexedDB readwrite transaction 中同时读取 `buy-orders` 和 `buy-funds-reservations`。
+   - 两个写入口都必须传入发起对账的 `expectedAttempt`；若订单 attempt 已变化或不再处于当前对账锁定状态，事务中止，不修改资金预留。
+   - `sync-buy-order.browser.ts` 将原始 attempt 传入资金预留更新和零成交终态释放。
+
+2. **成交后继续保持订单锁定**
+   - 发现 `recordConfirmedBuyFill` 原本调用 `applyConfirmedBuyFill` 后会立即把订单状态改成 `partially_filled/filled`，但交易所订单可能仍未终态；这会导致后续 attempt guard 拒绝同一次对账的资金更新/终态收敛。
+   - `queue.ts` 现对 `reconcile_required` 状态的订单保留该锁，直到交易所终态快照被确认后才由 `markBuyOrderReconciled` 转为 `pending/partially_filled/filled`。
+   - 新增部分成交和全量成交但交易所订单仍未终态时保持锁定的测试。
+
+3. **资金预留数据损坏时 fail-closed**
+   - `planBuyFundsReservation` 检查所有活动预留的金额有限性、原始预留/已消耗/剩余金额关系，以及活动订单 ID 重复。
+   - 发现损坏或重复的活动预留时，拒绝继续分配共享 USDT 余额。
+   - 已释放预留的最终成交累计值必须保持不变；后续快照出现变化时要求人工复核。
+   - `reserveBuyFunds` 在复用活动预留前先完整校验，并检查同一订单 ID 的交易对一致性。
+   - Earn 到账后扩展预留也先校验其他活动预留，再计算可用金额。
+   - 预留与扩展入口校验时间戳及输入参数。
+
+4. **IndexedDB 连接升级保护**
+   - 打开执行数据库时处理 `onblocked`，提示关闭旧标签页后重试。
+   - 数据库连接监听 `onversionchange` 并主动关闭旧连接，避免旧 Dashboard 标签页长期阻塞后续 schema 升级。
+
+### 本阶段修改文件
+- `lib/execution/store.browser.ts`
+- `lib/execution/fund-reservation.ts`
+- `lib/execution/queue.ts`
+- `lib/execution/sync-buy-order.browser.ts`
+- `lib/execution/sync-buy-order.browser.test.ts`
+- `lib/execution/fund-reservation.test.ts`
+- `lib/execution/queue.test.ts`
+
+### 验证
+- GitHub Actions：39 个测试文件通过、297 个测试通过、TypeScript typecheck 通过。
+- CI：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44478570533
+- 当前 GPT 代码最新提交：`4dea257e8756f2c6d96ca4a112123fc3dc104638`。
+- 之前一次 CI 因新增的 safe-to-retry 测试 mock 未返回订单对象而失败；已修正测试 fixture，后续 CI 通过。该失败不是生产代码测试失败。
+
+### 尚未完成（不得标记为 P0 全部完成）
+- 尚无真实 IndexedDB 多标签页并发集成测试：需验证两个不同订单并发预留不会超额、同一订单并发 claim 只有一个成功、并发 reserve/claim 交错时不会双提交。
+- 尚无浏览器重启后从 IndexedDB 恢复状态的端到端测试。
+- 尚无 IndexedDB quota / blocked / transaction abort / schema upgrade 的完整自动化故障注入测试。
+- 资金预留仍是浏览器本地协调机制，不是 Binance 交易所资金锁；没有跨设备互斥。
+- 本阶段全部为代码与 CI 模拟测试，未发送 Binance 订单，未操作真实余额；实盘开关保持关闭。
+
+### 与 Grok 本轮协作核对
+- Grok 已完成预备订单 `planKind: manual_prep`、校验、CSV/store 归一化和 UI「人工计划 / 非挂单」标记。
+- Grok 修改文件均在其白名单内，没有与本阶段 GPT 文件冲突。
+- Grok 记录已补充分工边界；预备订单仍不接入自动下单。
