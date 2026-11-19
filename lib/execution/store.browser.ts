@@ -146,16 +146,14 @@ export async function recordConfirmedBuyFill(
           // same transaction as the unique fill and queue/ledger update.
           if (currentReservation?.status === "active") {
             const cumulativeSpendUsdt = (currentReservation.consumedUsdt ?? 0) + confirmedSpendUsdt;
-            const remaining = remainingReservationAfterFill(currentReservation, cumulativeSpendUsdt);
-            reservations.put({
-              ...currentReservation,
-              reservedUsdt: remaining,
-              originalReservedUsdt: currentReservation.originalReservedUsdt ?? currentReservation.reservedUsdt,
-              consumedUsdt: cumulativeSpendUsdt,
-              status: remaining <= 1e-8 ? "released" : "active",
-              updatedAt: Date.now(),
-              releaseReason: remaining <= 1e-8 ? "已由真实成交完全消耗" : null,
-            } satisfies BuyFundsReservation);
+            // A fill alone does not prove the exchange order is terminal.
+            // Keep the reservation active until the order snapshot is terminal.
+            reservations.put(reconcileBuyFundsReservation(
+              currentReservation,
+              cumulativeSpendUsdt,
+              false,
+              Date.now(),
+            ));
           }
 
           fills.add({ id, fill });
