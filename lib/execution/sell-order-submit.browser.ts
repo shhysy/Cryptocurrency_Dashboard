@@ -1,7 +1,7 @@
 import {
   fetchSpotSymbolFilters,
   fetchTickers,
-  LIVE_SPOT_SELL_SUBMISSION_ENABLED,
+  BINANCE_SPOT_SELL_SUBMISSION_ENABLED,
   submitSpotMarketSell,
 } from "../binance.browser";
 import { parseMarketRules } from "./binance-preflight";
@@ -53,7 +53,7 @@ export function formatMarketSellQuantity(quantity: number, stepSize: number): st
  * retry the POST; recover the order through read-only clientOrderId lookup.
  */
 export async function submitQueuedSellEvent(eventKey: string): Promise<SellOrderSubmissionResult> {
-  if (!LIVE_SPOT_SELL_SUBMISSION_ENABLED) {
+  if (!BINANCE_SPOT_SELL_SUBMISSION_ENABLED) {
     throw new Error("现货实盘卖出尚未启用；当前不会发送 Binance 订单 POST");
   }
   if (!eventKey.trim()) throw new Error("卖出事件 ID 不能为空");
