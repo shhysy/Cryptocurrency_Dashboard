@@ -74,9 +74,13 @@ export function applyConfirmedBuyFill(
     ...order,
     filledUsdt: order.filledUsdt + applied,
     remainingUsdt,
-    status: remainingUsdt <= EPSILON ? "filled" : "partially_filled",
+    // A fill is not proof that the exchange order is terminal. Keep an
+    // in-flight attempt locked until the final order snapshot is reconciled.
+    status: order.status === "reconcile_required"
+      ? "reconcile_required"
+      : remainingUsdt <= EPSILON ? "filled" : "partially_filled",
     updatedAt: now,
-    lastError: null,
+    lastError: order.status === "reconcile_required" ? order.lastError : null,
   };
 }
 
