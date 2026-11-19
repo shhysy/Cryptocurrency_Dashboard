@@ -79,3 +79,5 @@
 - 删除根目录 `AUTO_TRADING_DESIGN.md`，其当前架构和安全边界已并入执行层README；旧进度记录由PHASE_HISTORY保留。
 - 进一步确认通知链路并非完全重复：分数达标邮件、卖出信号提醒、交易所确认成交邮件触发条件不同，暂时保留；旧 `lib/trading/` 原型也保留，避免未经完整依赖核查删除。
 - 当前分支最新清理仍需以GitHub Actions最终结果为准；本轮未修改策略引擎或订单业务逻辑。
+
+- 补充修正 `workers/SELL_EMAIL_ALERT_SETUP.md`：明确该Worker只发送策略卖出信号提醒，与已确认成交邮件分开；更新为当前服务端 `/api/dashboard` 数据链路，移除旧的浏览器直连说明。
