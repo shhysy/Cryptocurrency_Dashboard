@@ -34,6 +34,7 @@ describe("trade fill notification outbox", () => {
       filledAt: 1_800_000_000_000,
       status: "pending",
       leaseUntil: null,
+      leaseToken: null,
       nextAttemptAt: null,
       attemptCount: 0,
       createdAt: 42,
