@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reconcileConfirmedBuyFills } from "./fill-reconcile";
+import { assertDuplicateExecutionFillMatches, reconcileConfirmedBuyFills } from "./fill-reconcile";
 import type { BinanceSpotTrade } from "../binance.browser";
 
 const order = {
@@ -129,5 +129,27 @@ describe("真实卖出成交核对", () => {
     expect(() => reconcileConfirmedSellFills(sellOrder, [
       sellFill, { ...sellFill, commission: 0.2 },
     ], "BTC", "USDT")).toThrow("同一 Binance 成交 ID 返回了冲突的成交数据");
+  });
+});
+
+
+describe("已入账卖出成交的跨轮询一致性", () => {
+  const stored = {
+    fillId: "9", orderId: "77", symbol: "BTCUSDT", side: "SELL" as const,
+    time: 1000, price: 50000, qty: 0.002, quoteQty: 100,
+    commission: 0.1, commissionAsset: "USDT", commissionUsdt: 0.1,
+  };
+
+  it("允许后续轮询返回完全相同的成交记录", () => {
+    expect(() => assertDuplicateExecutionFillMatches(stored, "take_profit", { ...stored }, "take_profit")).not.toThrow();
+  });
+
+  it("拒绝同一成交 ID 的数量、手续费或卖出分类发生变化", () => {
+    expect(() => assertDuplicateExecutionFillMatches(stored, "take_profit", { ...stored, qty: 0.003 }, "take_profit"))
+      .toThrow("不同成交数据或卖出分类");
+    expect(() => assertDuplicateExecutionFillMatches(stored, "take_profit", { ...stored, commission: 0.2 }, "take_profit"))
+      .toThrow("不同成交数据或卖出分类");
+    expect(() => assertDuplicateExecutionFillMatches(stored, "take_profit", { ...stored }, "base_reduce"))
+      .toThrow("不同成交数据或卖出分类");
   });
 });
