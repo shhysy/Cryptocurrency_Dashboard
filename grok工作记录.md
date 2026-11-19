@@ -69,3 +69,10 @@ npx vitest run lib/execution/notification-outbox.test.ts lib/execution/sell-guar
 
 ## SELL 任务范围补充
 本轮 SELL 链路审查还包括 `lib/execution/sell-preflight.browser.ts` 与 `lib/execution/sell-preflight.browser.test.ts`。重点核对卖出前实时余额、交易规则、最小名义金额、底仓保护和 stale 数据拒绝；不得修改共享 `binance-preflight.ts` 或 BUY 预检代码。
+
+
+## Phase 32 任务状态（GPT 汇总，2026-11-19）
+- 已有进展：Outbox 纯函数退避/租约 fencing、dispatch 投递前校验、SELL guard 专属测试补充。
+- 仍待完成：通知 API route 与 HMAC 边界测试；SELL guard 实现修复及完整状态链路审查；sell-signal-queue、sell-store、sell-preflight、sell-order、sync-sell-order 的边界测试。
+- 当前阻塞：CI 的 `sell-guard.test.ts`「底仓减仓未显式允许时拒绝」持续失败。必须先修复此用例，再扩展完整 SELL 测试并确认完整 CI 通过。
+- 本轮 GPT 不会修改上述 Grok 白名单代码；GPT 仅负责 BUY/IndexedDB 相关文件。
