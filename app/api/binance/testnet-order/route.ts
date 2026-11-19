@@ -5,23 +5,76 @@ export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 2_048;
 
+function safeEqual(a: string, b: string): boolean {
+  const length = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < length; i++) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
+
+function hasDashboardAuthentication(req: Request, expectedPassword: string): boolean {
+  const header = req.headers.get("authorization");
+  if (!header?.startsWith("Basic ")) return false;
+  try {
+    const decoded = atob(header.slice(6));
+    const separator = decoded.indexOf(":");
+    if (separator < 0) return false;
+    return safeEqual(decoded.slice(separator + 1), expectedPassword);
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(req: Request) {
   try {
-    if (!process.env.DASHBOARD_PASSWORD) {
-      return NextResponse.json({ error: "测试网订单接口要求先设置 DASHBOARD_PASSWORD" }, { status: 403 });
+    const password = process.env.DASHBOARD_PASSWORD;
+    if (!password || !hasDashboardAuthentication(req, password)) {
+      return NextResponse.json(
+        { error: "需要有效的 Dashboard Basic Auth 认证" },
+        {
+          status: 401,
+          headers: {
+            "WWW-Authenticate": 'Basic realm="Signal Dashboard", charset="UTF-8"',
+            "Cache-Control": "no-store",
+          },
+        },
+      );
     }
+
     const origin = req.headers.get("origin");
     const requestUrl = new URL(req.url);
-    if (!origin || new URL(origin).origin !== requestUrl.origin) {
+    let originMatches = false;
+    try {
+      originMatches = Boolean(origin) && new URL(origin!).origin === requestUrl.origin;
+    } catch {
+      originMatches = false;
+    }
+    if (!originMatches) {
       return NextResponse.json({ error: "跨站请求已拒绝" }, { status: 403 });
     }
+
     if (!(req.headers.get("content-type") ?? "").toLowerCase().includes("application/json")) {
       return NextResponse.json({ error: "仅接受 JSON 请求" }, { status: 415 });
     }
-    if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) {
+
+    const rawBody = await req.text();
+    if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) {
       return NextResponse.json({ error: "请求体过大" }, { status: 413 });
     }
-    const body = await req.json() as Record<string, unknown>;
+
+    let body: Record<string, unknown>;
+    try {
+      const parsed: unknown = JSON.parse(rawBody);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return NextResponse.json({ error: "请求参数无效" }, { status: 400 });
+      }
+      body = parsed as Record<string, unknown>;
+    } catch {
+      return NextResponse.json({ error: "JSON 格式无效" }, { status: 400 });
+    }
+
     if ((body.side !== "BUY" && body.side !== "SELL") ||
         typeof body.symbol !== "string" ||
         typeof body.amount !== "string" ||
@@ -29,6 +82,7 @@ export async function POST(req: Request) {
         Object.keys(body).some((key) => !["side", "symbol", "amount", "clientOrderId"].includes(key))) {
       return NextResponse.json({ error: "订单参数无效" }, { status: 400 });
     }
+
     const result = await submitTestnetSpotMarketOrder({
       side: body.side,
       symbol: body.symbol,
