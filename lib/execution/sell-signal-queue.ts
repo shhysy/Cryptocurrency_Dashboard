@@ -19,7 +19,6 @@ export interface SellSignalQueuePlan {
   blocked: { symbol: string; reason: string }[];
 }
 
-/** 已确认的底仓减仓成交数量（仅 executed / partially_filled 且 filledQty>0） */
 export function confirmedBaseReduceFilledQty(events: SellEventRecord[]): number {
   return events
     .filter((event) =>
@@ -31,10 +30,6 @@ export function confirmedBaseReduceFilledQty(events: SellEventRecord[]): number 
     .reduce((sum, event) => sum + (event.filledQty as number), 0);
 }
 
-/**
- * 受保护底仓数量 = 累计买入 × 底仓比例 − 已确认底仓减仓成交。
- * 不得继续保护已经卖掉的底仓，否则会低估周期仓可卖量。
- */
 export function protectedBaseQtyAfterReductions(
   boughtQty: number,
   baseRatio: number,
@@ -51,7 +46,6 @@ function tierSuffix(label: string | undefined, kind: string): string {
   return `:${label || kind}`;
 }
 
-/** 止盈档是否仍有未完结的活动单（禁止再挂新单） */
 export function takeProfitTierHasOpenWork(events: SellEventRecord[], suffix: string): boolean {
   return events.some((event) =>
     event.kind === "take_profit" &&
@@ -60,7 +54,6 @@ export function takeProfitTierHasOpenWork(events: SellEventRecord[], suffix: str
   );
 }
 
-/** 同币是否存在活动中的底仓减仓（跨周也锁定） */
 export function hasOpenBaseReduce(events: SellEventRecord[]): boolean {
   return events.some((event) =>
     event.kind === "base_reduce" &&
@@ -68,16 +61,10 @@ export function hasOpenBaseReduce(events: SellEventRecord[]): boolean {
   );
 }
 
-/**
- * 部分成交是否已终态且对账完整，才允许作为 resume 依据。
- * 仅有 partially_filled 状态名不够：需要成交量、成交 ID、交易所订单号。
- */
+/** 终态且对账完整的部分成交才可作为 resume 依据 */
 export function isTerminalReconciledPartial(
   event: Pick<SellEventRecord, "status" | "filledQty" | "requestedQty" | "fillIds" | "exchangeOrderId">,
 ): boolean {
-  if (event.status !== "partially_filled" && event.status === "executed") {
-    /* fall through */
-  }
   if (event.status !== "partially_filled" && event.status !== "executed") return false;
   if (!Number.isFinite(event.filledQty) || (event.filledQty as number) <= 0) return false;
   if (!Number.isFinite(event.requestedQty) || event.requestedQty <= 0) return false;
@@ -87,10 +74,6 @@ export function isTerminalReconciledPartial(
   return true;
 }
 
-/**
- * 止盈档是否已按「档位目标」完全满足。
- * 目标取同档最大 requestedQty；成交取已确认 filledQty 之和。
- */
 export function takeProfitTierFullyFilled(events: SellEventRecord[], suffix: string): boolean {
   const tierEvents = events.filter((event) =>
     event.kind === "take_profit" && event.eventKey.includes(suffix),
@@ -106,13 +89,10 @@ export function takeProfitTierFullyFilled(events: SellEventRecord[], suffix: str
     0,
     ...tierEvents.map((event) => (Number.isFinite(event.requestedQty) ? event.requestedQty : 0)),
   );
-  if (target <= 0) {
-    return tierEvents.some((event) => event.status === "executed");
-  }
+  if (target <= 0) return tierEvents.some((event) => event.status === "executed");
   return filled + 1e-12 >= target;
 }
 
-/** 同档已确认成交合计 */
 export function takeProfitTierFilledQty(events: SellEventRecord[], suffix: string): number {
   return events
     .filter((event) =>
@@ -124,9 +104,6 @@ export function takeProfitTierFilledQty(events: SellEventRecord[], suffix: strin
     .reduce((sum, event) => sum + (event.filledQty as number), 0);
 }
 
-/**
- * 同档是否存在「已终态、已对账、未卖满」的部分成交，允许生成 resume。
- */
 export function takeProfitTierCanResume(events: SellEventRecord[], suffix: string): boolean {
   if (takeProfitTierHasOpenWork(events, suffix)) return false;
   if (takeProfitTierFullyFilled(events, suffix)) return false;
@@ -137,9 +114,6 @@ export function takeProfitTierCanResume(events: SellEventRecord[], suffix: strin
   );
 }
 
-/**
- * 从看板卖出信号生成稳定的卖出事件预约（仅意图，不向币安下单）。
- */
 export function buildSellEventReservations(
   data: DashboardData,
   existingEvents: SellEventRecord[],
@@ -180,9 +154,8 @@ export function buildSellEventReservations(
         blocked.push({ symbol: coin.symbol, reason: "该止盈档仍有待处理或待对账订单，禁止重复提交" });
         continue;
       }
-      if (takeProfitTierFullyFilled(symbolEvents, suffix)) {
-        continue;
-      }
+      if (takeProfitTierFullyFilled(symbolEvents, suffix)) continue;
+
       const alreadyFilled = takeProfitTierFilledQty(symbolEvents, suffix);
       if (alreadyFilled > 0) {
         if (!takeProfitTierCanResume(symbolEvents, suffix)) {
@@ -243,9 +216,7 @@ export function buildSellEventReservations(
     let desiredQty = action.qty as number;
     if (kind === "take_profit") {
       const alreadyFilled = takeProfitTierFilledQty(symbolEvents, suffix);
-      if (alreadyFilled > 0) {
-        desiredQty = Math.max(0, desiredQty - alreadyFilled);
-      }
+      if (alreadyFilled > 0) desiredQty = Math.max(0, desiredQty - alreadyFilled);
     }
     if (desiredQty <= 0) continue;
 
