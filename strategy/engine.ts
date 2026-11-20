@@ -1,5 +1,5 @@
 import { strategyConfig, type Profile, type StrategyConfig } from "../strategy.config";
-import { closesWithPrice, rsi, sma } from "./indicators";
+import { closedWeeklyCandles, rsi, sma } from "./indicators";
 import type {
   Action,
   Candle,
@@ -51,8 +51,14 @@ const none = (over: Partial<Action> = {}): Action => ({
   ...over,
 });
 
-export function btcMarketState(weekly: Candle[], price: number, cfg: StrategyConfig = strategyConfig): MarketState | null {
-  const closes = closesWithPrice(weekly, price);
+export function btcMarketState(
+  weekly: Candle[],
+  price: number,
+  cfg: StrategyConfig = strategyConfig,
+  now = Date.now(),
+): MarketState | null {
+  const closed = closedWeeklyCandles(weekly, now);
+  const closes = closed.map((candle) => candle.c);
   const now = sma(closes, cfg.ma.weeklyPeriod);
   const before = sma(closes.slice(0, -cfg.ma.directionWeeks), cfg.ma.weeklyPeriod);
   if (now === null || before === null) return null;
@@ -62,16 +68,22 @@ export function btcMarketState(weekly: Candle[], price: number, cfg: StrategyCon
   return "transition";
 }
 
-export function stableItems(weekly: Candle[], price: number, cfg: StrategyConfig = strategyConfig): boolean[] | null {
-  if (weekly.length < 13) return null;
-  const closes = closesWithPrice(weekly, price);
-  const now = rsi(closes, cfg.rsi.period);
+export function stableItems(
+  weekly: Candle[],
+  price: number,
+  cfg: StrategyConfig = strategyConfig,
+  now = Date.now(),
+): boolean[] | null {
+  const closed = closedWeeklyCandles(weekly, now);
+  if (closed.length < 13) return null;
+  const closes = closed.map((candle) => candle.c);
+  const currentRsi = rsi(closes, cfg.rsi.period);
   const before = rsi(closes.slice(0, -1), cfg.rsi.period);
-  const low4 = Math.min(price, ...weekly.slice(-4).map((c) => c.l));
-  const low8 = Math.min(...weekly.slice(-12, -4).map((c) => c.l));
+  const low4 = Math.min(price, ...closed.slice(-4).map((c) => c.l));
+  const low8 = Math.min(...closed.slice(-12, -4).map((c) => c.l));
   return [
     price > weekly[weekly.length - 2].h,
-    now !== null && before !== null && now < cfg.rsi.stabilizeBelow && now > before,
+    currentRsi !== null && before !== null && currentRsi < cfg.rsi.stabilizeBelow && currentRsi > before,
     low4 >= low8,
   ];
 }
@@ -95,10 +107,11 @@ export function evaluateCoin(input: CoinInput, ctx: PortfolioContext, cfg: Strat
   const { price } = input;
   const group = isCore(input.symbol, cfg) ? "core" : "alt";
   const profile = cfg.profiles[group];
-  const closes = closesWithPrice(input.weekly, price);
+  const closedWeekly = closedWeeklyCandles(input.weekly, ctx.now);
+  const closes = closedWeekly.map((candle) => candle.c);
   const weeklyRsi = rsi(closes, cfg.rsi.period);
   const ma200 = sma(closes, cfg.ma.weeklyPeriod);
-  const items = stableItems(input.weekly, price, cfg);
+  const items = stableItems(closedWeekly, price, cfg, ctx.now);
   const stableCount = items ? items.filter(Boolean).length : null;
 
   const reasons: Reason[] = [];
@@ -134,7 +147,10 @@ export function evaluateCoin(input: CoinInput, ctx: PortfolioContext, cfg: Strat
   const overheat = overheatRsi || overheatFg;
   const stabilized = stableCount !== null && stableCount >= profile.stabilizeMin;
 
-  const action = planAction({ input, ctx, cfg, profile, group, score, stableCount, stabilized, overheat, overheatRsi, overheatFg, weeklyRsi, returnPct });
+  const action = planAction({
+    input: { ...input, weekly: closedWeekly },
+    ctx, cfg, profile, group, score, stableCount, stabilized, overheat, overheatRsi, overheatFg, weeklyRsi, returnPct,
+  });
   const { kind, tag } = classify(action, score, profile);
 
   return {
