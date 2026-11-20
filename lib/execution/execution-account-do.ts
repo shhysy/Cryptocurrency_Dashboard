@@ -439,7 +439,7 @@ export class ExecutionAccountDO {
 
     if (
       (url.pathname === "/internal/mark-submitting" || url.pathname === "/internal/mark-unknown" ||
-       url.pathname === "/internal/takeover") &&
+       url.pathname === "/internal/takeover" || url.pathname === "/internal/renew-lease") &&
       request.method === "POST"
     ) {
       let input: Record<string, unknown>;
@@ -531,6 +531,28 @@ export class ExecutionAccountDO {
           if (lock.lease_token !== leaseToken || !Number.isSafeInteger(lock.lease_until) ||
               (lock.lease_until as number) <= now) {
             throw new Error("租约已过期或leaseToken不匹配；拒绝写入");
+          }
+
+          if (url.pathname === "/internal/renew-lease") {
+            if (order.state !== "reserved" && order.state !== "submitting" &&
+                order.state !== "unknown" && order.state !== "reconciling") {
+              throw new Error("当前订单状态不允许续租");
+            }
+            const nextLeaseUntil = now + 30_000;
+            const renewed = sql.exec(
+              `UPDATE account_lock
+               SET lease_until = ?, updated_at = ?
+               WHERE singleton = 1 AND intent_id = ? AND attempt = ?
+                 AND lease_token = ? AND lease_until > ?
+               RETURNING intent_id`,
+              nextLeaseUntil, now, intentId, attempt, leaseToken, now,
+            ).toArray();
+            if (renewed.length !== 1) throw new Error("租约已过期或已被接管，拒绝续租");
+            sql.exec(
+              "INSERT INTO audit_events(intent_id, event_type, created_at) VALUES (?, 'execution_lease_renewed', ?)",
+              intentId, now,
+            );
+            return { intentId, attempt, leaseUntil: nextLeaseUntil, renewed: true };
           }
 
           if (url.pathname === "/internal/mark-submitting") {
