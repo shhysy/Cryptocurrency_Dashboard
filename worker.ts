@@ -1,4 +1,5 @@
 // OpenNext在build:cf时生成此模块；不要直接修改 .open-next/worker.js。
+// @ts-ignore OpenNext在Cloudflare构建时生成该入口模块
 import openNextWorker from "./.open-next/worker.js";
 import { ExecutionAccountDO } from "./lib/execution/execution-account-do";
 
