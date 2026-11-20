@@ -17,8 +17,10 @@ export type ReconcileDecision =
 
 /** 与卖出侧一致的相对容差，避免小数量被固定 1e-8 误判 */
 function qtyTol(referenceQty: number): number {
-  const scale = Math.max(Math.abs(referenceQty), 1e-18);
-  return Math.max(1e-15, scale * 1e-9);
+  const scale = Math.max(Math.abs(referenceQty), Number.MIN_VALUE);
+  // Only absorb IEEE-754 representation noise; never hide a real fill gap
+  // behind an absolute floor that is larger than a small BTC/ETH order.
+  return Number.EPSILON * 16 * scale;
 }
 
 /** Only terminal exchange states release the one-order-at-a-time submission lock. */
