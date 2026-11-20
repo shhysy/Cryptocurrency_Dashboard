@@ -60,4 +60,21 @@ describe("底仓减仓成交仅统计有证明且台账一致的记录", () => {
     ]);
     expect(confirmedBaseReduceFilledQty([a, b], led)).toBeCloseTo(0.1);
   });
+
+  it("重复 fillId 不得累加，事件不计", () => {
+    const led = [
+      { symbol: "BTC", fillId: "br1", qty: 0.05, side: "SELL", sellKind: "base_reduce" },
+      { symbol: "BTC", fillId: "br1", qty: 0.05, side: "SELL", sellKind: "base_reduce" },
+    ];
+    expect(confirmedBaseReduceFilledQty([baseEvent()], led)).toBe(0);
+  });
+
+  it("缺少 sellKind 或 side 不可计入", () => {
+    expect(confirmedBaseReduceFilledQty([baseEvent()], [
+      { symbol: "BTC", fillId: "br1", qty: 0.1, side: "SELL" },
+    ])).toBe(0);
+    expect(confirmedBaseReduceFilledQty([baseEvent()], [
+      { symbol: "BTC", fillId: "br1", qty: 0.1, sellKind: "base_reduce" },
+    ])).toBe(0);
+  });
 });

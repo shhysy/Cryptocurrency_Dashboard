@@ -37,6 +37,12 @@ function baseAssetSymbol(symbol: string): string {
   return s.endsWith("USDT") ? s.slice(0, -4) : s;
 }
 
+/**
+ * 从唯一成交台账按 fillId 重算底仓减仓数量。
+ * - 必须 side===SELL 且 sellKind===base_reduce（字段缺失不可用）
+ * - 同一 symbol+fillId 出现多行 → 冲突键，引用该键的事件整条不计
+ * - 无台账 / 核验失败 → 返回 0（fail-closed）
+ */
 export function confirmedBaseReduceFilledQty(
   events: SellEventRecord[],
   ledgerFills?: BaseReduceLedgerFill[],
@@ -45,13 +51,20 @@ export function confirmedBaseReduceFilledQty(
     return 0;
   }
   const ledgerByKey = new Map<string, number>();
+  const conflictKeys = new Set<string>();
   for (const fill of ledgerFills) {
     if (!fill?.symbol || !fill.fillId) continue;
     if (!Number.isFinite(fill.qty) || fill.qty <= 0) continue;
-    if (fill.side && fill.side !== "SELL") continue;
-    if (fill.sellKind && fill.sellKind !== "base_reduce") continue;
+    if (fill.side !== "SELL") continue;
+    if (fill.sellKind !== "base_reduce") continue;
     const key = `${baseAssetSymbol(fill.symbol)}:${String(fill.fillId).trim()}`;
-    ledgerByKey.set(key, (ledgerByKey.get(key) ?? 0) + fill.qty);
+    if (conflictKeys.has(key)) continue;
+    if (ledgerByKey.has(key)) {
+      ledgerByKey.delete(key);
+      conflictKeys.add(key);
+      continue;
+    }
+    ledgerByKey.set(key, fill.qty);
   }
 
   const seenFillIds = new Set<string>();
@@ -78,6 +91,7 @@ export function confirmedBaseReduceFilledQty(
     let ledgerSum = 0;
     let missing = false;
     for (const key of keys) {
+      if (conflictKeys.has(key)) { missing = true; break; }
       const q = ledgerByKey.get(key);
       if (q === undefined) { missing = true; break; }
       ledgerSum += q;
@@ -92,6 +106,9 @@ export function confirmedBaseReduceFilledQty(
   return sum;
 }
 
+/**
+ * 存在已宣称成交的底仓减仓，但台账无法完整核验 → 应阻断该币 SELL 计划。
+ */
 export function hasUnverifiedBaseReduceClaims(
   events: SellEventRecord[],
   ledgerFills?: BaseReduceLedgerFill[],
@@ -352,24 +369,29 @@ export async function enqueueEligibleSellSignals(data: DashboardData): Promise<{
   created: number;
   existing: number;
   blocked: { symbol: string; reason: string }[];
+  ledgerError?: string;
 }> {
   const existingEvents = await listSellEvents();
-  let ledgerFills: BaseReduceLedgerFill[] = [];
+  let ledgerFills: BaseReduceLedgerFill[] | undefined;
+  let ledgerError: string | undefined;
   try {
     const ledger = await listTradeLedger();
-    ledgerFills = ledger
-      .filter((row) => row.side === "SELL")
-      .map((row) => ({
-        symbol: row.symbol,
-        fillId: row.fillId,
-        qty: row.qty,
-        side: row.side,
-        sellKind: row.sellKind,
-      }));
-  } catch {
-    ledgerFills = [];
+    ledgerFills = ledger.map((row) => ({
+      symbol: row.symbol,
+      fillId: row.fillId,
+      qty: row.qty,
+      side: row.side,
+      sellKind: row.sellKind,
+    }));
+  } catch (error) {
+    ledgerFills = undefined;
+    ledgerError = error instanceof Error ? error.message : "读取成交台账失败";
   }
   const plan = buildSellEventReservations(data, existingEvents, { ledgerFills });
+  const blocked = [...plan.blocked];
+  if (ledgerError) {
+    blocked.push({ symbol: "*", reason: `成交台账读取失败：${ledgerError}` });
+  }
   let created = 0;
   let existing = 0;
   for (const record of plan.records) {
@@ -377,5 +399,5 @@ export async function enqueueEligibleSellSignals(data: DashboardData): Promise<{
     if (result.created) created += 1;
     else existing += 1;
   }
-  return { created, existing, blocked: plan.blocked };
+  return { created, existing, blocked, ledgerError };
 }
