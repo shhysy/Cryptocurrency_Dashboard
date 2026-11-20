@@ -393,7 +393,11 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
 
   return (
     <main className="mx-auto w-full max-w-[1480px] space-y-5 px-4 pb-16 pt-5 sm:px-6 sm:pt-8 lg:px-10">
-      <ExecutionBackground onChange={refreshQueue} data={data} />
+      <ExecutionBackground
+          onChange={refreshQueue}
+          data={data}
+          executionAllowed={directReady && !err && data.source === "binance" && !data.stale}
+        />
       {header}
       {banner}
       <ScoreToast data={data} />
