@@ -7,7 +7,13 @@ class FakeSql {
     intent_id: string; state: string; strategy_event_id: string;
     symbol: string; side: string; amount: string; attempt: number; client_order_id?: string;
   }>();
-  lock: { intent_id: string } | null = null;
+  lock: {
+    intent_id: string; attempt: number; lease_token: string; lease_until: number;
+    asset: string; reserved_amount: string;
+  } | null = null;
+  readonly attempts = new Map<string, {
+    intent_id: string; attempt: number; client_order_id: string; lease_token: string; state: string;
+  }>();
   readonly reservations = new Map<string, { intent_id: string; asset: string; amount: string; attempt: number }>();
 
   exec(query: string, ...bindings: unknown[]) {
@@ -34,15 +40,65 @@ class FakeSql {
     } else if (query.includes("SELECT intent_id, symbol, side, amount, state, attempt")) {
       const row = this.intents.get(String(bindings[0]));
       rows = row ? [row] : [];
-    } else if (query.includes("SELECT intent_id FROM account_lock")) {
+    } else if (query.includes("SELECT intent_id FROM account_lock") ||
+               query.includes("SELECT intent_id, attempt, lease_token, lease_until FROM account_lock")) {
       rows = this.lock ? [this.lock] : [];
+    } else if (query.includes("SELECT state, client_order_id, attempt FROM order_intents")) {
+      const row = this.intents.get(String(bindings[0]));
+      rows = row ? [row] : [];
     } else if (query.includes("UPDATE order_intents")) {
-      const row = this.intents.get(String(bindings[3]));
-      if (row?.state === "queued") {
-        row.state = "reserved";
-        row.attempt = Number(bindings[0]);
-        row.client_order_id = String(bindings[1]);
-        rows = [{ intent_id: row.intent_id }];
+      if (query.includes("SET state = 'reserved'")) {
+        const row = this.intents.get(String(bindings[3]));
+        if (row?.state === "queued") {
+          row.state = "reserved";
+          row.attempt = Number(bindings[0]);
+          row.client_order_id = String(bindings[1]);
+          rows = [{ intent_id: row.intent_id }];
+        }
+      } else if (query.includes("SET state = 'submitting'")) {
+        const row = this.intents.get(String(bindings[1]));
+        if (row?.state === "reserved" && row.attempt === Number(bindings[2])) {
+          row.state = "submitting";
+          rows = [{ intent_id: row.intent_id }];
+        }
+      } else if (query.includes("SET state = 'unknown'")) {
+        const row = this.intents.get(String(bindings[2]));
+        if (row && row.attempt === Number(bindings[3]) &&
+            (row.state === "submitting" || row.state === "reconciling")) {
+          row.state = "unknown";
+          rows = [{ intent_id: row.intent_id }];
+        }
+      } else if (query.includes("SET state = 'reconciling'")) {
+        const row = this.intents.get(String(bindings[1]));
+        if (row && row.attempt === Number(bindings[2]) &&
+            ["submitting", "unknown", "reconciling"].includes(row.state)) {
+          row.state = "reconciling";
+          rows = [{ intent_id: row.intent_id }];
+        }
+      }
+    } else if (query.includes("UPDATE order_attempts")) {
+      if (query.includes("SET lease_token = ?")) {
+        const row = this.attempts.get(`${String(bindings[2])}:${Number(bindings[3])}`);
+        if (row && row.lease_token === String(bindings[4])) {
+          row.lease_token = String(bindings[0]);
+          row.state = "reconciling";
+          rows = [{ attempt_id: `${row.intent_id}:${row.attempt}` }];
+        }
+      } else {
+        const row = this.attempts.get(`${String(bindings[1])}:${Number(bindings[2])}`);
+        if (row && row.lease_token === String(bindings[3])) {
+          row.state = query.includes("SET state = 'submitting'") ? "submitting" : "unknown";
+          rows = [{ attempt_id: `${row.intent_id}:${row.attempt}` }];
+        }
+      }
+    } else if (query.includes("UPDATE account_lock")) {
+      if (this.lock && this.lock.intent_id === String(bindings[3]) &&
+          this.lock.attempt === Number(bindings[4]) &&
+          this.lock.lease_token === String(bindings[5]) &&
+          this.lock.lease_until <= Number(bindings[6])) {
+        this.lock.lease_token = String(bindings[0]);
+        this.lock.lease_until = Number(bindings[1]);
+        rows = [{ intent_id: this.lock.intent_id }];
       }
     } else if (query.includes("INSERT INTO reservations")) {
       this.reservations.set(String(bindings[0]), {
@@ -51,8 +107,23 @@ class FakeSql {
         amount: String(bindings[3]),
         attempt: Number(bindings[4]),
       });
+    } else if (query.includes("INSERT INTO order_attempts")) {
+      this.attempts.set(`${String(bindings[1])}:${Number(bindings[2])}`, {
+        intent_id: String(bindings[1]),
+        attempt: Number(bindings[2]),
+        client_order_id: String(bindings[3]),
+        lease_token: String(bindings[4]),
+        state: String(bindings[5]),
+      });
     } else if (query.includes("INSERT INTO account_lock")) {
-      this.lock = { intent_id: String(bindings[0]) };
+      this.lock = {
+        intent_id: String(bindings[0]),
+        attempt: Number(bindings[1]),
+        lease_token: String(bindings[2]),
+        lease_until: Number(bindings[3]),
+        asset: String(bindings[4]),
+        reserved_amount: String(bindings[5]),
+      };
     } else if (query.includes("SELECT COUNT(*) AS total")) {
       rows = [{ total: this.intents.size }];
     }
@@ -255,6 +326,102 @@ describe("账户级Durable Object持久化基础", () => {
     expect(stale.status).toBe(400);
     expect(sql.intents.get(intent.intentId)?.state).toBe("queued");
     expect(sql.lock).toBeNull();
+  });
+
+  it("提交前必须持有当前leaseToken并先持久化submitting", async () => {
+    const { coordinator, sql } = makeCoordinator();
+    await coordinator.fetch(new Request("https://do.internal/internal/intents", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(intent),
+    }));
+    const claimResponse = await coordinator.fetch(new Request("https://do.internal/internal/claim", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, asset: "USDT", availableBalance: "100", snapshotAt: Date.now() }),
+    }));
+    const claim = await claimResponse.json() as { attempt: number; leaseToken: string; clientOrderId: string };
+
+    const stale = await coordinator.fetch(new Request("https://do.internal/internal/mark-submitting", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, attempt: claim.attempt, leaseToken: "old-token" }),
+    }));
+    expect(stale.status).toBe(409);
+    expect(sql.intents.get(intent.intentId)?.state).toBe("reserved");
+
+    const submitting = await coordinator.fetch(new Request("https://do.internal/internal/mark-submitting", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, attempt: claim.attempt, leaseToken: claim.leaseToken }),
+    }));
+    const body = await submitting.json() as { state: string; clientOrderId: string };
+    expect(submitting.status).toBe(200);
+    expect(body).toEqual({ ok: true, intentId: intent.intentId, attempt: 1, clientOrderId: claim.clientOrderId, state: "submitting" });
+    expect(sql.intents.get(intent.intentId)?.state).toBe("submitting");
+    expect(sql.attempts.get(`${intent.intentId}:1`)?.state).toBe("submitting");
+  });
+
+  it("提交结果未知时保留账户锁，不允许释放或创建新订单", async () => {
+    const { coordinator, sql } = makeCoordinator();
+    await coordinator.fetch(new Request("https://do.internal/internal/intents", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(intent),
+    }));
+    const claimedResponse = await coordinator.fetch(new Request("https://do.internal/internal/claim", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, asset: "USDT", availableBalance: "100", snapshotAt: Date.now() }),
+    }));
+    const claimed = await claimedResponse.json() as { attempt: number; leaseToken: string };
+    await coordinator.fetch(new Request("https://do.internal/internal/mark-submitting", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken }),
+    }));
+    const unknown = await coordinator.fetch(new Request("https://do.internal/internal/mark-unknown", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken, reason: "模拟POST超时" }),
+    }));
+
+    expect(unknown.status).toBe(200);
+    expect(sql.intents.get(intent.intentId)?.state).toBe("unknown");
+    expect(sql.lock?.intent_id).toBe(intent.intentId);
+  });
+
+  it("过期租约只能接管对账，旧token被fencing且attempt不变", async () => {
+    const { coordinator, sql } = makeCoordinator();
+    await coordinator.fetch(new Request("https://do.internal/internal/intents", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(intent),
+    }));
+    const claimedResponse = await coordinator.fetch(new Request("https://do.internal/internal/claim", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, asset: "USDT", availableBalance: "100", snapshotAt: Date.now() }),
+    }));
+    const claimed = await claimedResponse.json() as { attempt: number; leaseToken: string; clientOrderId: string };
+    await coordinator.fetch(new Request("https://do.internal/internal/mark-submitting", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken }),
+    }));
+    if (!sql.lock) throw new Error("测试未创建账户锁");
+    sql.lock.lease_until = Date.now() - 1;
+
+    const takeover = await coordinator.fetch(new Request("https://do.internal/internal/takeover", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken }),
+    }));
+    const taken = await takeover.json() as {
+      reconcileOnly: boolean; attempt: number; leaseToken: string; clientOrderId: string;
+    };
+    expect(takeover.status).toBe(200);
+    expect(taken.reconcileOnly).toBe(true);
+    expect(taken.attempt).toBe(claimed.attempt);
+    expect(taken.clientOrderId).toBe(claimed.clientOrderId);
+    expect(taken.leaseToken).not.toBe(claimed.leaseToken);
+    expect(sql.intents.get(intent.intentId)?.state).toBe("reconciling");
+
+    const oldTokenWrite = await coordinator.fetch(new Request("https://do.internal/internal/mark-unknown", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken }),
+    }));
+    expect(oldTokenWrite.status).toBe(409);
   });
 
   it("看门狗写入持久化心跳并安排DO Alarm", async () => {
