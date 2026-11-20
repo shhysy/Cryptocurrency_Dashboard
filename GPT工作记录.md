@@ -600,3 +600,17 @@
 - 已将 `EXPIRED_IN_MATCH` 纳入 `/internal/finalize` 终态白名单，并映射为本地 `expired`；新增零成交终态结算测试，验证预留消耗为0且可在成交核对完整后安全释放锁。
 - 代码提交：`f5e7c25539c4d2996556515bade73fc2282af5b4`；测试提交：`0c3e62ce05d85503b904cda2bf049c065c967c75`。
 - CI Run `44759560917` 成功：50个测试文件、430项测试全部通过；TypeScript typecheck、Next.js production build、Cloudflare OpenNext build全部通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44759560917
+
+## P2-C调度安全原语起步（2026-11-20）
+
+- 新增 `lib/execution/scheduler-task-core.ts`，定义当前仅允许 `reconcile_intent` / `health_check` 两类无下单副作用任务；验证稳定taskId、任务类型、dueAt和最大未来窗口。
+- 新增调度任务租约安全原语：attempt递增、新leaseToken、30秒租约、taskId+attempt+token+过期时间fencing校验。
+- 新增有上限指数退避：5秒起步、上限15分钟、最多8次；达到上限返回不再自动重试，后续必须转人工复核。
+- 新增 `scheduler-task-core.test.ts`，覆盖任务类型白名单、时间边界、租约过期/token冲突、指数退避与最大尝试次数。
+- 提交：`cf97eb54412e062ad9335d23f757883681a73de3`（安全原语）；`215bff695d0aea6c05d1e6b59fef1199a947f922`（测试）。
+- CI Run `44760765731` 成功：52个测试文件、439项测试全部通过；TypeScript typecheck、Next.js production build、Cloudflare OpenNext build全部通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44760765731
+
+### P2-C未完成边界
+- 上述是纯函数安全原语，不是已接通的SQLite任务队列；尚未加入DO enqueue/claim/ack/retry接口、任务租约持久化表、Alarm过期租约回收/最近任务调度、Cron任务消费器。
+- 未有真实Cloudflare Durable Object实例部署/重启恢复验证；未连接Binance Testnet执行器，不会发送订单。
+- Issue #4 已创建为GPT主责任务，后续必须把这些原语接入DO并补真实SQL语义测试；不得把本次439项CI通过表述为P2-C完成。
