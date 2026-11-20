@@ -102,3 +102,29 @@ export function isTestnetOrderSubmissionEnabled(
     ? env.BINANCE_TESTNET_BUY_ENABLED === "1"
     : env.BINANCE_TESTNET_SELL_ENABLED === "1";
 }
+
+export interface ServerSpotOrderSwitchEnvironment {
+  BINANCE_TESTNET_BUY_ENABLED?: string;
+  BINANCE_TESTNET_SELL_ENABLED?: string;
+  BINANCE_PRODUCTION_BUY_ENABLED?: string;
+  BINANCE_PRODUCTION_SELL_ENABLED?: string;
+}
+
+/**
+ * 服务端订单开关：按环境和方向分别授权，测试网开关不能授权生产下单，
+ * 生产开关也不能反向授权测试网下单。
+ */
+export function isSpotOrderSubmissionEnabled(
+  mode: "testnet" | "production",
+  side: "BUY" | "SELL",
+  env: ServerSpotOrderSwitchEnvironment,
+): boolean {
+  if (mode === "testnet") {
+    return side === "BUY"
+      ? env.BINANCE_TESTNET_BUY_ENABLED === "1"
+      : env.BINANCE_TESTNET_SELL_ENABLED === "1";
+  }
+  return side === "BUY"
+    ? env.BINANCE_PRODUCTION_BUY_ENABLED === "1"
+    : env.BINANCE_PRODUCTION_SELL_ENABLED === "1";
+}
