@@ -250,8 +250,9 @@ function planBuy(c: Ctx): Action {
   if (last && (ctx.now - last.time) / WEEK < cooldown) blocked.push(`冷却期未到（距上次买入 ${((ctx.now - last.time) / WEEK).toFixed(1)} 周，需 ≥ ${cooldown} 周）`);
 
   const head = input.qty > 0 ? findHead(all, input.price, cfg) : null;
-  const holding = head !== null;
-  if (!holding && group === "alt" && acc.known && acc.altHeldCount >= cfg.portfolio.altMaxCount) blocked.push(`山寨币已持有 ${acc.altHeldCount} 个，达到上限`);
+  // 头仓门槛只决定补仓档位识别；组合上限判断是否新开币种，应看是否已有实际持仓。
+  const hasPosition = input.qty > 0;
+  if (!hasPosition && group === "alt" && acc.known && acc.altHeldCount >= cfg.portfolio.altMaxCount) blocked.push(`山寨币已持有 ${acc.altHeldCount} 个，达到上限`);
 
   let kind: "head" | "add" | "reserve" = "head";
   let label = "头仓";
