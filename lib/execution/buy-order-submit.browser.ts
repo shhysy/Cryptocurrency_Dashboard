@@ -7,10 +7,9 @@ import { parseMarketRules } from "./binance-preflight";
 import { prepareQueuedBuyDryRun } from "./binance-order.browser";
 import { clientOrderIdForEvent } from "./client-order-id";
 import {
-  claimBuyOrderSubmission,
   listBuyOrders,
   markBuyOrderReconcileRequired,
-  reserveBuyFunds,
+  reserveAndClaimBuyOrderSubmission,
 } from "./store.browser";
 
 /** Real Spot order submission stays disabled until the user explicitly enables it. */
@@ -63,19 +62,15 @@ export async function submitQueuedBuyOrder(
   if (rules.quoteAsset !== "USDT" || rules.status !== "TRADING") {
     throw new Error("交易对状态或报价资产不符合现货买入要求");
   }
-  const reservation = await reserveBuyFunds({
+  const claimed = await reserveAndClaimBuyOrderSubmission({
     orderId: order.id,
     symbol: preview.symbol,
     requestedUsdt: preview.executableUsdt,
     observedFreeUsdt: preview.freeUsdt,
     minNotionalUsdt: rules.minNotional,
+    expectedOrderUpdatedAt: order.updatedAt,
+    expectedAttemptCount: order.attemptCount,
   });
-  const reservedUsdt = reservation.reservation?.reservedUsdt ?? 0;
-  if (!reservation.plan.ok || reservedUsdt + 1e-8 < preview.executableUsdt) {
-    throw new Error("本地 USDT 预留不足以覆盖本次买单；未提交 Binance 订单");
-  }
-
-  const claimed = await claimBuyOrderSubmission(order.id);
   const clientOrderId = clientOrderIdForEvent(order.eventKey, claimed.attempt);
   try {
     const response = await submitSpotMarketBuy({
