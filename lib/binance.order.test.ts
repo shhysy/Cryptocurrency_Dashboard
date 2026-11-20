@@ -22,7 +22,7 @@ const exchangeInfoResponse = {
   }],
 };
 
-function mockBinanceFetch() {
+function mockBinanceFetch(overrides: { usdtFree?: string; btcFree?: string } = {}) {
   return vi.fn()
     .mockResolvedValueOnce(new Response(JSON.stringify(exchangeInfoResponse), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify([
@@ -30,8 +30,8 @@ function mockBinanceFetch() {
     ]), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ serverTime: Date.now() }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ balances: [
-      { asset: "USDT", free: "1000", locked: "0" },
-      { asset: "BTC", free: "1", locked: "0" },
+      { asset: "USDT", free: overrides.usdtFree ?? "1000", locked: "0" },
+      { asset: "BTC", free: overrides.btcFree ?? "1", locked: "0" },
     ] }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify(orderResponse), { status: 200 }));
 }
@@ -95,6 +95,33 @@ describe("服务端 Spot 下单适配器环境隔离", () => {
       side: "BUY", symbol: "BTCUSDT", amount: "100", clientOrderId: "gpt-sim-order-001",
     })).rejects.toThrow("生产环境BUY 订单服务端开关未启用");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("服务端余额不足时拒绝订单且不会发送下单 POST", async () => {
+    vi.stubEnv("BINANCE_SPOT_ENVIRONMENT", "production");
+    vi.stubEnv("BINANCE_PRODUCTION_BUY_ENABLED", "1");
+    const fetchMock = mockBinanceFetch({ usdtFree: "10" });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { submitSpotMarketOrder } = await import("./binance");
+    await expect(submitSpotMarketOrder({
+      side: "BUY", symbol: "BTCUSDT", amount: "100", clientOrderId: "gpt-sim-order-001",
+    })).rejects.toThrow("USDT 可用余额不足");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/v3/order?"))).toBe(false);
+  });
+
+  it("卖出数量不符合 MARKET_LOT_SIZE 精度时拒绝下单", async () => {
+    vi.stubEnv("BINANCE_TESTNET_SELL_ENABLED", "1");
+    const fetchMock = mockBinanceFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { submitSpotMarketOrder } = await import("./binance");
+    await expect(submitSpotMarketOrder({
+      side: "SELL", symbol: "BTCUSDT", amount: "0.001003", clientOrderId: "gpt-sim-order-001",
+    })).rejects.toThrow("订单精度超过币安交易规则");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/v3/order?"))).toBe(false);
   });
 
   it("测试网缺少测试网凭证时绝不回退到模拟生产凭证", async () => {
