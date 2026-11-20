@@ -618,3 +618,11 @@
 - 将过期租约恢复决策改为显式传入now，移除隐藏的Date.now依赖，保证重试时间可确定性测试。
 - 新增过期租约按attempt分流测试：未达上限进入pending并安排退避；达到8次上限或now无效时转manual_review。
 - 最新测试提交 `16a838c6ac28efb409feb28c8c9e2f58062146df` 对应CI Run `44761482631` 成功：52个测试文件、440项测试全部通过；typecheck、Next.js production build、Cloudflare OpenNext build全部通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44761482631
+
+## 建立自动交易系统总需求清单（2026-11-20）
+- 新增根目录 `自动交易系统总需求清单.md`，作为GPT/Grok持续开发的统一任务入口；提交：`2a6f2e0e5f98f6160d6bfb0c326cf3302f1fff59`。
+- 清单按负责人和依赖拆分Grok SELL返工、SELL通过后的Outbox可靠性、GPT DO SQLite任务队列/Alarm/Cron、Binance服务端只读适配器、策略事件到服务端intent、Spot Testnet闭环、策略3.3核对与回测、最终部署/生产安全验收。
+- 为每项任务写入验收条件、必须覆盖的测试、安全边界和交付格式；只有代码、测试、CI和独立复核证据齐备才允许标记完成。
+- 明确持续推进机制：每项完成后自动进入依赖已满足的下一项；阻塞时处理阻塞或拆分并行任务，不以等待用户催促为默认状态。
+- Grok继续主责SELL/Outbox，GPT主责DO调度、BUY、服务端适配器、策略核对和总集成；不允许越权修改共享模块。
+- 本次只新增需求文档并更新工作记录，未修改交易代码，未触发任何Binance交易请求；生产BUY/SELL、Simple Earn真实赎回和Outbox仍关闭。
