@@ -402,3 +402,10 @@
 - CI已正式增加Next.js production build和Cloudflare OpenNext build步骤，避免只验证测试与类型而漏掉部署构建问题。
 - README已更新当前完成边界和架构设计入口；当前仍依赖浏览器节拍，页面关闭后不保证持续执行。
 - 下一阶段：P2-B先实现Durable Object SQLite schema与纯状态机/仓储测试；通过并发、重启、过期租约、fencing、未知POST恢复测试后，再接入实际Binance Testnet适配器。不得先注册生产Cron或启用真实交易。
+
+## P2-B服务端订单状态机核心（2026-11-20）
+
+- 新增 `lib/execution/server-execution-core.ts` 与 `.test.ts`：定义服务端订单意图状态、策略3.3版本约束、USDT报价/十进制金额校验、由strategyEventId派生的确定性幂等intentId、状态迁移、交易所终态与成交对账时间证明、提交前clientOrderId/attempt要求、未知提交结果冻结，以及attempt + leaseToken + leaseUntil fencing。
+- 当前仅为纯函数核心与单元测试，尚未接入Durable Object SQLite、订单API或Binance执行器；不代表服务端队列已经落地。
+- 最新CI Run `44706677628`：TypeScript typecheck通过；测试395/396通过。唯一失败仍为Grok主责 `sell-signal-queue.test.ts` 中终态partial fixture缺少新要求的终态/成交对账证明字段。Next.js/Cloudflare build因测试失败按CI流程跳过。
+- 该提交已证明新增服务端核心测试通过；SELL未全绿前不解除Outbox暂停，不开始生产交易。
