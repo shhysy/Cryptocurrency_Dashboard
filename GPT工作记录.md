@@ -533,3 +533,26 @@
 - 当前领取后账户锁会持续占用；尚无订单提交前状态写入、leaseToken fencing写入、未知POST恢复、过期租约接管、终态成交核对、资金释放与锁释放接口。**因此目前不可把该接口接入真实下单，也不可部署后视为已可交易。**
 - Cron仍只写心跳，DO Alarm仍只记录触发时间；后台订单任务派发未实现。
 - 生产BUY/SELL与Simple Earn真实赎回继续关闭。
+
+
+## P2-B提交前fencing与未知订单恢复基础（2026-11-20）
+
+### 实际实现
+- 新增内部 `POST /internal/mark-submitting`：仅当account_lock的intentId、attempt、leaseToken匹配且租约未过期，且订单仍为reserved时，才在SQLite事务中把intent/attempt持久化为submitting，并返回已保存的clientOrderId。后续服务端执行器必须先成功调用此接口，再进行唯一一次Binance POST。
+- 新增内部 `POST /internal/mark-unknown`：POST响应不明确时，在当前租约有效的前提下将intent/attempt写为unknown；账户锁与资金预留继续保留，不允许释放或创建新attempt。
+- 新增内部 `POST /internal/takeover`：只允许租约过期且状态为submitting/unknown/reconciling的订单被接管；新token覆盖旧token，attempt和clientOrderId不变，状态进入reconciling，并返回 `reconcileOnly: true`。该路径不创建新attempt、不生成新clientOrderId、不执行POST，只能用于按原clientOrderId查单/对账。
+- 所有关键SQL UPDATE均加入intent/attempt/state/leaseToken条件并使用RETURNING确认确实更新一行；旧token写入拒绝。
+- 新增测试覆盖错误token不能标记submitting、submitting必须先持久化、unknown保留活动锁、过期租约接管不变更attempt/clientOrderId、旧token接管后写入被fencing。
+
+### 提交与CI
+- `4189ba8c271b25b3a690391af6b8a14d8bd66e48`：实现提交前状态持久化与过期租约只读接管。
+- `cd41aa2654500d0f3cb3fdccc05b25bfdc06b1e3`：为租约状态变更增加SQL条件更新与fencing确认。
+- `7f4f018b02bd28fadd10897f384d372971d3225d`：增加提交前fencing、未知订单冻结与租约接管测试。
+- Run `44710982129` 成功：50个测试文件、427项测试全部通过；TypeScript typecheck、Next.js production build、Cloudflare OpenNext build全部通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44710982129
+- 架构文档同步：`e78411297fe3a3e6c26f9c05f25535d264733361`；规则矩阵同步：`7eba933c5a7bcba31f21c9072900495b44b9708f`；README同步：`b3d62a830a71fcd7e0764c06e85cf7ff6f8098b2`。
+
+### 仍未完成
+- 目前这些内部DO接口没有由Next.js可信策略事件调用，也没有与Binance余额/下单/查单适配器接线。
+- 未实现租约续期、终态fill ledger对账、手续费与预留消耗核算、资金释放和account_lock释放。
+- Cron只写心跳，Alarm只记录触发；尚未从SQLite scheduler_tasks中领取并执行任务。
+- 因此该基础层仍不可用于真实交易；生产BUY/SELL与Simple Earn真实赎回保持关闭。
