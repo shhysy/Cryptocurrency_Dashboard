@@ -393,3 +393,12 @@
 - P1重点核对固定额度、资金预留、服务端预检、clientOrderId对账、逐笔fill去重、手续费/净持仓更新、部分成交和未知状态冻结。
 - P2先交数据模型、迁移、状态机、租约/leaseToken fencing、账户级活动订单锁、审计、退避和死信/人工复核设计；评审通过再接执行，不以浏览器IndexedDB冒充跨设备持久化。
 - 所有测试继续使用Mock/Spot Testnet；生产BUY/SELL与真实Earn赎回保持关闭。
+
+## Cloudflare服务端调度基础设施第一阶段（2026-11-20）
+
+- 新增 `docs/策略3.3/服务端自动执行架构设计.md`（提交 `09cf9ec3ba79b6a8d57c7499e52e78d42d15bae3`）：设计OpenNext自定义Worker入口、账户级Durable Object、SQLite持久化订单/attempt/fill/reservation/audit/Outbox、DO Alarm、Cron看门狗、leaseToken/attempt fencing及未知订单恢复。该文档是评审稿，不代表相关服务端调度已实现。
+- 新增根目录 `worker.ts`，只把fetch请求转发给OpenNext生成Worker；更新 `wrangler.jsonc` 的 `main` 指向 `worker.ts`。当前尚未加入scheduled handler、DO类导出、DO绑定、migration或Cron触发器。
+- 自定义Worker入口验证：Run `44705853349` 与 `44705861821` 均成功；包含npm test、TypeScript typecheck、Next.js production build、Cloudflare OpenNext build。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44705861821
+- CI已正式增加Next.js production build和Cloudflare OpenNext build步骤，避免只验证测试与类型而漏掉部署构建问题。
+- README已更新当前完成边界和架构设计入口；当前仍依赖浏览器节拍，页面关闭后不保证持续执行。
+- 下一阶段：P2-B先实现Durable Object SQLite schema与纯状态机/仓储测试；通过并发、重启、过期租约、fencing、未知POST恢复测试后，再接入实际Binance Testnet适配器。不得先注册生产Cron或启用真实交易。
