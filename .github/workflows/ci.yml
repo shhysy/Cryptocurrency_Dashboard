@@ -24,3 +24,7 @@ jobs:
       - name: TypeScript typecheck
         if: always()
         run: npm run typecheck
+      - name: Next.js production build
+        run: npm run build
+      - name: Cloudflare OpenNext build
+        run: npm run build:cf
