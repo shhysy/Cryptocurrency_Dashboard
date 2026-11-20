@@ -24,6 +24,19 @@ const isSynthetic = (t: Trade) => t.id.startsWith("opening-");
 
 export const isCore = (symbol: string, cfg: StrategyConfig = strategyConfig) => cfg.coreSymbols.includes(symbol);
 
+/** 按本轮初始周期仓计算档位目标，同时受当前剩余周期仓约束。 */
+export function calculateTakeProfitQty(
+  initialCycleQty: number,
+  remainingCycleQty: number,
+  ratio: number,
+): number {
+  if (![initialCycleQty, remainingCycleQty, ratio].every(Number.isFinite) ||
+      initialCycleQty <= 0 || remainingCycleQty <= 0 || ratio <= 0 || ratio > 1) {
+    return 0;
+  }
+  return Math.min(initialCycleQty * ratio, remainingCycleQty);
+}
+
 const none = (over: Partial<Action> = {}): Action => ({
   kind: "none",
   label: "",
@@ -176,9 +189,10 @@ function planSell(c: Ctx): Action | null {
   for (let i = profile.takeProfit.length - 1; i >= 0; i--) {
     const tp = profile.takeProfit[i];
     if (input.price < input.avgCost * tp.mult) continue;
-    const qty = Math.min(cycleQty * tp.ratio, cycleQty);
+    const initialCycleQty = Math.max(0, boughtQty - baseQty);
+    const qty = calculateTakeProfitQty(initialCycleQty, cycleQty, tp.ratio);
     if (qty <= 0) continue;
-    return { kind: "takeProfit", label: `止盈${i + 1}`, side: "sell", plannedUsdt: null, usdt: qty * input.price, qty, sellPct: qty / input.qty, limits: [], blocked: [], notes: [`价格 ≥ 均价 × ${tp.mult}（档位 ${i + 1}）；读不到卖出记录，已卖过的档位请忽略`, ...notes] };
+    return { kind: "takeProfit", label: `止盈${i + 1}`, side: "sell", plannedUsdt: null, usdt: qty * input.price, qty, sellPct: qty / input.qty, limits: [], blocked: [], notes: [`价格 ≥ 均价 × ${tp.mult}（档位 ${i + 1}）；本档按本轮初始周期仓的 ${Math.round(tp.ratio * 100)}% 计算，最多卖出剩余周期仓`, ...notes] };
   }
 
   if (input.price > input.avgCost && overheat && cycleQty > 0) {
