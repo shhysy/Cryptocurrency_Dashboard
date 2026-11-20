@@ -19,7 +19,7 @@ interface DurableStorage {
 }
 
 function decimalUnits(value: string): { units: bigint; scale: number } | null {
-  if (!/^(?:0|[1-9]\\d*)(?:\\.\\d{1,12})?$/.test(value)) return null;
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,12})?$/.test(value)) return null;
   const [whole, fraction = ""] = value.split(".");
   return { units: BigInt(whole + fraction), scale: fraction.length };
 }
