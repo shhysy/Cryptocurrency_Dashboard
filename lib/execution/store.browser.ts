@@ -557,6 +557,174 @@ export async function reserveBuyFunds(input: {
 }
 
 /**
+ * Atomically reserve the exact BUY amount and claim its exchange submission
+ * attempt in one IndexedDB transaction. This prevents a stale preflight or a
+ * competing tab from leaving a newly-created reservation behind after claim
+ * failure. The reservation is local coordination only, not an exchange lock.
+ */
+export async function reserveAndClaimBuyOrderSubmission(input: {
+  orderId: string;
+  symbol: string;
+  requestedUsdt: number;
+  observedFreeUsdt: number;
+  minNotionalUsdt: number;
+  expectedOrderUpdatedAt: number;
+  expectedAttemptCount: number;
+  now?: number;
+}): Promise<{
+  order: QueuedBuyOrder;
+  attempt: number;
+  reservation: BuyFundsReservation;
+  plan: ReturnType<typeof planBuyFundsReservation>;
+}> {
+  if (!input.orderId || !input.symbol ||
+      ![input.requestedUsdt, input.observedFreeUsdt, input.minNotionalUsdt,
+        input.expectedOrderUpdatedAt, input.expectedAttemptCount].every(Number.isFinite) ||
+      input.requestedUsdt <= 0 || input.observedFreeUsdt < 0 ||
+      input.minNotionalUsdt < 0 || input.expectedOrderUpdatedAt < 0 ||
+      !Number.isInteger(input.expectedAttemptCount) || input.expectedAttemptCount < 0 ||
+      (input.now !== undefined && (!Number.isSafeInteger(input.now) || input.now <= 0))) {
+    throw new Error("买单资金预留与提交领取参数无效");
+  }
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction([ORDERS, RESERVATIONS], "readwrite");
+      const orders = tx.objectStore(ORDERS);
+      const reservations = tx.objectStore(RESERVATIONS);
+      const orderRequest = orders.get(input.orderId);
+      const reservationRequest = reservations.get(input.orderId);
+      let orderReady = false;
+      let reservationReady = false;
+      let currentOrder: QueuedBuyOrder | undefined;
+      let currentReservation: BuyFundsReservation | undefined;
+      let result: {
+        order: QueuedBuyOrder;
+        attempt: number;
+        reservation: BuyFundsReservation;
+        plan: ReturnType<typeof planBuyFundsReservation>;
+      } | undefined;
+      let fatal: Error | null = null;
+
+      const finish = () => {
+        if (!orderReady || !reservationReady || result || fatal) return;
+        if (!currentOrder) {
+          fatal = new Error("待买订单不存在");
+          tx.abort();
+          return;
+        }
+        if (currentOrder.updatedAt !== input.expectedOrderUpdatedAt ||
+            currentOrder.attemptCount !== input.expectedAttemptCount) {
+          fatal = new Error("预检期间待买订单已变化，拒绝使用过期预检结果提交");
+          tx.abort();
+          return;
+        }
+        const blockReason = buyOrderReservationBlockReason(
+          currentOrder, input.orderId, input.symbol, input.requestedUsdt,
+        );
+        if (blockReason) {
+          fatal = new Error(blockReason);
+          tx.abort();
+          return;
+        }
+        if (!Number.isInteger(currentOrder.attemptCount) || currentOrder.attemptCount < 0) {
+          fatal = new Error("待买订单 attemptCount 无效，必须人工核对");
+          tx.abort();
+          return;
+        }
+
+        const all = reservations.getAll();
+        all.onerror = () => {
+          fatal = all.error ?? new Error("读取资金预留失败");
+          tx.abort();
+        };
+        all.onsuccess = () => {
+          if (fatal || result) return;
+          const rows = all.result as BuyFundsReservation[];
+          const plan = planBuyFundsReservation({
+            orderId: input.orderId,
+            requestedUsdt: input.requestedUsdt,
+            observedFreeUsdt: input.observedFreeUsdt,
+            activeReservations: rows,
+            minNotionalUsdt: input.minNotionalUsdt,
+          });
+          if (!plan.ok) {
+            fatal = new Error(plan.reason ?? "资金预留计划未通过");
+            tx.abort();
+            return;
+          }
+          if (currentReservation?.status === "active" &&
+              currentReservation.symbol !== input.symbol) {
+            fatal = new Error("同一订单 ID 对应的资金预留交易对不一致，必须人工核对");
+            tx.abort();
+            return;
+          }
+          if (plan.reserveUsdt + 1e-8 < input.requestedUsdt) {
+            fatal = new Error("重新核算后的可预留 USDT 不足以覆盖本次买单；未领取提交权");
+            tx.abort();
+            return;
+          }
+
+          const now = input.now ?? Date.now();
+          const reservation: BuyFundsReservation = currentReservation?.status === "active"
+            ? currentReservation
+            : {
+                orderId: input.orderId,
+                symbol: input.symbol,
+                reservedUsdt: plan.reserveUsdt,
+                originalReservedUsdt: plan.reserveUsdt,
+                consumedUsdt: 0,
+                status: "active",
+                createdAt: currentReservation?.createdAt ?? now,
+                updatedAt: now,
+                releaseReason: null,
+              };
+          if (currentReservation?.status !== "active") reservations.put(reservation);
+
+          const attempt = currentOrder.attemptCount;
+          const order: QueuedBuyOrder = {
+            ...currentOrder,
+            status: "reconcile_required",
+            attemptCount: attempt + 1,
+            lastAttemptAt: now,
+            lastError: "买单提交状态待交易所对账；禁止再次提交",
+            updatedAt: now,
+          };
+          orders.put(order);
+          result = { order, attempt, reservation, plan };
+        };
+      };
+
+      orderRequest.onsuccess = () => {
+        currentOrder = orderRequest.result as QueuedBuyOrder | undefined;
+        orderReady = true;
+        finish();
+      };
+      reservationRequest.onsuccess = () => {
+        currentReservation = reservationRequest.result as BuyFundsReservation | undefined;
+        reservationReady = true;
+        finish();
+      };
+      orderRequest.onerror = () => {
+        fatal = orderRequest.error ?? new Error("读取待买订单失败");
+        tx.abort();
+      };
+      reservationRequest.onerror = () => {
+        fatal = reservationRequest.error ?? new Error("读取当前资金预留失败");
+        tx.abort();
+      };
+      tx.oncomplete = () => result
+        ? resolve(result)
+        : reject(fatal ?? new Error("买单资金预留与提交领取事务未完成"));
+      tx.onerror = () => reject(fatal ?? tx.error ?? new Error("买单资金预留与提交领取事务失败"));
+      tx.onabort = () => reject(fatal ?? tx.error ?? new Error("买单资金预留与提交领取事务中止"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/**
  * Consume reservation only from exchange-confirmed fill spend.
  * Keep unfilled funds reserved while the exchange order remains open;
  * release the remainder only after caller confirms a terminal order state.
