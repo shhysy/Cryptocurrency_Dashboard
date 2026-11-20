@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertSchedulerTaskLease,
   createSchedulerTaskLease,
+  expiredSchedulerLeaseDecision,
   schedulerTaskRetryAt,
   schedulerTaskRetryDelayMs,
   validateSchedulerTaskInput,
@@ -58,6 +59,17 @@ describe("持久化调度任务安全原语", () => {
     expect(schedulerTaskRetryDelayMs(8)).toBeNull();
     expect(schedulerTaskRetryDelayMs(0)).toBeNull();
     expect(schedulerTaskRetryDelayMs(4)).toBeLessThanOrEqual(SCHEDULER_TASK_MAX_BACKOFF_MS);
+  });
+
+  it("过期任务租约按重试上限决定重新排队或人工复核", () => {
+    expect(expiredSchedulerLeaseDecision(1, now)).toEqual({
+      state: "pending",
+      nextAttemptAt: now + 5_000,
+    });
+    expect(expiredSchedulerLeaseDecision(SCHEDULER_TASK_MAX_ATTEMPTS, now)).toEqual({
+      state: "manual_review",
+    });
+    expect(expiredSchedulerLeaseDecision(1, 0)).toEqual({ state: "manual_review" });
   });
 
   it("达到最大重试次数后不再安排自动重试", () => {
