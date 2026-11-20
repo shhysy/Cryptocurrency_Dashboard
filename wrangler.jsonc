@@ -1,6 +1,6 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"main": ".open-next/worker.js",
+	"main": "worker.ts",
 	// 必须和 Cloudflare 上的 Worker 名一致，下面的自引用绑定也必须是同一个名字
 	"name": "cryptocurrency-dashboard",
 	"compatibility_date": "2026-11-10",
