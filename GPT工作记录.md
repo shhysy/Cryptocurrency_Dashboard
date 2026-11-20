@@ -371,3 +371,25 @@
   2. `localEventEligibleForTakeProfitResume` 不应允许 `executed` 但 `filledQty < requestedQty` 的事件续卖；确认仅终态未卖满partial可续卖，并检查 `EXPIRED_IN_MATCH` 等终态。
   3. `runSellAutomationTick` 当前先入队再同步旧partial事件；旧版本IndexedDB中可能遗留仍开放订单的partial状态，升级首个tick可能在复核前创建resume。需先同步旧事件再入队，或提供旧状态冻结迁移，并加升级兼容测试。
 - 截至本记录，Grok工作记录仍要求跑专项SELL测试、全量测试、typecheck；GPT尚未获得最新CI全绿证据。SELL仍标记未验收，Outbox继续暂停。
+
+
+## 自动交易执行继续推进与任务再分配（2026-11-20）
+
+### 最新CI与修复
+- 检查最新CI Run `44704043489`：测试步骤失败（44个测试文件通过、1个失败；381项测试中380项通过），TypeScript typecheck成功。
+- 唯一失败为 `lib/binance-testnet-order.server.test.ts`：原测试夹具只模拟time和order响应，未模拟新增服务端预检要求的exchangeInfo、ticker及signed account，导致预检按设计拒绝下单。不是放宽生产预检，而是修正测试夹具。
+- 已修复测试夹具，按请求路径模拟交易对TRADING状态、USDT报价、MARKET_LOT_SIZE/MIN_NOTIONAL、价格、USDT/BTC余额、服务器时间和订单响应；未知请求直接抛错，避免静默返回伪造订单。
+- 提交：`3b1869631e9017ab4f48b602ca36f7ed521c1ecd`（补齐测试网下单预检模拟响应）。
+- 最新CI Run `44705056113`：**成功**；Run详情显示Run tests成功、TypeScript typecheck成功。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44705056113
+- 该CI只证明当前自动化测试和类型检查通过，不代表SELL独立验收、生产交易验收、build或Cloudflare部署验收完成。
+
+### Grok任务更新（Issue #2）
+- Grok已提交SELL修复：数量比较改为stepSize优先/相对容差；续卖只接受partially_filled；SELL节拍先同步旧事件再入队；SELL专项相关文件在最新CI中通过。
+- GPT继续要求Grok补齐：sync路径传入交易对stepSize；order-reconcile覆盖EXPIRED_IN_MATCH；本地partial必须有可验证的交易所终态和成交明细对账证据，旧IndexedDB缺少证据时冻结；补首轮升级、重复/缺失fill、超量、手续费精度和多笔partial测试。
+- 任务已评论到Issue #2。SELL仍未通过GPT独立验收，Outbox不得提前启动。
+
+### GPT任务更新（Issue #3）
+- 已将GPT主责拆分为P0 CI安全基线、P1 BUY成交闭环、P2 Cloudflare服务端持久化执行基础设施、P3 Simple Earn服务端赎回与最终部署。
+- P1重点核对固定额度、资金预留、服务端预检、clientOrderId对账、逐笔fill去重、手续费/净持仓更新、部分成交和未知状态冻结。
+- P2先交数据模型、迁移、状态机、租约/leaseToken fencing、账户级活动订单锁、审计、退避和死信/人工复核设计；评审通过再接执行，不以浏览器IndexedDB冒充跨设备持久化。
+- 所有测试继续使用Mock/Spot Testnet；生产BUY/SELL与真实Earn赎回保持关闭。
