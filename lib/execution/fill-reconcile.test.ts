@@ -73,6 +73,45 @@ describe("真实买入成交核对", () => {
       ...order, executedQty: 0, cummulativeQuoteQty: 1,
     }, [], "BTC", "USDT")).toThrow("订单累计成交数据无效");
   });
+
+  it("正确核对小于1e-8的BTC成交数量", () => {
+    const tinyOrder = {
+      orderId: 56,
+      symbol: "BTCUSDT",
+      executedQty: 1e-10,
+      cummulativeQuoteQty: 0.000005,
+    };
+    const tinyFill: BinanceSpotTrade = {
+      ...fills[0],
+      id: 2,
+      orderId: 56,
+      qty: 1e-10,
+      quoteQty: 0.000005,
+      commission: 0,
+    };
+    const result = reconcileConfirmedBuyFills(tinyOrder, [tinyFill], "BTC", "USDT");
+    expect(result.complete).toBe(true);
+  });
+
+  it("小于1e-8的成交数量差异不得被固定绝对容差吞掉", () => {
+    const tinyOrder = {
+      orderId: 57,
+      symbol: "BTCUSDT",
+      executedQty: 1e-10,
+      cummulativeQuoteQty: 0.000005,
+    };
+    const oversizedFill: BinanceSpotTrade = {
+      ...fills[0],
+      id: 3,
+      orderId: 57,
+      qty: 2e-10,
+      quoteQty: 0.00001,
+      commission: 0,
+    };
+    const result = reconcileConfirmedBuyFills(tinyOrder, [oversizedFill], "BTC", "USDT");
+    expect(result.complete).toBe(false);
+    expect(result.reason).toContain("暂停自动记账");
+  });
 });
 
 describe("真实卖出成交核对", () => {
