@@ -55,10 +55,14 @@ describe("BTC 市场状态", () => {
 
 describe("企稳三项", () => {
   it("底部回升：三项全满足", () => {
-    expect(stableItems(candles(bottoming()), 43)).toEqual([true, true, true]);
+    const weekly = candles(bottoming());
+    const currentWeekOpen = weekly.at(-1)!.t;
+    expect(stableItems(weekly, 43, undefined, currentWeekOpen + 1)).toEqual([true, true, true]);
   });
   it("仍在创新低：三项全不满足", () => {
-    expect(stableItems(candles(falling()), 40)).toEqual([false, false, false]);
+    const weekly = candles(falling());
+    const currentWeekOpen = weekly.at(-1)!.t;
+    expect(stableItems(weekly, 40, undefined, currentWeekOpen + 1)).toEqual([false, false, false]);
   });
   it("数据太少 -> null", () => {
     expect(stableItems(candles([1, 2, 3]), 3)).toBeNull();
