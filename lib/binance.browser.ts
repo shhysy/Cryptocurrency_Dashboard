@@ -129,7 +129,7 @@ async function postSpotMarketOrder(input: {
 export async function submitSpotMarketSell(input: {
   symbol: string; quantity: string; clientOrderId: string;
 }): Promise<BinanceSpotOrderSubmitResponse> {
-  if (!BINANCE_SPOT_SELL_SUBMISSION_ENABLED) throw new Error("当前环境卖出开关未启用；不会发送订单 POST");
+  if (!BINANCE_SPOT_SELL_SUBMISSION_ENABLED) throw new Error("测试网卖出开关未启用；当前环境卖出开关未启用，不会发送订单 POST");
   if (!/^[A-Z0-9]{5,24}$/.test(input.symbol) ||
       !/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(input.quantity) ||
       Number(input.quantity) <= 0 || !/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) {
@@ -141,7 +141,7 @@ export async function submitSpotMarketSell(input: {
 export async function submitSpotMarketBuy(input: {
   symbol: string; quoteOrderQty: string; clientOrderId: string;
 }): Promise<BinanceSpotOrderSubmitResponse> {
-  if (!BINANCE_SPOT_BUY_SUBMISSION_ENABLED) throw new Error("当前环境买入开关未启用；不会发送订单 POST");
+  if (!BINANCE_SPOT_BUY_SUBMISSION_ENABLED) throw new Error("测试网买入开关未启用；当前环境买入开关未启用，不会发送订单 POST");
   if (!/^[A-Z0-9]{5,24}$/.test(input.symbol) ||
       !/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(input.quoteOrderQty) ||
       Number(input.quoteOrderQty) <= 0 || !/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) {
@@ -160,7 +160,7 @@ export async function redeemFlexibleEarnUsdt(_input: {
   amountUsdt: number;
 }): Promise<FlexibleEarnRedemptionSubmitResponse> {
   assertSimpleEarnProductionOnly();
-  throw new Error("Simple Earn 真实赎回尚未迁移到服务端专用路由；当前不会发送任何 Binance POST 请求");
+  throw new Error("真实理财赎回尚未启用：Simple Earn 尚未迁移到服务端专用路由；当前不会发送任何 Binance POST 请求");
 }
 
 // ---------- 公开行情 ----------
