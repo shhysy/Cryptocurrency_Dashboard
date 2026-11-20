@@ -47,8 +47,8 @@ describe("BTC 市场状态", () => {
     expect(btcMarketState(candles(flat(100, 100)), 100)).toBeNull();
   });
   it("未收盘周线不参与 BTC MA200 和趋势状态", () => {
-    const now = 200 * WEEK + 24 * 60 * 60 * 1000;
-    const weekly = [...candles(flat(200, 100)), { t: 200 * WEEK, o: 100, h: 110, l: 40, c: 40 }];
+    const now = 204 * WEEK + 24 * 60 * 60 * 1000;
+    const weekly = [...candles(flat(204, 100)), { t: 204 * WEEK, o: 100, h: 110, l: 40, c: 40 }];
     expect(btcMarketState(weekly, 50, undefined, now)).toBe("transition");
   });
 });
