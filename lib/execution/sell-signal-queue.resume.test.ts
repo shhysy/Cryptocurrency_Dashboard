@@ -69,6 +69,7 @@ describe("底仓减仓后周期仓可卖重算", () => {
       symbol: "BTC", kind: "base_reduce", status: "executed",
       requestedQty: 0.1, filledQty: 0.1, createdAt: 1, updatedAt: 1,
       exchangeOrderId: "1", fillIds: ["f1"], lastError: null,
+      exchangeTerminalStatus: "FILLED", fillReconcileCompletedAt: 1_700_000_000_000,
     }])).toBeCloseTo(0.1);
   });
 
@@ -78,6 +79,7 @@ describe("底仓减仓后周期仓可卖重算", () => {
       symbol: "BTC", kind: "base_reduce", status: "executed",
       requestedQty: 0.1, filledQty: 0.1, createdAt: 1, updatedAt: 1,
       exchangeOrderId: "9", fillIds: ["br1"], lastError: null,
+      exchangeTerminalStatus: "FILLED", fillReconcileCompletedAt: 1_700_000_000_000,
     }];
     const plan = buildSellEventReservations(data({
       coins: [{
