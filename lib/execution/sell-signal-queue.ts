@@ -6,6 +6,7 @@ import {
   reserveSellEvent,
   type SellEventRecord,
 } from "./sell-store.browser";
+import { listTradeLedger } from "./store.browser";
 import {
   isExchangeSpotOrderTerminal,
   localEventEligibleForTakeProfitResume,
@@ -31,10 +32,11 @@ export type BaseReduceLedgerFill = {
   sellKind?: string;
 };
 
-/**
- * 仅在提供唯一成交台账时统计底仓减仓；无台账 → fail-closed 返回 0。
- * 对每条事件：按 fillIds 从台账汇总 qty，必须与 event.filledQty 在浮点容差内一致。
- */
+function baseAssetSymbol(symbol: string): string {
+  const s = String(symbol || "").toUpperCase();
+  return s.endsWith("USDT") ? s.slice(0, -4) : s;
+}
+
 export function confirmedBaseReduceFilledQty(
   events: SellEventRecord[],
   ledgerFills?: BaseReduceLedgerFill[],
@@ -48,7 +50,7 @@ export function confirmedBaseReduceFilledQty(
     if (!Number.isFinite(fill.qty) || fill.qty <= 0) continue;
     if (fill.side && fill.side !== "SELL") continue;
     if (fill.sellKind && fill.sellKind !== "base_reduce") continue;
-    const key = `${fill.symbol}:${fill.fillId}`;
+    const key = `${baseAssetSymbol(fill.symbol)}:${String(fill.fillId).trim()}`;
     ledgerByKey.set(key, (ledgerByKey.get(key) ?? 0) + fill.qty);
   }
 
@@ -66,7 +68,8 @@ export function confirmedBaseReduceFilledQty(
     if (normalized.length !== event.fillIds.length) continue;
     if (new Set(normalized).size !== normalized.length) continue;
 
-    const keys = normalized.map((id) => `${event.symbol}:${id}`);
+    const sym = baseAssetSymbol(event.symbol);
+    const keys = normalized.map((id) => `${sym}:${id}`);
     const overlap = keys.some((key) => seenFillIds.has(key));
     const allSeen = keys.every((key) => seenFillIds.has(key));
     if (allSeen) continue;
@@ -87,6 +90,26 @@ export function confirmedBaseReduceFilledQty(
     sum += ledgerSum;
   }
   return sum;
+}
+
+export function hasUnverifiedBaseReduceClaims(
+  events: SellEventRecord[],
+  ledgerFills?: BaseReduceLedgerFill[],
+): boolean {
+  const claimed = events.filter((event) =>
+    event.kind === "base_reduce" &&
+    (event.status === "executed" || event.status === "partially_filled") &&
+    Number.isFinite(event.filledQty) &&
+    (event.filledQty as number) > 0,
+  );
+  if (claimed.length === 0) return false;
+  if (!Array.isArray(ledgerFills) || ledgerFills.length === 0) return true;
+
+  for (const event of claimed) {
+    const got = confirmedBaseReduceFilledQty([event], ledgerFills);
+    if (!(got > 0)) return true;
+  }
+  return false;
 }
 
 export function protectedBaseQtyAfterReductions(
@@ -174,7 +197,9 @@ export function takeProfitTierCanResume(events: SellEventRecord[], suffix: strin
 export function buildSellEventReservations(
   data: DashboardData,
   existingEvents: SellEventRecord[],
+  options?: { ledgerFills?: BaseReduceLedgerFill[] },
 ): SellSignalQueuePlan {
+  const ledgerFills = options?.ledgerFills;
   if (data.source !== "binance" || data.stale || !data.market.accountKnown) {
     return { records: [], blocked: [] };
   }
@@ -195,6 +220,14 @@ export function buildSellEventReservations(
     const suffix = tierSuffix(action.label, action.kind);
     let eventKey = makeSellEventKey(coin.symbol, kind, `${sourceWeek}:${action.label || action.kind}`);
     const symbolEvents = existingEvents.filter((event) => event.symbol === coin.symbol);
+
+    if (hasUnverifiedBaseReduceClaims(symbolEvents, ledgerFills)) {
+      blocked.push({
+        symbol: coin.symbol,
+        reason: "底仓减仓成交缺少可核验成交台账，已阻断本币卖出计划（人工复核）",
+      });
+      continue;
+    }
 
     const activeOpen = symbolEvents.filter((event) =>
       event.status === "pending" || event.status === "reconcile_required",
@@ -237,8 +270,7 @@ export function buildSellEventReservations(
 
     const profile = strategyConfig.profiles[coin.signal.group];
     const boughtQty = coin.buys.reduce((sum, trade) => sum + trade.qty, 0);
-    // 无成交台账时 fail-closed：不减少受保护底仓
-    const baseReduceFilled = confirmedBaseReduceFilledQty(symbolEvents);
+    const baseReduceFilled = confirmedBaseReduceFilledQty(symbolEvents, ledgerFills);
     const baseQty = protectedBaseQtyAfterReductions(boughtQty, profile.baseRatio, baseReduceFilled);
     const nominalBase = boughtQty * profile.baseRatio;
     const cycleInitialQty = Math.max(0, boughtQty - nominalBase);
@@ -322,7 +354,22 @@ export async function enqueueEligibleSellSignals(data: DashboardData): Promise<{
   blocked: { symbol: string; reason: string }[];
 }> {
   const existingEvents = await listSellEvents();
-  const plan = buildSellEventReservations(data, existingEvents);
+  let ledgerFills: BaseReduceLedgerFill[] = [];
+  try {
+    const ledger = await listTradeLedger();
+    ledgerFills = ledger
+      .filter((row) => row.side === "SELL")
+      .map((row) => ({
+        symbol: row.symbol,
+        fillId: row.fillId,
+        qty: row.qty,
+        side: row.side,
+        sellKind: row.sellKind,
+      }));
+  } catch {
+    ledgerFills = [];
+  }
+  const plan = buildSellEventReservations(data, existingEvents, { ledgerFills });
   let created = 0;
   let existing = 0;
   for (const record of plan.records) {
