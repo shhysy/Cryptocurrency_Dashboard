@@ -1,5 +1,4 @@
 import {
-  serverExecutionIntentId,
   validateServerExecutionIntent,
   type ServerExecutionIntent,
 } from "./server-execution-core";
@@ -173,9 +172,19 @@ export class ExecutionAccountDO {
         return Response.json({ error: "订单意图请求体过大" }, { status: 413 });
       }
 
+      let rawBody: string;
+      try {
+        rawBody = await request.text();
+      } catch {
+        return Response.json({ error: "订单意图请求体读取失败" }, { status: 400 });
+      }
+      if (new TextEncoder().encode(rawBody).byteLength > 16_384) {
+        return Response.json({ error: "订单意图请求体过大" }, { status: 413 });
+      }
+
       let body: unknown;
       try {
-        body = await request.json();
+        body = JSON.parse(rawBody);
       } catch {
         return Response.json({ error: "订单意图JSON格式无效" }, { status: 400 });
       }
@@ -195,7 +204,7 @@ export class ExecutionAccountDO {
         createdAt: input.createdAt,
       };
       const validationError = validateServerExecutionIntent(
-        candidate as Parameters<typeof validateServerExecutionIntent>[0],
+        candidate as unknown as Parameters<typeof validateServerExecutionIntent>[0],
       );
       if (validationError) {
         return Response.json({ error: validationError }, { status: 400 });
