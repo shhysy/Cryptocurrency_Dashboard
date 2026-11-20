@@ -10,6 +10,11 @@ const SPOT_ENV = resolveServerBinanceEnvironment({
   BINANCE_BASE_URL: process.env.BINANCE_BASE_URL,
 });
 const SPOT_TESTNET = SPOT_ENV.mode === "testnet";
+
+/** 返回服务端当前 Spot 环境，仅供同源路由校验客户端构建环境是否一致。 */
+export function getServerBinanceSpotMode(): "testnet" | "production" {
+  return SPOT_ENV.mode;
+}
 const SPOT_BASE = SPOT_ENV.apiBase;
 const apiKey = () => SPOT_ENV.apiKey;
 const apiSecret = () => SPOT_ENV.apiSecret;
