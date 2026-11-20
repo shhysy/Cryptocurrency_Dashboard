@@ -435,3 +435,16 @@
 - 提交：`9e0d809ee4fc3bc152ef3c988ecdb41bd244215a`（移除成交核对固定绝对容差并使用浮点精度比较）；`c382f32f1926c114d4c964f9782d19fb524ac570`（增加微小BTC成交数量精度核对测试）。
 - 该修改仍不是完整的交易所十进制/stepSize精度模型；其目标是禁止固定绝对容差掩盖小额成交差异。SELL数量档位与交易所stepSize边界仍需独立核对。
 - 上述代码与测试已推送到 `gpt`；对应最新Actions需继续等待，当前不提前宣称通过。
+
+
+### 本轮最终CI复核（2026-11-20）
+- 分页回归测试夹具曾因各页重复使用同一组成交ID而失败；这是测试模拟不符合Binance分页ID递增约束。已修正为每页连续递增ID，未放宽生产校验。
+- `e5b3b6771a80cda2ab3bea64fb19dada77879633`：修正分页回归测试模拟连续成交ID。
+- 对应Actions Run `44708826126`：**成功**；49个测试文件、411项测试全部通过；TypeScript typecheck、Next.js production build、Cloudflare OpenNext build全部通过。
+- 继续移除 `order-reconcile.ts` 的 `1e-15` 绝对容差下限，并增加微小订单真实成交差额测试：
+  - `db0dc64d1ea2eca19bc1b34d4f01b8b40c26cd33`：移除订单数量核对的绝对容差下限。
+  - `bf6a5b2df99fde55648ca99216c074748d698278`：增加微小订单数量差额的对账回归测试。
+- 对应Actions Run `44708903111`：**成功**；49个测试文件、412项测试全部通过；TypeScript typecheck、Next.js production build、Cloudflare OpenNext build全部通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44708903111
+- 以上CI证明当前分支的分页完整性和微小数量容差回归通过，但仍不等于BUY生产闭环或SELL独立安全验收完成。
+- SELL独立复核仍发现：wait分支只在本地status为partially_filled时清除旧证明；stepSize在订单分类后才读取且失败后回退容差；底仓fillIds有效性与逐笔账本数量绑定仍需强化。已在Issue #2追加复核评论，Outbox继续暂停。
+- 生产BUY/SELL与Simple Earn真实赎回继续关闭。
