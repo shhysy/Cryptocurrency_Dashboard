@@ -497,3 +497,39 @@
 - GPT仍未验收：`sell-order-status.ts` 仍以 `stepSize * 0.51` 作为数量容差，可能把真实未成交差额判为满单；`localEventEligibleForTakeProfitResume` 仍未严格校验安全整数时间戳与fillIds逐项非空唯一；`confirmedBaseReduceFilledQty` 仍直接累计事件filledQty，尚未按唯一成交台账逐笔数量重算并验证一致。
 - 已在Issue #2评论 `7035649583` 指派Grok继续修复，要求只改SELL白名单和专属测试；GPT不改Grok主责文件。
 - SELL Outbox仍暂停；生产BUY/SELL与Simple Earn真实赎回保持关闭。
+
+
+## P2-B原子claim与账户级资金预留（2026-11-20）
+
+### 实际实现
+- `lib/execution/execution-account-do.ts` 新增SQLite `account_lock` 表；`reservations` 增加attempt字段，支持同一策略事件的多次attempt保留独立预留历史。
+- 新增内部 `POST /internal/claim`。使用Cloudflare SQLite Durable Object `storage.transactionSync()`，在同一个同步事务中：
+  1. 检查订单意图存在且仍为queued；
+  2. 检查余额快照时间戳为安全整数、非明显未来时间且不超过60秒；
+  3. 检查BUY必须预留USDT、SELL必须预留交易对基础资产；
+  4. 使用BigInt将十进制字符串转为整数单位比较余额，禁止浮点比较；
+  5. 检查单账户唯一活动订单锁为空；
+  6. 递增attempt，生成Binance clientOrderId与随机leaseToken；
+  7. 原子写入订单reserved状态、reservation、order_attempts、account_lock和审计事件。
+- 当前策略采用保守的**全账户单活动订单锁**，先确保不同币种不能并发超额占用资金；后续只有在资产隔离和跨币种资金证明完整后才考虑放宽。
+- 新增测试覆盖100.00与100金额精确相等、小额十进制差额、余额不足、过期快照、两币种并发claim竞争、重复意图幂等和Alarm心跳。
+
+### 本轮相关提交
+- `132ffc8e84e174837cde37286b78ea2c5c059368`：实现账户级原子订单领取与资金预留锁。
+- `58dadce6bd94429027874b3dbfae184562ce65f9`：增加账户级原子领取、并发锁与余额快照测试。
+- `7ad3b854c67f410eff40e530def5fb0cc446d4f9`：修正资金预留十进制金额校验正则。
+- `83aaa40911650672c755b513aa313fee8b63e35f`：强化资金预留落库与并发领取竞争测试。
+- `52e3d883be7f715d5f123370f9b1282bfb3eecd9`：修正Durable Object SQLite事务测试接口位置。
+- `0816d13e5c1e8fbb7e819ea011843582aea3e013`：增加微小余额差额的精确十进制预留测试。
+- 架构文档更新：`6c8e055140415bfdc4a1ce7a968272845355c961`；规则矩阵更新：`66a7455cd40d3a3b6a8c85c8c91316e260fe2a1d`；README更新：`062eca995fa26a527fd514e8e5fd873708af37a8`。
+
+### CI结果
+- Run `44710596213` 成功：50个测试文件、423项测试全部通过；typecheck、Next.js production build、Cloudflare OpenNext build全部通过。
+- 最新Run `44710687787` 成功：50个测试文件、424项测试全部通过；typecheck、Next.js production build、Cloudflare OpenNext build全部通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44710687787
+- 文档同步Run `44710656891` 成功。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44710656891
+
+### 未完成与安全边界
+- claim接口目前只供Worker内部DO绑定调用，尚未接入Next.js可信策略事件或Binance服务端真实余额读取。
+- 当前领取后账户锁会持续占用；尚无订单提交前状态写入、leaseToken fencing写入、未知POST恢复、过期租约接管、终态成交核对、资金释放与锁释放接口。**因此目前不可把该接口接入真实下单，也不可部署后视为已可交易。**
+- Cron仍只写心跳，DO Alarm仍只记录触发时间；后台订单任务派发未实现。
+- 生产BUY/SELL与Simple Earn真实赎回继续关闭。
