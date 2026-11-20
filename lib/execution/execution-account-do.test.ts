@@ -68,9 +68,9 @@ function makeCoordinator() {
       sql,
       getAlarm: async () => alarm,
       setAlarm: async (value: number) => { alarm = value; },
+      transactionSync: <T>(callback: () => T): T => callback(),
     },
     blockConcurrencyWhile: async <T>(callback: () => Promise<T>): Promise<T> => callback(),
-    transactionSync: <T>(callback: () => T): T => callback(),
   };
   return {
     coordinator: new ExecutionAccountDO(state, {}),
