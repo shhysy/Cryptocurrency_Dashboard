@@ -38,7 +38,7 @@ function makeCoordinator() {
       getAlarm: async () => alarm,
       setAlarm: async (value: number) => { alarm = value; },
     },
-    blockConcurrencyWhile: async (callback: () => Promise<void>) => callback(),
+    blockConcurrencyWhile: async <T>(callback: () => Promise<T>): Promise<T> => callback(),
   };
   return {
     coordinator: new ExecutionAccountDO(state, {}),
