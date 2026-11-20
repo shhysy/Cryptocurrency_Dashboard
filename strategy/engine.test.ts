@@ -46,6 +46,11 @@ describe("BTC 市场状态", () => {
   it("数据不足 200 周 -> null", () => {
     expect(btcMarketState(candles(flat(100, 100)), 100)).toBeNull();
   });
+  it("未收盘周线不参与 BTC MA200 和趋势状态", () => {
+    const now = 200 * WEEK + 24 * 60 * 60 * 1000;
+    const weekly = [...candles(flat(200, 100)), { t: 200 * WEEK, o: 100, h: 110, l: 40, c: 40 }];
+    expect(btcMarketState(weekly, 50, undefined, now)).toBe("transition");
+  });
 });
 
 describe("企稳三项", () => {
@@ -73,6 +78,13 @@ describe("打分", () => {
     const s = evaluateCoin(coin(bottoming()), ctx({ fearGreed: null }));
     expect(s.breakdown.sentiment).toBe(0);
     expect(s.score).toBe(67);
+  });
+  it("未收盘周线不参与 RSI 和 MA200 计算", () => {
+    const now = 200 * WEEK + 24 * 60 * 60 * 1000;
+    const weekly = candles([...flat(200, 100), 200]);
+    const s = evaluateCoin(coin([...flat(200, 100), 200], { price: 200, weekly }), ctx({ now }));
+    expect(s.metrics.weeklyRsi).toBe(50);
+    expect(s.metrics.ma200).toBe(100);
   });
   it("评分不受账户影响", () => {
     const a = evaluateCoin(coin(bottoming()), ctx());
