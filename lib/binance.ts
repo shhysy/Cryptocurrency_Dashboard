@@ -346,6 +346,100 @@ export interface SpotMarketOrderResponse {
   transactTime: number;
 }
 
+interface SpotExchangeFilter {
+  filterType: string;
+  minQty?: string;
+  maxQty?: string;
+  stepSize?: string;
+  minNotional?: string;
+  maxNotional?: string;
+  applyToMarket?: boolean;
+  applyMinToMarket?: boolean;
+  applyMaxToMarket?: boolean;
+}
+
+function scaledDecimal(value: string, decimals: number): bigint {
+  if (!/^(?:0|[1-9]\\d*)(?:\\.\\d+)?$/.test(value)) throw new Error("币安交易规则返回无效数字");
+  const [whole, fraction = ""] = value.split(".");
+  if (fraction.length > decimals) throw new Error("订单精度超过币安交易规则");
+  return BigInt(whole) * (10n ** BigInt(decimals)) +
+    BigInt((fraction + "0".repeat(decimals)).slice(0, decimals) || "0");
+}
+
+/** 服务端重新核验交易对、市场订单过滤器与交易所可用余额，不信任浏览器预检结果。 */
+async function assertSpotMarketOrderPreflight(input: SpotMarketOrderInput): Promise<void> {
+  if (!accountEnabled()) throw new Error("ENABLE_ACCOUNT 未开启，禁止自动交易");
+  const info = await publicGet<{ symbols?: {
+    symbol: string;
+    status: string;
+    baseAsset: string;
+    quoteAsset: string;
+    quoteOrderQtyMarketAllowed?: boolean;
+    filters: SpotExchangeFilter[];
+  }[] }>(`/api/v3/exchangeInfo?symbol=${encodeURIComponent(input.symbol)}`);
+  const symbol = info.symbols?.find((item) => item.symbol === input.symbol);
+  if (!symbol || symbol.status !== "TRADING" || symbol.quoteAsset !== "USDT") {
+    throw new Error("交易对不存在、未开放交易或不是 USDT 报价；已阻止下单");
+  }
+
+  const ticker = await fetchTickers([input.symbol]);
+  const price = ticker[input.symbol]?.price;
+  if (!Number.isFinite(price) || (price ?? 0) <= 0) throw new Error("无法取得有效现货价格，已阻止下单");
+
+  const account = await signedGet<{ balances: { asset: string; free: string; locked: string }[] }>(
+    "/api/v3/account",
+    { omitZeroBalances: "true" },
+  );
+  const requiredAsset = input.side === "BUY" ? symbol.quoteAsset : symbol.baseAsset;
+  const balance = account.balances.find((item) => item.asset === requiredAsset);
+  const free = Number(balance?.free ?? "0");
+  if (!Number.isFinite(free) || free < 0) throw new Error("币安可用余额无效，已阻止下单");
+
+  const amount = Number(input.amount);
+  const notional = input.side === "BUY" ? amount : amount * price!;
+  if (amount > free) throw new Error(`${requiredAsset} 可用余额不足，已阻止下单`);
+
+  const filters = symbol.filters ?? [];
+  const marketLot = filters.find((item) => item.filterType === "MARKET_LOT_SIZE") ??
+    filters.find((item) => item.filterType === "LOT_SIZE");
+  if (input.side === "BUY") {
+    if (symbol.quoteOrderQtyMarketAllowed === false) {
+      throw new Error("该交易对不允许 quoteOrderQty 市价买入");
+    }
+  } else {
+    if (!marketLot?.stepSize) throw new Error("币安未返回有效 MARKET_LOT_SIZE 规则");
+    const decimals = Math.min(12, (marketLot.stepSize.split(".")[1] ?? "").length);
+    const qtyUnits = scaledDecimal(input.amount, decimals);
+    const stepUnits = scaledDecimal(marketLot.stepSize, decimals);
+    if (stepUnits <= 0n || qtyUnits % stepUnits !== 0n) {
+      throw new Error("卖出数量不符合币安 MARKET_LOT_SIZE 步长");
+    }
+    const minQty = Number(marketLot.minQty ?? "0");
+    const maxQty = Number(marketLot.maxQty ?? "0");
+    if (amount < minQty || (maxQty > 0 && amount > maxQty)) {
+      throw new Error("卖出数量超出币安 MARKET_LOT_SIZE 范围");
+    }
+  }
+
+  const notionalFilter = filters.find((item) => item.filterType === "NOTIONAL") ??
+    filters.find((item) => item.filterType === "MIN_NOTIONAL");
+  if (notionalFilter) {
+    const appliesMin = notionalFilter.filterType === "NOTIONAL"
+      ? notionalFilter.applyMinToMarket !== false
+      : notionalFilter.applyToMarket !== false;
+    const appliesMax = notionalFilter.filterType === "NOTIONAL" &&
+      notionalFilter.applyMaxToMarket === true;
+    const minNotional = Number(notionalFilter.minNotional ?? "0");
+    const maxNotional = Number(notionalFilter.maxNotional ?? "0");
+    if (appliesMin && minNotional > 0 && notional + 1e-8 < minNotional) {
+      throw new Error("订单名义金额低于币安最小市价单金额");
+    }
+    if (appliesMax && maxNotional > 0 && notional - 1e-8 > maxNotional) {
+      throw new Error("订单名义金额超过币安最大市价单金额");
+    }
+  }
+}
+
 /**
  * 统一 Spot MARKET 下单适配器。
  * 环境、凭证和交易域名完全由服务端 BINANCE_SPOT_ENVIRONMENT 决定；
@@ -371,6 +465,7 @@ export async function submitSpotMarketOrder(
   }
   if (!/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) throw new Error("clientOrderId 格式无效");
 
+  await assertSpotMarketOrderPreflight(input);
   const serverTime = await serverNow();
   const params: Record<string, string | number> = {
     symbol: input.symbol,
