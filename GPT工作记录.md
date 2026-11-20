@@ -230,3 +230,38 @@
 - 同一Run的 `npm run typecheck` 已执行且通过；因此当前GPT新增代码的类型检查没有失败证据，新增BUY与signed-read测试也已通过。
 - 全分支CI仍为失败，不能将本轮标记为全量验收通过；待Grok修复SELL剩余5项失败后重新运行全量CI。
 - 最新工作记录提交后另触发Run `44699677826`，当时排队中，最终状态待查。
+
+
+## 自动交易实盘切换总目标与GPT工作包（2026-11-20）
+
+### 用户最终验收目标
+开发、测试、部署配置完成后，用户只需把服务端环境文件中的Binance测试网Key/Secret换成生产Key/Secret，并按明确的生产模式开关步骤切换，即可按《策略3.3》运行自动BUY/SELL；订单对账、持仓账本、通知和风险保护必须完整工作。不得把“测试网能下单”当作项目完成。
+
+### 当前代码审计确认的阻断项
+1. `app/api/binance/testnet-order/route.ts`调用的`submitTestnetSpotMarketOrder`在`lib/binance.ts`内硬性拒绝非Testnet环境；当前没有Production下单API。
+2. `lib/binance-environment.ts`的`resolveBinanceSpotSubmissionSwitches`对Production始终返回BUY/SELL关闭；浏览器`lib/binance.browser.ts`也将BUY/SELL提交开关限定为Testnet，LIVE常量硬编码false。
+3. `app/api/dashboard/route.ts`没有在路由内显式验证Dashboard认证；部署层可能有Cloudflare Access，但必须确认真实部署保护，不可仅依赖假设。
+4. Simple Earn赎回虽然有意图与对账流程，但赎回提交在浏览器适配器中硬关闭；需要迁移到服务端签名代理并做独立安全审计，不能把当前规划/只读对账当成自动赎回完成。
+5. `ExecutionBackground`仅在看板挂载且页面可见时每30秒运行；若用户要求页面关闭仍自动运行，必须增加服务端定时调度/持久化队列/租约和安全部署方案。目前架构不能宣称全天候无人值守。
+6. IndexedDB本地资金预留不能充当交易所资金锁，也不能跨设备协调；生产前必须评估服务端持久化订单队列/原子claim及账户级并发保护。
+
+### GPT负责工作包（与Grok SELL返工并行）
+- P1：设计并实现服务端统一Spot订单执行适配器，明确testnet/production双环境端点、独立凭证读取、服务端BUY/SELL双重开关、Basic Auth/Origin/请求schema/限流与审计日志；production默认关闭，绝不因切换Key自动下单。
+- P2：统一浏览器端提交接口，移除前端环境变量/硬编码Testnet限制；浏览器只请求同源服务端订单路由，绝不持有API Secret。
+- P3：审查BUY订单部分成交、终态、手续费、订单/成交历史完整性和当前余额核对；未知状态冻结，禁止盲目重试。
+- P4：Simple Earn赎回迁移到服务端专用路由，增加产品白名单、额度上限、双重开关、认证、Origin、幂等、对账和人工恢复路径；未完成前继续关闭真实赎回。
+- P5：确认Dashboard/API部署认证、Cloudflare Access和Secrets配置；补齐生产环境配置检查、启动自检和清晰的“尚未就绪”状态。
+- P6：服务端常驻自动执行评估：若目标包含页面关闭后持续运行，采用Cloudflare Workers Cron/Queues或等效持久化调度，不能仅靠客户端setInterval；设计重入锁、持久化队列、可观测性、告警与暂停开关。
+- P7：整理一份用户最终操作手册：仅列需要设置的真实环境变量、Binance Key权限建议、Cloudflare Secrets设置、部署步骤、首次小额验证与紧急停机步骤。真实密钥只由用户在部署平台配置。
+
+### 总验收门槛
+- Grok SELL专项通过独立复核；Outbox审计完成。
+- BUY/SELL生产与测试网适配器分别测试，确保环境隔离，Testnet凭证永不回退到Production，Production凭证永不被Testnet路径读取。
+- mock测试、Spot Testnet全链路、全量测试、类型检查、构建、部署预览全部通过；真实生产订单仅在用户明确授权后做受控首次验证。
+- 服务端密钥不进入浏览器bundle、日志、Git或客户端错误信息；无默认开启的生产交易开关。
+- 明确页面关闭运行能力；若未实现服务端定时执行，最终文档必须标注“看板页面必须保持打开”。
+- 完成前不得告诉用户只换Key即可实盘；生产BUY/SELL与Simple Earn真实赎回保持关闭。
+
+### 任务分配
+- Grok：GitHub Issue #2，先SELL状态机返工，再Outbox租约审计；未经GPT独立验收不得推进后续任务。
+- GPT：负责生产/测试网服务端执行架构、BUY核对、安全、Earn服务端迁移、部署/定时运行方案和最终验收。
