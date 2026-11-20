@@ -70,7 +70,7 @@ describe("底仓减仓后周期仓可卖重算", () => {
       requestedQty: 0.1, filledQty: 0.1, createdAt: 1, updatedAt: 1,
       exchangeOrderId: "1", fillIds: ["f1"], lastError: null,
       exchangeTerminalStatus: "FILLED", fillReconcileCompletedAt: 1_700_000_000_000,
-    }])).toBeCloseTo(0.1);
+    }], [{ symbol: "BTC", fillId: "f1", qty: 0.1, side: "SELL", sellKind: "base_reduce" }])).toBeCloseTo(0.1);
   });
 
   it("底仓减仓已成交后，普通止盈仍可按重算后的周期仓预约", () => {
@@ -91,6 +91,7 @@ describe("底仓减仓后周期仓可卖重算", () => {
         signal: sellSignal,
       }],
     }), existing);
+    // 无台账时底仓减仓 fail-closed 不减少保护量；止盈仍可按周期仓预约
     expect(plan.records).toHaveLength(1);
     expect(plan.records[0].requestedQty).toBeCloseTo(0.15);
   });
