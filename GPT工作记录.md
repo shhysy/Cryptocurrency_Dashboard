@@ -455,3 +455,45 @@
 - 提交：`b3979bcaf41674e414226742d9776fbed0304e81`（增加微小卖出成交数量精度回归测试）；该提交的Actions尚待最终状态确认。
 - `lib/execution/README.md` 原先仍描述“生产环境没有可用下单路径”，与当前已实现但默认关闭的统一服务端 `/api/binance/spot-order` 不一致。现已更正为：测试网/生产端点由服务端环境变量选择，四路方向开关隔离；生产适配器已存在但服务端账户级持久化协调、后台调度和最终验收尚未完成。
 - 文档提交：`9dbb490b2e2d046aab1175458d296077095fe710`。
+
+
+## Durable Object SQLite与Cron看门狗基础层（2026-11-20）
+
+### GPT直接完成的代码
+- 新增 `lib/execution/execution-account-do.ts`：账户级Durable Object SQLite基础类，建立 `account_metadata`、`order_intents`、`order_attempts`、`reservations`、`fills`、`audit_events`、`scheduler_tasks` 表。
+- 当前内部接口仅支持健康查询、看门狗心跳、策略3.3订单意图字段校验和幂等落库；同一strategyEventId派生确定性intentId，重复提交不会覆盖既有记录。
+- 请求体使用实际UTF-8字节数限制16KiB；非法JSON、错误策略版本、错误交易对/方向/报价资产/金额、幂等冲突均失败关闭。
+- 新增 `lib/execution/execution-account-do.test.ts`：覆盖SQLite schema初始化、非法意图拒绝、重复意图幂等、Cron心跳及重复心跳不会不断推迟已设置Alarm。
+- `worker.ts` 导出 `ExecutionAccountDO`，保留OpenNext fetch，并增加每分钟 `scheduled()` 看门狗；`wrangler.jsonc` 配置DO binding、SQLite migration及Cron。
+- Cron仅向固定账户DO写入心跳；DO Alarm当前仅记录触发时间。没有提交/撤销/查询Binance订单的代码路径，也没有连接策略事件的公开API。
+
+### 提交记录
+- `a0321e9ed9ea284952325e5e789d13dd44fa0e68`：新增账户级SQLite持久化协调器基础模块。
+- `0164f57ecdfd2c07c8ae620c7d08dc95b0e10584`：加固持久化意图请求体大小与解析校验。
+- `b5ab31ad05b21d882ee7bbc570a8b2ecfa649c00`：接入账户协调器导出与定时看门狗入口。
+- `a6edb1a4e478d89f88ba6e29888b06305113fa8c`：配置账户SQLite持久化对象与安全看门狗定时触发。
+- `5310d1e04d5f6be9b8e95090f342c11d23e1e8f1`：增加账户级SQLite持久化协调器回归测试。
+- `017f3edad4bc6d7294c18674cffb4cd2ba0d442a`：避免Cron心跳反复推迟Durable Object闹钟。
+- `1dba6e846a435228a4ffe54f4f981e9d79a866e4`：保留OpenNext生成入口的TypeScript构建兼容。
+- `bb525e4f3c1e3196af5c616f0b92a48a23338f16`：修正Durable Object测试状态模拟器的泛型类型。
+- `92e1680dc59db5b553628913551033f546bf58a2`：验证重复Cron心跳不会推迟已设置的DO闹钟。
+- 架构文档：`7006c2e32ebf34208b4e7089330fac2498c4669b`；README边界说明：`67d28127e5496f5891614424fb5946f58b74c7d1`；规则矩阵：`3ac9e25571090526cac41ebb955e7990e4eb3102`。
+
+### CI验证与暂时失败说明
+- Run `44709932176` 对应 `92e1680` 成功：50个测试文件、420项测试全部通过；TypeScript typecheck、Next.js production build、Cloudflare OpenNext build全部通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44709932176
+- 文档提交Run `44710054437` 与 `44710060285` 均成功；后者链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44710060285
+- 中间提交曾出现CI失败：一是Grok新增底仓证明测试与当时实现不一致；二是DO测试模拟器泛型类型不匹配；三是OpenNext生成入口尚未添加ts-ignore。均已定位，后续提交修复；当前引用的成功Run覆盖50/420测试、typecheck及两种build。
+- 运行时Cloudflare部署/迁移尚未执行，未做Wrangler远程部署或真实账户操作。
+
+### 当前明确未完成
+- SQLite schema虽有attempt/reservation/fill/scheduler表，但还没有账户级原子claim、资金预留与释放、唯一活动订单锁、attempt/leaseToken持久化写入。
+- Cron只做心跳；Alarm不派发订单任务；Next.js没有把可信策略事件写入DO；DO没有调用Binance adapter。
+- 仍需实现DO重启恢复、并发抢占、重复intent、余额快照过期、未知POST先查单、旧lease fencing和手工复核队列。
+- 当前策略执行节拍仍由看板页面驱动，关闭页面不会持续运行。不得把此基础层描述为无人值守自动交易已完成。
+
+## SELL第三轮复核结论（2026-11-20）
+- Grok已提交非终态wait分支清理陈旧终态证明、stepSize获取失败时冻结、底仓fillIds空值/重复/时间戳校验，以及脏 `reconcile_required` 旧记录集成fixture。
+- 最新全量CI Run `44709932176` 覆盖这些当前分支代码：50个测试文件、420项测试全部通过。
+- GPT仍未验收：`sell-order-status.ts` 仍以 `stepSize * 0.51` 作为数量容差，可能把真实未成交差额判为满单；`localEventEligibleForTakeProfitResume` 仍未严格校验安全整数时间戳与fillIds逐项非空唯一；`confirmedBaseReduceFilledQty` 仍直接累计事件filledQty，尚未按唯一成交台账逐笔数量重算并验证一致。
+- 已在Issue #2评论 `7035649583` 指派Grok继续修复，要求只改SELL白名单和专属测试；GPT不改Grok主责文件。
+- SELL Outbox仍暂停；生产BUY/SELL与Simple Earn真实赎回保持关闭。
