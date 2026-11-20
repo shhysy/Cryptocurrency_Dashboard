@@ -460,7 +460,7 @@ export async function submitSpotMarketOrder(
     BINANCE_PRODUCTION_BUY_ENABLED: process.env.BINANCE_PRODUCTION_BUY_ENABLED,
     BINANCE_PRODUCTION_SELL_ENABLED: process.env.BINANCE_PRODUCTION_SELL_ENABLED,
   });
-  if (!enabled) throw new Error(`${mode === "testnet" ? "测试网" : "生产环境"}${input.side} 订单服务端开关未启用`);
+  if (!enabled) throw new Error(`${mode === "testnet" ? "测试网" : "生产环境"}${input.side} 订单服务端开关未启用（开关未在服务端启用）`);
   if (!apiKey() || !apiSecret()) {
     throw new Error(mode === "testnet" ? "服务端缺少 Binance Testnet API Key/Secret" : "服务端缺少 Binance Production API Key/Secret");
   }
