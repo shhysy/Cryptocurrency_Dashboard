@@ -29,13 +29,24 @@ describe("底仓减仓成交仅统计有证明的记录", () => {
     })])).toBe(0);
   });
 
+  it("NEW/PARTIALLY_FILLED 等非终态状态值不计入", () => {
+    expect(confirmedBaseReduceFilledQty([baseEvent({ exchangeTerminalStatus: "NEW" })])).toBe(0);
+    expect(confirmedBaseReduceFilledQty([baseEvent({ exchangeTerminalStatus: "PARTIALLY_FILLED" })])).toBe(0);
+  });
+
   it("有证明的 executed 计入", () => {
     expect(confirmedBaseReduceFilledQty([baseEvent()])).toBeCloseTo(0.1);
   });
 
-  it("同一 fillId 不重复累计", () => {
-    const a = baseEvent({ eventKey: "sell:BTC:base_reduce:1:a", fillIds: ["same"] });
-    const b = baseEvent({ eventKey: "sell:BTC:base_reduce:1:b", fillIds: ["same"], filledQty: 0.1 });
+  it("完全重复 fillId 只计一次", () => {
+    const a = baseEvent({ eventKey: "a", fillIds: ["same"] });
+    const b = baseEvent({ eventKey: "b", fillIds: ["same"], filledQty: 0.1 });
+    expect(confirmedBaseReduceFilledQty([a, b])).toBeCloseTo(0.1);
+  });
+
+  it("部分重叠 fillIds 整条冲突事件拒绝计入", () => {
+    const a = baseEvent({ eventKey: "a", fillIds: ["x", "y"], filledQty: 0.1 });
+    const b = baseEvent({ eventKey: "b", fillIds: ["y", "z"], filledQty: 0.05 });
     expect(confirmedBaseReduceFilledQty([a, b])).toBeCloseTo(0.1);
   });
 });
