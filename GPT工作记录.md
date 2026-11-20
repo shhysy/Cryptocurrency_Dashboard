@@ -265,3 +265,49 @@
 ### 任务分配
 - Grok：GitHub Issue #2，先SELL状态机返工，再Outbox租约审计；未经GPT独立验收不得推进后续任务。
 - GPT：负责生产/测试网服务端执行架构、BUY核对、安全、Earn服务端迁移、部署/定时运行方案和最终验收。
+
+## 自动交易生产切换开发进展（2026-11-20）
+
+### 用户最新确认
+用户要求继续使用模拟凭证/mock/Spot Testnet 完成自动交易开发，不等待真实 Key；最终目标是用户配置真实 Binance Key 后，系统即可按《策略3.3》运行自动 BUY/SELL。GPT负责总体架构、BUY和生产执行；Grok负责SELL核心缺陷，先通过后再处理Outbox。
+
+### 新建任务
+- Grok：Issue #2（SELL状态机返工，先修复5项CI失败，再做Outbox）。
+- GPT：Issue #3（生产可切换的自动交易执行链路）。
+- 已在Issue #2留言再次要求优先修复SELL根因，不得跳过测试或提前开展Outbox。
+
+### GPT本轮实际代码修改
+1. `lib/binance-environment.ts`
+   - 新增 `isSpotOrderSubmissionEnabled`，分别按testnet/production和BUY/SELL四个维度读取服务端授权。
+   - 测试网开关不能授权生产；生产开关不能授权测试网；BUY开关不能授权SELL。
+2. `lib/binance-environment.test.ts`
+   - 新增4组环境/方向隔离测试，覆盖默认关闭、跨环境授权拒绝、BUY/SELL独立授权。
+3. `lib/binance.ts`
+   - 新增统一服务端 `submitSpotMarketOrder`，按服务端环境选择已隔离的凭证和API endpoint，签名只在服务端进行。
+   - 原 `submitTestnetSpotMarketOrder` 保留为测试网专用兼容包装，生产模式下明确拒绝。
+   - 生产和测试网分别使用独立服务端开关；响应字段不匹配或无法解析时仍要求先对账，禁止自动重发。
+4. `app/api/binance/spot-order/route.ts`
+   - 新增统一服务端下单路由，要求Dashboard Basic Auth、同源Origin、JSON、2KiB请求体限制和严格字段白名单。
+5. `app/api/binance/spot-order/route.test.ts`
+   - 新增路由认证、Origin、Content-Type、请求体、字段白名单和转发测试。
+6. `lib/binance.browser.ts`
+   - 浏览器BUY/SELL入口改为根据当前前端环境选择对应的NEXT_PUBLIC开关，并调用统一服务端下单路由；浏览器仍不持有API密钥。
+7. `.env.example`
+   - 增加生产BUY/SELL前端显示开关示例，生产服务端开关默认0。
+
+### 本轮提交
+- `dbf08fbba11b6b49597e863681ee8df1828556e7`：增加按环境隔离的服务端买卖授权开关。
+- `2c650874269e262b28924bf8834a8abea923aefd`：补充生产与测试网订单开关隔离测试。
+- `015c64ff76897065c43fbbf921a816876fce8021`：统一测试网与生产环境服务端市价订单适配器。
+- `b559210abf44549976739b62c08c4220e7560506`：新增统一现货下单服务端安全路由。
+- `4faec36f03b6ca303f6aebb64131513583353a71`：新增统一Spot下单路由安全测试。
+- `704c2358a3999bc4593844d52122a242a4157c58`：浏览器订单提交改用统一服务端接口。
+- `3dff6e977b3a8b13642a2d03821d116fd26fb72c`：补充生产环境独立买卖开关示例。
+
+### 尚未验收/明确限制
+- 本轮GitHub文件提交未在本地执行Vitest、typecheck、build；必须以最新CI结果为准。
+- 统一下单适配器尚未完成订单规则过滤、服务端限流、审计持久化、账户级并发锁和自动成交对账全链路。
+- BUY后台编排仍受客户端ExecutionBackground限制；尚未实现服务端持久化定时执行，页面关闭后不能宣称持续自动运行。
+- Simple Earn真实赎回仍关闭，浏览器适配器尚未迁移到服务端专用提交路由。
+- Grok SELL 5项测试未通过前，不得宣称自动卖出安全或整体自动交易完成。
+- 生产BUY/SELL开关默认关闭；本轮没有真实密钥、没有发送真实订单。
