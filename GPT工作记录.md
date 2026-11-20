@@ -426,3 +426,12 @@
 - 对应GitHub Actions Run `44708205303` 在记录时仍为进行中；尚无测试、typecheck、Next build或Cloudflare build通过结论。必须以该提交对应Actions最终结果为准。
 - 当前仍需进一步审查 `fill-reconcile.ts` 的固定浮点容差、逐笔成交精度与多轮对账原子性；本次分页修复不代表BUY成交闭环验收完成。
 - 生产BUY/SELL与Simple Earn真实赎回继续关闭。
+
+
+### BUY成交数量精度补强（2026-11-20）
+- 进一步修复 `lib/execution/fill-reconcile.ts`：移除固定绝对 `1e-8` 容差，改为仅容忍IEEE-754浮点表示误差，并按成交笔数放大计算误差预算；累计数量/金额使用补偿求和，避免多笔成交简单浮点累加误差。
+- 同时覆盖BUY和SELL逐笔成交与订单累计数量/金额核对，以及单笔成交 `price × qty` 与 `quoteQty` 的一致性校验。
+- `lib/execution/fill-reconcile.test.ts` 新增微小BTC成交测试：正确的 `1e-10` 数量可核对；数量翻倍的差异不会被旧的固定 `1e-8` 容差吞掉。
+- 提交：`9e0d809ee4fc3bc152ef3c988ecdb41bd244215a`（移除成交核对固定绝对容差并使用浮点精度比较）；`c382f32f1926c114d4c964f9782d19fb524ac570`（增加微小BTC成交数量精度核对测试）。
+- 该修改仍不是完整的交易所十进制/stepSize精度模型；其目标是禁止固定绝对容差掩盖小额成交差异。SELL数量档位与交易所stepSize边界仍需独立核对。
+- 上述代码与测试已推送到 `gpt`；对应最新Actions需继续等待，当前不提前宣称通过。
