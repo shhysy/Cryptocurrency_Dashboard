@@ -614,3 +614,7 @@
 - 上述是纯函数安全原语，不是已接通的SQLite任务队列；尚未加入DO enqueue/claim/ack/retry接口、任务租约持久化表、Alarm过期租约回收/最近任务调度、Cron任务消费器。
 - 未有真实Cloudflare Durable Object实例部署/重启恢复验证；未连接Binance Testnet执行器，不会发送订单。
 - Issue #4 已创建为GPT主责任务，后续必须把这些原语接入DO并补真实SQL语义测试；不得把本次439项CI通过表述为P2-C完成。
+### P2-C重试恢复决策纯函数化（补充）
+- 将过期租约恢复决策改为显式传入now，移除隐藏的Date.now依赖，保证重试时间可确定性测试。
+- 新增过期租约按attempt分流测试：未达上限进入pending并安排退避；达到8次上限或now无效时转manual_review。
+- 最新测试提交 `16a838c6ac28efb409feb28c8c9e2f58062146df` 对应CI Run `44761482631` 成功：52个测试文件、440项测试全部通过；typecheck、Next.js production build、Cloudflare OpenNext build全部通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44761482631
