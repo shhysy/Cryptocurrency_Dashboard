@@ -137,7 +137,15 @@ class FakeSql {
         }
       }
     } else if (query.includes("UPDATE account_lock")) {
-      if (this.lock && this.lock.intent_id === String(bindings[3]) &&
+      if (query.includes("SET lease_until = ?")) {
+        if (this.lock && this.lock.intent_id === String(bindings[2]) &&
+            this.lock.attempt === Number(bindings[3]) &&
+            this.lock.lease_token === String(bindings[4]) &&
+            this.lock.lease_until > Number(bindings[5])) {
+          this.lock.lease_until = Number(bindings[0]);
+          rows = [{ intent_id: this.lock.intent_id }];
+        }
+      } else if (this.lock && this.lock.intent_id === String(bindings[3]) &&
           this.lock.attempt === Number(bindings[4]) &&
           this.lock.lease_token === String(bindings[5]) &&
           this.lock.lease_until <= Number(bindings[6])) {
@@ -401,6 +409,37 @@ describe("账户级Durable Object持久化基础", () => {
     expect(stale.status).toBe(400);
     expect(sql.intents.get(intent.intentId)?.state).toBe("queued");
     expect(sql.lock).toBeNull();
+  });
+
+  it("有效租约可续期，但过期租约不能复活", async () => {
+    const { coordinator, sql } = makeCoordinator();
+    await coordinator.fetch(new Request("https://do.internal/internal/intents", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(intent),
+    }));
+    const claimedResponse = await coordinator.fetch(new Request("https://do.internal/internal/claim", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, asset: "USDT", availableBalance: "100", snapshotAt: Date.now() }),
+    }));
+    const claimed = await claimedResponse.json() as { attempt: number; leaseToken: string };
+    const originalLeaseUntil = sql.lock?.lease_until ?? 0;
+
+    const renewed = await coordinator.fetch(new Request("https://do.internal/internal/renew-lease", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken }),
+    }));
+    const renewedBody = await renewed.json() as { renewed: boolean; leaseUntil: number };
+    expect(renewed.status).toBe(200);
+    expect(renewedBody.renewed).toBe(true);
+    expect(renewedBody.leaseUntil).toBeGreaterThan(originalLeaseUntil);
+
+    if (!sql.lock) throw new Error("测试未创建账户锁");
+    sql.lock.lease_until = Date.now() - 1;
+    const expiredRenewal = await coordinator.fetch(new Request("https://do.internal/internal/renew-lease", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken }),
+    }));
+    expect(expiredRenewal.status).toBe(409);
+    expect(sql.lock.lease_until).toBeLessThan(Date.now());
   });
 
   it("提交前必须持有当前leaseToken并先持久化submitting", async () => {
