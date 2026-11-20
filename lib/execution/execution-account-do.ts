@@ -486,14 +486,16 @@ export class ExecutionAccountDO {
               nextToken, nextLeaseUntil, now, intentId, attempt, leaseToken, now,
             ).toArray();
             if (lockUpdated.length !== 1) throw new Error("租约已被其他执行者接管，拒绝覆盖");
-            sql.exec(
-              "UPDATE order_attempts SET lease_token = ?, state = 'reconciling', updated_at = ? WHERE intent_id = ? AND attempt = ? AND lease_token = ?",
+            const attemptUpdated = sql.exec(
+              "UPDATE order_attempts SET lease_token = ?, state = 'reconciling', updated_at = ? WHERE intent_id = ? AND attempt = ? AND lease_token = ? RETURNING attempt_id",
               nextToken, now, intentId, attempt, leaseToken,
-            );
-            sql.exec(
-              "UPDATE order_intents SET state = 'reconciling', updated_at = ? WHERE intent_id = ? AND attempt = ? AND state IN ('submitting', 'unknown', 'reconciling')",
+            ).toArray();
+            if (attemptUpdated.length !== 1) throw new Error("订单attempt租约已变化，拒绝接管");
+            const intentUpdated = sql.exec(
+              "UPDATE order_intents SET state = 'reconciling', updated_at = ? WHERE intent_id = ? AND attempt = ? AND state IN ('submitting', 'unknown', 'reconciling') RETURNING intent_id",
               now, intentId, attempt,
-            );
+            ).toArray();
+            if (intentUpdated.length !== 1) throw new Error("订单状态已变化，拒绝接管");
             sql.exec(
               "INSERT INTO audit_events(intent_id, event_type, created_at) VALUES (?, 'lease_taken_over_reconcile_only', ?)",
               intentId, now,
@@ -516,10 +518,11 @@ export class ExecutionAccountDO {
               now, intentId, attempt,
             ).toArray();
             if (updated.length !== 1) throw new Error("订单状态已变化，拒绝提交前写入");
-            sql.exec(
-              "UPDATE order_attempts SET state = 'submitting', updated_at = ? WHERE intent_id = ? AND attempt = ? AND lease_token = ?",
+            const attemptUpdated = sql.exec(
+              "UPDATE order_attempts SET state = 'submitting', updated_at = ? WHERE intent_id = ? AND attempt = ? AND lease_token = ? RETURNING attempt_id",
               now, intentId, attempt, leaseToken,
-            );
+            ).toArray();
+            if (attemptUpdated.length !== 1) throw new Error("订单attempt租约不匹配，拒绝进入submitting");
             sql.exec(
               "INSERT INTO audit_events(intent_id, event_type, created_at) VALUES (?, 'intent_marked_submitting', ?)",
               intentId, now,
@@ -530,15 +533,17 @@ export class ExecutionAccountDO {
           if (order.state !== "submitting" && order.state !== "reconciling") {
             throw new Error("只有submitting/reconciling订单允许标记unknown");
           }
-          sql.exec(
-            "UPDATE order_intents SET state = 'unknown', last_error = ?, updated_at = ? WHERE intent_id = ? AND attempt = ?",
+          const intentUpdated = sql.exec(
+            "UPDATE order_intents SET state = 'unknown', last_error = ?, updated_at = ? WHERE intent_id = ? AND attempt = ? AND state IN ('submitting', 'reconciling') RETURNING intent_id",
             typeof input.reason === "string" ? input.reason.slice(0, 500) : "提交结果不明确，等待按clientOrderId对账",
             now, intentId, attempt,
-          );
-          sql.exec(
-            "UPDATE order_attempts SET state = 'unknown', updated_at = ? WHERE intent_id = ? AND attempt = ? AND lease_token = ?",
+          ).toArray();
+          if (intentUpdated.length !== 1) throw new Error("订单状态已变化，拒绝标记unknown");
+          const attemptUpdated = sql.exec(
+            "UPDATE order_attempts SET state = 'unknown', updated_at = ? WHERE intent_id = ? AND attempt = ? AND lease_token = ? RETURNING attempt_id",
             now, intentId, attempt, leaseToken,
-          );
+          ).toArray();
+          if (attemptUpdated.length !== 1) throw new Error("订单attempt租约不匹配，拒绝标记unknown");
           sql.exec(
             "INSERT INTO audit_events(intent_id, event_type, created_at) VALUES (?, 'intent_marked_unknown', ?)",
             intentId, now,
