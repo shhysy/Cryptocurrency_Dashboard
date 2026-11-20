@@ -6,7 +6,10 @@ import {
   reserveSellEvent,
   type SellEventRecord,
 } from "./sell-store.browser";
-import { localEventEligibleForTakeProfitResume } from "./sell-order-status";
+import {
+  isExchangeSpotOrderTerminal,
+  localEventEligibleForTakeProfitResume,
+} from "./sell-order-status";
 
 const KIND_MAP: Record<string, SellEventKind> = {
   takeProfit: "take_profit",
@@ -21,8 +24,10 @@ export interface SellSignalQueuePlan {
 }
 
 /**
- * 仅统计具备终态+对账证明的底仓减仓成交；按 symbol+fillId 去重。
- * 旧 IndexedDB 无证明的记录不减少受保护底仓。
+ * 仅统计具备终态+对账证明的底仓减仓成交。
+ * - 终态必须通过 isExchangeSpotOrderTerminal（拒绝 NEW/PARTIALLY_FILLED/未知）
+ * - 按 symbol+fillId 去重；若 fillIds 与已计入事件部分重叠，整条跳过（禁止部分去重却全额累加）
+ * - 旧 IndexedDB 无证明的记录不减少受保护底仓
  */
 export function confirmedBaseReduceFilledQty(events: SellEventRecord[]): number {
   const seenFillIds = new Set<string>();
@@ -30,17 +35,18 @@ export function confirmedBaseReduceFilledQty(events: SellEventRecord[]): number 
   for (const event of events) {
     if (event.kind !== "base_reduce") continue;
     if (event.status !== "executed" && event.status !== "partially_filled") continue;
-    if (!event.exchangeTerminalStatus) continue;
+    if (!event.exchangeTerminalStatus || !isExchangeSpotOrderTerminal(event.exchangeTerminalStatus)) continue;
     if (!Number.isFinite(event.fillReconcileCompletedAt) || (event.fillReconcileCompletedAt as number) <= 0) continue;
     if (!Number.isFinite(event.filledQty) || (event.filledQty as number) <= 0) continue;
     if (!Array.isArray(event.fillIds) || event.fillIds.length === 0) continue;
-    const newIds = event.fillIds.filter((id) => {
-      const key = `${event.symbol}:${id}`;
-      if (seenFillIds.has(key)) return false;
-      seenFillIds.add(key);
-      return true;
-    });
-    if (newIds.length === 0) continue;
+
+    const keys = event.fillIds.map((id) => `${event.symbol}:${id}`);
+    const overlap = keys.some((key) => seenFillIds.has(key));
+    const allSeen = keys.every((key) => seenFillIds.has(key));
+    if (allSeen) continue;
+    if (overlap) continue;
+
+    for (const key of keys) seenFillIds.add(key);
     sum += event.filledQty as number;
   }
   return sum;
