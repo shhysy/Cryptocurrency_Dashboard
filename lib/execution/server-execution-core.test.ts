@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assertExecutionLease,
+  serverExecutionIntentId,
   canTransitionExecutionState,
   transitionExecutionIntent,
   validateServerExecutionIntent,
@@ -8,7 +9,7 @@ import {
 } from "./server-execution-core";
 
 const base: ServerExecutionIntent = {
-  intentId: "strategy3_3:BTC:head:2026W47",
+  intentId: "v33:BTC:head:2026W47",
   strategyEventId: "BTC:head:2026W47",
   strategyVersion: "3.3",
   symbol: "BTCUSDT",
@@ -27,8 +28,13 @@ const base: ServerExecutionIntent = {
 };
 
 describe("服务端订单意图验证", () => {
-  it("接受策略3.3的USDT十进制订单意图", () => {
+  it("接受策略3.3的USDT十进制订单意图并按策略事件生成幂等ID", () => {
+    expect(serverExecutionIntentId(base.strategyEventId)).toBe(base.intentId);
     expect(validateServerExecutionIntent(base)).toBeNull();
+  });
+
+  it("拒绝策略事件ID与订单意图ID不匹配", () => {
+    expect(validateServerExecutionIntent({ ...base, intentId: "v33:OTHER" })).toContain("幂等键");
   });
 
   it.each([
@@ -90,6 +96,8 @@ describe("服务端订单状态机", () => {
     expect(() => assertExecutionLease(lease, lease, 4000)).not.toThrow();
     expect(() => assertExecutionLease(lease, { ...lease, token: "old-token" }, 4000)).toThrow("fencing token");
     expect(() => assertExecutionLease(lease, { ...lease, attempt: 1 }, 4000)).toThrow("fencing token");
-    expect(() => assertExecutionLease(lease, lease, 5000)).toThrow("租约已过期");\n    expect(() => assertExecutionLease({ ...lease, leaseUntil: Number.NaN }, lease, 4000)).toThrow("租约已过期");\n    expect(() => assertExecutionLease(lease, { ...lease, token: "" }, 4000)).toThrow("fencing token");
+    expect(() => assertExecutionLease(lease, lease, 5000)).toThrow("租约已过期");
+    expect(() => assertExecutionLease({ ...lease, leaseUntil: Number.NaN }, lease, 4000)).toThrow("租约已过期");
+    expect(() => assertExecutionLease(lease, { ...lease, token: "" }, 4000)).toThrow("fencing token");\n    expect(() => assertExecutionLease({ ...lease, leaseUntil: Number.NaN }, lease, 4000)).toThrow("租约已过期");\n    expect(() => assertExecutionLease(lease, { ...lease, token: "" }, 4000)).toThrow("fencing token");
   });
 });
