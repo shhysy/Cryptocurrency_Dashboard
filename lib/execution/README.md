@@ -6,7 +6,7 @@
 
 1. **行情与账户数据：** Dashboard 通过同源 `/api/dashboard` 获取服务端数据；需要签名的 Binance 只读请求由 `/api/binance/signed-read` 代理。API Key/Secret 仅由服务端环境变量读取，不进入浏览器包。
 2. **执行编排：** 浏览器侧 `ExecutionBackground` 在看板打开且标签页可见时运行周期任务；待买队列、待卖事件、资金预留和成交 Outbox 使用 IndexedDB。页面关闭后不会有常驻后台执行。
-3. **订单边界：** `/api/binance/testnet-order` 服务端路由固定连接 Spot Testnet，只允许受控测试网 BUY/SELL。生产环境没有可用的下单路径；相关开关默认关闭。
+3. **订单边界：** BUY/SELL统一通过同源服务端 `/api/binance/spot-order` 路由；服务端按 `BINANCE_SPOT_ENVIRONMENT` 选择Spot Testnet或Production端点，并分别校验 `BINANCE_TESTNET_BUY_ENABLED`、`BINANCE_TESTNET_SELL_ENABLED`、`BINANCE_PRODUCTION_BUY_ENABLED`、`BINANCE_PRODUCTION_SELL_ENABLED`。四路授权相互隔离，生产BUY/SELL开关默认关闭；生产路径虽然已有服务端适配器，但尚未完成账户级持久化协调、后台调度和最终生产验收，不能视为可直接实盘。旧 `/api/binance/testnet-order` 仅作为测试网兼容入口。
 4. **邮件通知：** 浏览器 Outbox 通过同源 `/api/trade-fill-notifications` 提交，服务端验证 Cloudflare Access 后使用 HMAC 转发到独立 Worker。Worker 只发送已确认成交邮件，不访问 Binance、不计算策略、不下单。
 
 ## 主要模块
