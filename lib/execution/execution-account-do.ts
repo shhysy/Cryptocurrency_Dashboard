@@ -665,7 +665,7 @@ export class ExecutionAccountDO {
         const finalized = this.state.storage.transactionSync(() => {
           const sql = this.state.storage.sql;
           const lockRows = sql.exec(
-            "SELECT intent_id, attempt, lease_token, lease_until FROM account_lock WHERE singleton = 1",
+            "SELECT intent_id, attempt, lease_token, lease_until, asset, reserved_amount FROM account_lock WHERE singleton = 1",
           ).toArray();
           const lock = lockRows[0] as {
             intent_id?: string; attempt?: number; lease_token?: string; lease_until?: number;
