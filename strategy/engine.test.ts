@@ -301,6 +301,20 @@ describe("卖出", () => {
     expect(s.tag).toBe("追踪止损");
     expect(s.action.notes.join()).toContain("追踪线");
   });
+  it("追踪止损峰值使用买入后的周线最高价，而不是仅看收盘价", () => {
+    const base = coin([...flat(200, 100), 120, 100], { price: 100 });
+    const weekly = base.weekly.map((candle, index) =>
+      index === 200 ? { ...candle, h: 150, c: 120 } : candle
+    );
+    const input = held([...flat(200, 100), 120, 100], [trade(100, 1, 200)], {
+      price: 100,
+      weekly,
+    });
+    const s = evaluateCoin(input, ctx());
+    expect(s.tag).toBe("追踪止损");
+    expect(s.action.notes.join()).toContain("峰值");
+  });
+
   it("峰值只看持仓之后：买入前的历史高位不触发止损", () => {
     const closes = [...flat(10, 100), ...ramp(100, 500, 20), ...ramp(500, 100, 20), ...flat(170, 100), 100];
     const s = evaluateCoin(held(closes, [trade(100, 1, 250)], { price: 100 }), ctx());
