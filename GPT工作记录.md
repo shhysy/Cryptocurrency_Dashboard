@@ -409,3 +409,20 @@
 - 当前仅为纯函数核心与单元测试，尚未接入Durable Object SQLite、订单API或Binance执行器；不代表服务端队列已经落地。
 - 最新CI Run `44706677628`：TypeScript typecheck通过；测试395/396通过。唯一失败仍为Grok主责 `sell-signal-queue.test.ts` 中终态partial fixture缺少新要求的终态/成交对账证明字段。Next.js/Cloudflare build因测试失败按CI流程跳过。
 - 该提交已证明新增服务端核心测试通过；SELL未全绿前不解除Outbox暂停，不开始生产交易。
+
+
+## BUY成交历史完整性修复（2026-11-20）
+
+### GPT实际代码修改
+- 审计发现 `fetchSpotTradesForOrder`、`fetchSpotTrades`、`fetchBuyTrades` 在达到分页循环上限且最后一页仍满1000条时，会直接返回已取得的数据；调用方可能把被截断的成交历史误当作完整账本。
+- 在 `lib/binance.browser.ts` 增加统一分页继续校验：满页必须按最后成交ID继续；最后一页仍满时明确抛错并停止自动记账；成交ID无效、未递增或可能溢出时拒绝继续；先校验分页响应再映射记录。
+- 在 `lib/binance.browser.test.ts` 新增三项回归测试，分别覆盖指定订单成交查询20页上限、账户成交查询调用方页数上限、BUY历史成交查询5页上限仍满页时必须失败关闭。
+- 本修复不改变策略3.3参数、不改变交易开关、不发出任何订单请求；只读成交历史遇到分页截断将明确报错，不再静默返回不完整数据。
+
+### 提交与验证
+- `5972cd61dd8a038b8474ed178a1c3cd06409e075`：防止成交历史分页截断后误判对账完整。
+- `1f648fc0541aa9bc9f29627d174612e909b4640a`：增加成交历史分页截断的安全回归测试。
+- `de58ad808dc991c83f0ec1c5f5862f4fe858b331`：先校验成交分页再映射并拒绝ID溢出。
+- 对应GitHub Actions Run `44708205303` 在记录时仍为进行中；尚无测试、typecheck、Next build或Cloudflare build通过结论。必须以该提交对应Actions最终结果为准。
+- 当前仍需进一步审查 `fill-reconcile.ts` 的固定浮点容差、逐笔成交精度与多轮对账原子性；本次分页修复不代表BUY成交闭环验收完成。
+- 生产BUY/SELL与Simple Earn真实赎回继续关闭。
