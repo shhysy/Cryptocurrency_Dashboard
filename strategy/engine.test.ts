@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { btcMarketState, buildVerdict, evaluateCoin, findHead, stableItems } from "./engine";
+import { btcMarketState, buildVerdict, calculateTakeProfitQty, evaluateCoin, findHead, stableItems } from "./engine";
 import type { Action, Candle, CoinInput, CoinSignal, PortfolioContext, Trade } from "./types";
 
 const WEEK = 7 * 864e5;
@@ -222,9 +222,39 @@ describe("补仓与备用金", () => {
   });
 });
 
+describe("止盈比例按本轮初始周期仓计算", () => {
+  it("50% / 30% / 80% 分别以初始周期仓为基数，且不得超过剩余周期仓", () => {
+    const initialCycleQty = 100;
+    const first = calculateTakeProfitQty(initialCycleQty, 100, 0.5);
+    const second = calculateTakeProfitQty(initialCycleQty, 100 - first, 0.3);
+    const third = calculateTakeProfitQty(initialCycleQty, 100 - first - second, 0.8);
+    expect([first, second, third]).toEqual([50, 30, 20]);
+    expect(first + second + third).toBe(100);
+  });
+
+  it("剩余周期仓不足本档目标时，只卖出剩余数量", () => {
+    expect(calculateTakeProfitQty(100, 12, 0.8)).toBe(12);
+  });
+
+  it("无效数量或比例不产生卖出数量", () => {
+    expect(calculateTakeProfitQty(100, 50, 0)).toBe(0);
+    expect(calculateTakeProfitQty(100, 50, 1.1)).toBe(0);
+    expect(calculateTakeProfitQty(Number.NaN, 50, 0.5)).toBe(0);
+  });
+});
+
 describe("卖出", () => {
   // BTC 止盈倍数：2 / 3 / 5。构造一段上涨走势，持仓均价低
   const rising = () => [...flat(200, 100), ...ramp(100, 250, 20)];
+  it("保守型 ETH 在均价 × 1.3 触发第一档，积极型 BTC 不提前触发", () => {
+    const closes = [...flat(200, 100), ...ramp(100, 150, 20)];
+    const eth = evaluateCoin(held(closes, [trade(100, 10, 200)], { symbol: "ETH", price: 130 }), ctx());
+    const btc = evaluateCoin(held(closes, [trade(100, 10, 200)], { symbol: "BTC", price: 130 }), ctx());
+    expect(eth.action.label).toBe("止盈1");
+    expect(eth.action.qty).toBeCloseTo(30, 8);
+    expect(btc.action.side).not.toBe("sell");
+  });
+
   it("价格 ≥ 均价 × 2：止盈1", () => {
     const s = evaluateCoin(held(rising(), [trade(100, 1, 200)]), ctx());
     expect(s.tag).toBe("止盈");
