@@ -23,10 +23,18 @@ import {
 import { submitQueuedSellEvent } from "@/lib/execution/sell-order-submit.browser";
 
 /**
- * Dashboard-level background reconciler. It remains mounted even when the
- * queue tab is not selected. It is read-only and never submits/cancels orders.
+ * Dashboard-level background reconciler. Reconciliation remains read-only;
+ * new testnet submissions require the dashboard's latest refresh to be valid.
  */
-export default function ExecutionBackground({ onChange, data }: { onChange: () => void; data: DashboardData }) {
+export default function ExecutionBackground({
+  onChange,
+  data,
+  executionAllowed,
+}: {
+  onChange: () => void;
+  data: DashboardData;
+  executionAllowed: boolean;
+}) {
   const inFlight = useRef(new Set<string>());
   useEffect(() => {
     let active = true;
@@ -72,7 +80,7 @@ export default function ExecutionBackground({ onChange, data }: { onChange: () =
         }
         // Live execution is deliberately gated by independent, compile-time
         // switches. All three switches remain false in the checked-in build.
-        if (active && data.source === "binance" && !data.stale && data.market.accountKnown) {
+        if (active && executionAllowed && data.source === "binance" && !data.stale && data.market.accountKnown) {
           if (BINANCE_SPOT_BUY_SUBMISSION_ENABLED) {
             const queuedBuys = await listBuyOrders();
             for (const order of queuedBuys) {
@@ -158,7 +166,7 @@ export default function ExecutionBackground({ onChange, data }: { onChange: () =
       active = false;
       window.clearInterval(timer);
     };
-  }, [onChange, data]);
+  }, [onChange, data, executionAllowed]);
 
   return null;
 }
