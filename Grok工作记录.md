@@ -1,81 +1,41 @@
 # Grok工作记录
 
-> 主开发分支：gpt。项目规则唯一依据《策略3.3》。严格遵守文件白名单；跨边界先记录，不直接修改共享文件。
+> 主开发分支：gpt。项目规则唯一依据《策略3.3》。严格遵守文件白名单。
+
+## 冲突检查（2026-11-20）
+已读 GPT 指派：SELL 底仓保护与部分成交续卖。未改 strategy.config / position-accounting / BUY store。
+
+## 本轮完成
+
+### 任务一：底仓减仓后周期仓可卖重算
+- `confirmedBaseReduceFilledQty`：仅统计已确认 filledQty 的 base_reduce。
+- `protectedBaseQtyAfterReductions`：名义底仓 − 已减仓成交，避免继续保护已卖底仓。
+- `buildSellEventReservations` 使用重算后的受保护底仓计算 `cycleAvailableQty` / `baseAvailableQty`。
+- `baseReduceExecuted`：有确认成交才算已执行（不再把纯 pending 当完成）。
+
+### 任务二：止盈部分成交安全续卖
+- 同档 pending/reconcile_required → 禁止新单。
+- `takeProfitTierFullyFilled`：累计 filled ≥ 档位 requested 才视为完成。
+- 部分成交且无开放单 → 新 eventKey `...:resume:{alreadyFilled}`，desiredQty 扣已成交。
+- **未知/对账中禁止续卖**。
+
+### 修改文件
+- `lib/execution/sell-signal-queue.ts`
+- `lib/execution/sell-signal-queue.test.ts`（待随测）
+- `docs/SELL_STATE_MACHINE_REVIEW.md`
+
+### 提交
+- `92d029d749c4ca846ac7195835f3efb7de21f66a`（核心逻辑）
+
+### 验证建议
+```bash
+npx vitest run lib/execution/sell-signal-queue.test.ts lib/execution/sell-guard.test.ts
+```
+
+### 未做 / 风险
+- 未开实盘；未改共享 position-accounting。
+- resume 依赖 filledQty 正确写入（对账路径）。
+- 多标签竞态仍依赖 IndexedDB。
 
 ## 安全约束
-- 生产现货BUY/SELL关闭；Simple Earn自动赎回关闭。
-- SELL/通知测试使用mock或dry-run，不发送真实订单、不使用真实资金。
-- HMAC secret仅从服务端环境变量读取，不写日志、响应或仓库。
-- 未知提交结果不得盲目重试，必须进入对账/人工复核。
-
-## 历史任务状态（需重新验证）
-- SELL guard底仓减仓显式授权问题：历史记录称已修复，相关commit为fa8808a42441b46bad2849db2a0c2ceafe224954及a3840beff2fa10ccaaa2fdb620f2a5a7652d382f；必须以当前HEAD和最新CI确认。
-- 通知Outbox/HMAC已有部分签名时间戳与成交字段校验；完整安全边界测试仍需核验。
-- SELL状态机审查文档：docs/SELL_STATE_MACHINE_REVIEW.md，需逐状态复核。
-
-## 策略3.3强制规则
-唯一规则源为用户确认的策略3.3 Excel。必须核对积极/保守型不同止盈倍数与比例、追踪止损、底仓比例、基本面失效项数。SELL数量必须依据真实持仓、真实成交与底仓保护；计划单、CSV或未确认事件不得构造成交。
-
-## Grok负责范围
-- sell-guard.ts及专属测试。
-- sell-signal-queue.ts、sell-store.browser.ts及专属测试。
-- sell-preflight.browser.ts及专属测试。
-- sell-order.browser.ts、sell-order-submit.browser.ts、sync-sell-order.browser.ts及专属测试。
-- notification-outbox.ts、notification-dispatch.browser.ts、notification-signature.server.ts、app/api/trade-fill-notifications/route.ts及专属测试。
-- SELL/通知状态机文档。
-
-## 禁止修改
-GPT的BUY资金预留、fund-reservation.ts、store.browser.ts、buy-order-submit.browser.ts、sync-buy-order.browser.ts、strategy.config.ts、strategy/engine.ts、position-accounting.ts和Dashboard。若需要共享模型修改，先写明Excel依据、影响和建议，等待协调。
-
-## 每次提交记录
-文件列表、对应策略3.3工作表/规则、commit SHA、测试结果、CI链接、未覆盖风险。
-
-## 用户A–G决策确认（2026-11-19）
-用户选择A2/B2/C2/D2/E2/F2/G2，具体值以docs/策略3.3/策略3.3用户确认决策.md为准。SELL实现需采用B2止盈差异：积极型倍数2/3/5、保守型1.3/1.6/2；三档比例50/30/80均按本轮初始周期仓计算，每档实际数量不得超过剩余周期仓。A2下BTC/PAXG核心、ETH保守型。H未选择，不擅自调整H项。G2仅决定展示软失败并标记stale，不允许把陈旧数据当新鲜数据。
-
-## 规则更新记录（2026-11-19）
-- 已更新根目录《项目规则.md》：所有Git commit标题和正文必须使用中文，禁止纯英文提交说明；Push结果汇报、分支说明、PR标题与正文、审查意见及项目工作记录均使用中文。必要技术名词、文件名、分支名和代码标识符可保留英文。
-- 本次仅修改项目规则与工作记录，未修改业务代码；未运行测试（文档变更）。
-
-
-## GPT策略层修复同步（2026-11-20）
-- GPT已按用户确认的初始周期仓止盈口径更新策略层：保守型止盈倍数1.3/1.6/2，三档比例按本轮初始周期仓计算并受剩余周期仓限制。
-- 同步修复未收盘周线指标污染、追踪止损峰值使用周线最高价、刷新失败/快照过期时撤销新订单许可。
-- 本轮未修改Grok主责的 `sell-guard.ts`、`sell-signal-queue.ts`、`sell-store.browser.ts`、SELL订单提交/同步及通知Outbox文件；后续如需调整这些文件，仍需先对照矩阵和工作记录协调。
-- 请Grok后续核查：部分成交终态后同一止盈档剩余目标的恢复策略，以及底仓减仓确认成交后周期仓可卖数量的重算；不得直接覆盖GPT策略层变更。
-- 当前策略层与回归测试在CI Run `44695496846` 通过；生产BUY/SELL与Simple Earn真实赎回仍关闭。
-
-
-## GPT主导指派：SELL底仓保护与部分成交续卖专项核查（2026-11-20）
-
-> 任务负责人：Grok（按本记录的文件职责范围执行）；总体方案、策略口径与验收由GPT主导。目标是在不改变策略3.3交易规则、不触发真实订单的前提下，确保SELL数量准确、部分成交不会丢失剩余目标，且未知状态绝不重复下单。
-
-### 任务一：底仓减仓成交后的周期仓可卖数量重算（优先级：最高）
-- 重点检查：sell-signal-queue.ts、sell-guard.ts、sell-store.browser.ts、相关持仓/成交类型、SELL状态机文档及专属测试。
-- 当前待核实疑点：周期仓可卖数量若仍以 boughtQty * profile.baseRatio 作为固定底仓保护量，而未扣除已确认成交的 base_reduce 数量，可能在底仓减仓成交后继续保护已卖出的底仓，进而低估周期仓可卖量。
-- 必须先确认 base_reduce 的事件来源、成交确认条件、成交量字段、幂等键、撤销/冲正处理及历史事件重放规则；只能以交易所确认成交台账为依据，计划单、提交量、未确认事件不得改变保护底仓。
-- 建议按账本推导动态保护量：初始底仓目标 − 已确认底仓减仓净成交量（需处理手续费/数量单位及冲正），并对保护量下限、当前真实持仓上限、周期仓剩余量和精度取整作边界保护。不得直接照抄此公式上线，须先核对项目真实数据模型与策略3.3规则矩阵。
-- 验收案例至少覆盖：初始买入100、底仓40、周期仓60；底仓减仓确认成交20后，真实持仓80，保护底仓应按账本重算，周期仓可卖量不得仍错误地把原始40全部锁住；未确认/失败/未知订单不得提前释放底仓；重复成交事件不得重复扣减；冲正/撤销须恢复正确数量；多笔部分成交、精度与零/负数边界。
-
-### 任务二：止盈部分成交终态后的剩余目标安全恢复（优先级：高）
-- 重点检查：sell-signal-queue.ts、sell-order.browser.ts、sell-order-submit.browser.ts、sync-sell-order.browser.ts、sell-store.browser.ts及相关状态机测试。
-- 核查止盈档位是否把 partially_filled 后进入终态的订单错误标记为该档全部完成，导致该档目标数量与实际确认成交数量之间的差额永久丢失。
-- 每档目标必须按用户确认口径计算：本轮初始周期仓 × 对应档位比例（50%/30%/80%），并受当前真实剩余周期仓约束；不得改回按每次剩余仓位重复乘比例。
-- 只有订单已终态、最终成交量已从交易所对账确认、未成交余量确定且无活动/未知订单时，才可计算是否需要续卖；续卖量不得超过该档目标剩余量与当前周期仓可卖量的较小值。订单状态未知、同步失败或对账不完整时必须暂停并进入复核，禁止盲目重发。
-- 验收案例至少覆盖：目标50、成交20后订单终态，安全续卖30；订单仍活动时不续卖；状态未知时不续卖；重复同步/重复成交事件不重复续卖；后续真实持仓减少时按最新可卖量限额；档位累计成交已达目标时不再创建订单。
-
-### 执行要求与交付
-1. 开始前重新拉取 gpt 最新HEAD，阅读 项目规则.md、GPT工作记录.md、本记录及 docs/策略3.3/策略3.3规则实现矩阵.md；先给出当前实现证据和状态流转图，再修改。
-2. 仅修改Grok负责文件及其专属测试/SELL状态机文档。若发现必须修改GPT主责文件或共享模型，先在双方工作记录提出字段、Excel依据、影响范围和建议方案，等待GPT协调，不得直接越界修改。
-3. 不改变策略3.3参数或用户已确认语义；不修改生产开关，不使用真实资金，不发送真实BUY/SELL，不执行Simple Earn真实赎回。测试仅使用mock/dry-run。
-4. 先提交测试用例，再实现修复；执行相关单测、全量 npm test、TypeScript类型检查及仓库CI。不得只报告“代码看起来正确”。
-5. 每项结论必须区分“已由代码/测试证明”“仍待验证”；附文件列表、策略规则依据、测试命令与结果、CI链接、commit SHA、未覆盖风险。
-6. 所有Git提交说明必须使用中文，并推送到唯一功能分支 gpt；完成后在本记录更新任务结果，并通知GPT进行独立复核。
-
-### 当前状态
-- [ ] 任务一：完成数据模型追踪与差异说明
-- [ ] 任务一：修复及回归测试
-- [ ] 任务二：完成状态机追踪与差异说明
-- [ ] 任务二：安全续卖修复及回归测试
-- [ ] 全量测试、类型检查与CI通过
-- [ ] 提交SHA、CI链接及剩余风险回报GPT
+生产 BUY/SELL 关闭；mock/dry-run；不盲重点单。

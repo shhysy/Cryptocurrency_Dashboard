@@ -1,44 +1,31 @@
-# SELL 全链路状态机审查（Grok · 模拟/只读）
+# SELL 全链路状态机审查（Grok）
 
-> 日期：2026-11-19。仅审查与文档，不开启实盘。不修改 BUY/store 共享实现。
+> 更新：2026-11-20。策略 3.3 + 用户 A2/B2 口径。不开启实盘。
 
-## 1. 模块与职责
+## 状态
 
-| 模块 | 职责 |
-|------|------|
-| `sell-signal-queue.ts` | 将看板卖出信号转为稳定事件键，经 sell-guard 后写入待卖事件（不提交交易所） |
-| `sell-store.browser.ts` | 本地卖出事件持久化、claim、绑定 exchangeOrderId |
-| `sell-preflight.browser.ts` / `sell-order.browser.ts` | 只读预检与 dry-run |
-| `sell-order-submit.browser.ts` | LIVE 关闭时直接拒绝；开启后单次 POST，失败进 reconcile_required |
-| `sync-sell-order.browser.ts` | 只读查单与成交，确认后才记账 |
-| `sell-guard.ts` | 幂等、周期仓/底仓边界、指标止盈冷却与累计上限 |
+`pending` → `reconcile_required` / `partially_filled` / `executed` / `blocked`
 
-## 2. 期望状态迁移
+- **pending / reconcile_required**：占用周期仓预约量；`reconcile_required` **禁止**同档新单与续卖。
+- **partially_filled**：已有确认成交但未达 requestedQty；订单终态后允许同档 **resume** 剩余目标（新 eventKey）。
+- **executed**：若 filledQty ≥ requestedQty，档位满足；若仍不足，与部分成交同样可 resume（由 `takeProfitTierFullyFilled` 判定）。
 
-```text
-pending
-  →（claim + clientOrderId）submitting / 已绑定 clientOrderId
-  → submitted（交易所返回 orderId）或 reconcile_required（超时/不明）
-  → partial（部分成交，按实际 qty 记账）
-  → terminal（filled / canceled 等）后才释放锁定并允许后续策略动作
-```
+## 底仓保护重算
 
-## 3. 已确认的护栏
+- 名义底仓 = 累计买入 × baseRatio。
+- **受保护底仓** = 名义底仓 − 已确认 `base_reduce` 成交数量（filledQty）。
+- 周期仓可卖参考：`min(持仓 − 受保护底仓, 初始周期仓 − 未完成周期类预约)`。
+- 仅 pending 的 base_reduce **不算**已执行；避免未成交就锁死减仓档。
 
-1. **LIVE 关闭**：`submitQueuedSellEvent` 在任何网络请求前抛错，不写交易所。
-2. **不明状态**：catch 后将事件置 `reconcile_required` 并保留 `clientOrderId`，文案禁止自动重发。
-3. **guard**：`base_reduce` 必须 `allowBaseReduction === true`；普通止盈/追踪止损不得动底仓可用额度。
-4. **通知**：Outbox 仅由已确认 `ExecutionFill` 构造，不能从 pending 卖单直接生成「已成交」通知。
+## 止盈续卖护栏
 
-## 4. 残留风险（需后续或 GPT 边界内配合）
+1. 同档存在 pending / reconcile_required → 禁止新单。
+2. 同档累计 filled ≥ 该档目标 requested → 禁止新单。
+3. 部分成交且无开放/未知单 → 可生成 `...:resume:{alreadyFilled}` 事件，desiredQty 扣减已成交。
+4. LIVE 关闭时 submit 仍拒绝真实 POST。
 
-1. 浏览器多标签页对同一 `eventKey` 的 claim 竞态依赖 IndexedDB 事务，需真机多标签验证。
-2. `fundamental_exit` 明确不走自动卖出，必须人工。
-3. 部分成交与手续费第三资产（如 BNB）路径与 BUY 侧一样需 fail-closed，细节在 sync-sell 与共享 fill 逻辑中。
-4. 实盘开关开启前必须完成测试网全链路：信号 → 事件 → dry-run →（可选）极小额 → 对账 → 通知。
+## 残留风险
 
-## 5. 本轮代码动作
-
-- 修复 `sell-guard` 未授权 `base_reduce` 误放行（CI P0）。
-- 补充 guard / 通知签名与成交构造边界测试。
-- **未**打开 `BINANCE_SPOT_SELL_SUBMISSION_ENABLED`。
+- 多标签 claim 竞态依赖 IndexedDB。
+- 部分成交与手续费第三资产路径需与共享成交台账一致（不在本模块改 position-accounting）。
+- 未做测试网真单验收。
