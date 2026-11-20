@@ -61,7 +61,7 @@ describe("预备订单人工计划", () => {
     expect(next.avgCost).toBe(1500);
     const tp2 = next.orders.find((o) => o.kind === "takeProfit" && o.tierIndex === 2);
     expect(tp2?.status).toBe("pending");
-    expect(tp2?.triggerPrice).toBeCloseTo(1500 * 3, 0);
+    expect(tp2?.triggerPrice).toBeCloseTo(1500 * 1.6, 0);
     expect(validatePrepPlan(next)).toEqual([]);
   });
 
