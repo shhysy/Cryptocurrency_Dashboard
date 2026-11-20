@@ -34,6 +34,22 @@ function compareDecimalStrings(left: string, right: string): number | null {
   return leftUnits < rightUnits ? -1 : leftUnits > rightUnits ? 1 : 0;
 }
 
+function addDecimalStrings(values: string[]): string | null {
+  const parsed = values.map(decimalUnits);
+  if (parsed.some((value) => value === null)) return null;
+  const scale = Math.max(0, ...parsed.map((value) => value!.scale));
+  const total = parsed.reduce(
+    (sum, value) => sum + value!.units * 10n ** BigInt(scale - value!.scale),
+    0n,
+  );
+  const factor = 10n ** BigInt(scale);
+  const whole = total / factor;
+  const fraction = scale > 0
+    ? (total % factor).toString().padStart(scale, "0").replace(/0+$/, "")
+    : "";
+  return fraction ? `${whole}.${fraction}` : String(whole);
+}
+
 interface DurableObjectStateLike {
   storage: DurableStorage;
   blockConcurrencyWhile<T>(callback: () => Promise<T>): Promise<T>;
@@ -131,6 +147,8 @@ export class ExecutionAccountDO {
       CREATE TABLE IF NOT EXISTS fills (
         symbol TEXT NOT NULL,
         trade_id TEXT NOT NULL,
+        intent_id TEXT NOT NULL,
+        attempt INTEGER NOT NULL,
         order_id TEXT NOT NULL,
         qty TEXT NOT NULL,
         quote_qty TEXT NOT NULL,
@@ -139,6 +157,10 @@ export class ExecutionAccountDO {
         filled_at INTEGER NOT NULL,
         PRIMARY KEY(symbol, trade_id)
       )
+    `);
+    sql.exec(`
+      CREATE INDEX IF NOT EXISTS idx_fills_intent_attempt
+      ON fills(intent_id, attempt, order_id)
     `);
     sql.exec(`
       CREATE TABLE IF NOT EXISTS audit_events (
