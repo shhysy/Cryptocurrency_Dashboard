@@ -94,8 +94,9 @@ export function schedulerTaskRetryAt(attempt: number, now: number): number | nul
 
 export function expiredSchedulerLeaseDecision(
   attempt: number,
+  now: number,
 ): { state: "pending"; nextAttemptAt: number } | { state: "manual_review" } {
-  const nextAttemptAt = schedulerTaskRetryAt(attempt, Date.now());
+  const nextAttemptAt = schedulerTaskRetryAt(attempt, now);
   return nextAttemptAt === null
     ? { state: "manual_review" }
     : { state: "pending", nextAttemptAt };
