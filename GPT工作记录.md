@@ -214,3 +214,12 @@
 - 最新Grok提交新增SELL自动化节拍，但SELL队列两个既有缺陷仍未修复；最新CI仍因SELL相关5项测试失败而未通过。
 - 已再次更新《Grok工作记录.md》，要求暂停自动化节拍扩展和Outbox任务，优先修复同周止盈resume及跨周base_reduce活动锁，并提交全量测试、类型检查和成功CI证据。
 - 当前状态：Grok SELL任务未验收；GPT BUY原子预留修复已提交，CI待最终HEAD确认。
+
+
+## GPT安全审计：币安签名只读代理增加认证与同源保护（2026-11-20）
+- 审计发现 `app/api/binance/signed-read/route.ts` 原先只做请求体大小、JSON格式和服务端allowlist检查，没有像测试网订单代理一样校验Dashboard Basic Auth与请求Origin。该路由使用服务端API凭证读取账户、成交与订单数据；若部署入口未由外部访问控制完整保护，公开调用可能暴露账户私有数据。
+- 已为签名只读路由增加服务端 `DASHBOARD_PASSWORD` Basic Auth校验、常量时间密码比较、必须同源Origin校验、请求体字节数上限、拒绝未知body字段和统一no-store响应头。
+- 新增 `app/api/binance/signed-read/route.test.ts`，覆盖缺少/错误密码、跨站/缺失Origin、非JSON、未知字段、畸形/超大body以及通过认证后只转发允许参数。
+- 提交：路由安全修复 `6f12d784b286b8640c17d38ebf820dc563844abf`；安全测试 `26e8b97e549e1840fc1597dc049306b7ad23cbb2`。
+- 当前CI Run `44699597592` 与 `44699621968` 在记录时仍运行中；需确认浏览器已有Basic Auth会话下signed-read请求兼容，并以最新分支CI最终结果为准。
+- 此项只保护账户只读代理入口，不启用任何交易权限，也不替代Cloudflare Access/部署层访问控制。生产BUY/SELL和Simple Earn真实赎回继续关闭。
