@@ -113,6 +113,7 @@ describe("Server-only Binance environment", () => {
     expect(resolveServerBinanceEnvironment({
       BINANCE_API_KEY: "production-key",
       BINANCE_API_SECRET: "production-secret",
+      BINANCE_BASE_URL: "https://attacker.example",
     })).toMatchObject({
       mode: "production",
       apiBase: "https://api.binance.com",
