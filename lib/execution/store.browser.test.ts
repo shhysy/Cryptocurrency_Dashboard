@@ -9,6 +9,7 @@ import {
   listBuyFundsReservations,
   listBuyOrders,
   reserveBuyFunds,
+  reserveAndClaimBuyOrderSubmission,
   saveBuyOrder,
   topUpBuyFundsReservationAfterEarnCredit,
 } from "./store.browser";
@@ -147,6 +148,55 @@ describe("IndexedDB BUY reservation and claim integration", () => {
     const [saved] = await listBuyOrders();
     expect(saved.status).toBe("reconcile_required");
     expect(saved.attemptCount).toBe(1);
+  });
+
+  it("atomically reserves funds and claims only one submission attempt", async () => {
+    const order = makeOrder("BTC:add:atomic-claim");
+    await enqueueBuyOrder(order);
+
+    const results = await Promise.allSettled([
+      reserveAndClaimBuyOrderSubmission({
+        orderId: order.id, symbol: "BTCUSDT", requestedUsdt: 80,
+        observedFreeUsdt: 100, minNotionalUsdt: 5,
+        expectedOrderUpdatedAt: order.updatedAt, expectedAttemptCount: 0, now: 70,
+      }),
+      reserveAndClaimBuyOrderSubmission({
+        orderId: order.id, symbol: "BTCUSDT", requestedUsdt: 80,
+        observedFreeUsdt: 100, minNotionalUsdt: 5,
+        expectedOrderUpdatedAt: order.updatedAt, expectedAttemptCount: 0, now: 71,
+      }),
+    ]);
+
+    expect(results.filter((item) => item.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((item) => item.status === "rejected")).toHaveLength(1);
+    const [savedOrder] = await listBuyOrders();
+    const [savedReservation] = await listBuyFundsReservations();
+    expect(savedOrder).toMatchObject({ status: "reconcile_required", attemptCount: 1 });
+    expect(savedReservation).toMatchObject({
+      orderId: order.id, reservedUsdt: 80, status: "active",
+    });
+  });
+
+  it("does not leave a new reservation when the live balance no longer covers the preflight amount", async () => {
+    const first = makeOrder("BTC:add:atomic-existing");
+    const second = makeOrder("ETH:add:atomic-insufficient", 2);
+    await Promise.all([enqueueBuyOrder(first), enqueueBuyOrder(second)]);
+    await reserveBuyFunds({
+      orderId: first.id, symbol: "BTCUSDT", requestedUsdt: 80,
+      observedFreeUsdt: 100, minNotionalUsdt: 5, now: 80,
+    });
+
+    await expect(reserveAndClaimBuyOrderSubmission({
+      orderId: second.id, symbol: "ETHUSDT", requestedUsdt: 50,
+      observedFreeUsdt: 100, minNotionalUsdt: 5,
+      expectedOrderUpdatedAt: second.updatedAt, expectedAttemptCount: 0, now: 81,
+    })).rejects.toThrow("可预留 USDT 不足");
+
+    const reservations = await listBuyFundsReservations();
+    expect(reservations).toHaveLength(1);
+    expect(reservations[0].orderId).toBe(first.id);
+    const orders = await listBuyOrders();
+    expect(orders.find((item) => item.id === second.id)?.status).toBe("pending");
   });
 
   it("extends only the current order reservation after a verified Earn credit", async () => {
