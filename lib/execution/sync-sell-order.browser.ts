@@ -2,6 +2,7 @@ import {
   fetchSpotOrderById,
   fetchSpotOrderByClientId,
   fetchSpotTradesForOrder,
+  fetchSpotSymbolFilters,
 } from "../binance.browser";
 import { decideOrderReconciliation } from "./order-reconcile";
 import { reconcileConfirmedSellFills } from "./fill-reconcile";
@@ -141,19 +142,37 @@ export async function syncSellOrderFromBinance(
   }
 
   const fillIds = [...new Set([...event.fillIds, ...reconciled.fills.map((fill) => fill.fillId)])];
+
+  let lotStepSize: number | undefined;
+  try {
+    const rules = await fetchSpotSymbolFilters(pair);
+    const filters = rules.filters ?? [];
+    const lot = filters.find((item) => item.filterType === "MARKET_LOT_SIZE")
+      ?? filters.find((item) => item.filterType === "LOT_SIZE");
+    const step = Number(lot?.stepSize);
+    if (Number.isFinite(step) && step > 0) lotStepSize = step;
+  } catch {
+    lotStepSize = undefined;
+  }
+
   const localStatus = localSellStatusAfterReconciledSnapshot({
     exchangeStatus: String(snapshot.status),
     executedQty: Number(snapshot.executedQty),
     origQty: Number(snapshot.origQty),
+    stepSize: lotStepSize,
   });
   const terminal = localStatus !== "reconcile_required";
+  const now = Date.now();
   const nextEvent: SellEventRecord = {
     ...event,
     status: localStatus,
     fillIds,
     filledQty: Number(snapshot.executedQty),
     lastError: terminal ? null : "卖出订单仍未进入终态；已记录当前确认成交，继续只读对账",
-    updatedAt: Date.now(),
+    updatedAt: now,
+    exchangeTerminalStatus: terminal ? String(snapshot.status).toUpperCase() : undefined,
+    fillReconcileCompletedAt: terminal ? now : undefined,
+    lotStepSize: lotStepSize,
   };
   await updateSellEvent(nextEvent);
 
