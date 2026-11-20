@@ -627,7 +627,7 @@ export class ExecutionAccountDO {
       const cumulativeQuoteQty = typeof input.cumulativeQuoteQty === "string" ? input.cumulativeQuoteQty : "";
       const exchangeTerminalAt = input.exchangeTerminalAt;
       const fills = input.fills;
-      const terminalStatuses = ["FILLED", "CANCELED", "EXPIRED", "REJECTED"];
+      const terminalStatuses = ["FILLED", "CANCELED", "EXPIRED", "EXPIRED_IN_MATCH", "REJECTED"];
       if (!intentId || !Number.isSafeInteger(attempt) || (attempt as number) <= 0 ||
           !leaseToken || !/^[0-9]{1,32}$/.test(exchangeOrderId) ||
           !terminalStatuses.includes(String(exchangeStatus)) ||
@@ -796,7 +796,7 @@ export class ExecutionAccountDO {
             : compareDecimalStrings(executedQty, "0")! > 0
               ? "partial_terminal"
               : exchangeStatus === "CANCELED" ? "canceled"
-                : exchangeStatus === "EXPIRED" ? "expired" : "rejected";
+                : exchangeStatus === "EXPIRED" || exchangeStatus === "EXPIRED_IN_MATCH" ? "expired" : "rejected";
 
           const fillRows = sql.exec(
             "SELECT COUNT(*) AS total FROM fills WHERE intent_id = ? AND attempt = ? AND order_id = ?",
