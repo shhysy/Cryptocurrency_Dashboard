@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { submitSpotMarketOrder } from "@/lib/binance";
+import { getServerBinanceSpotMode, submitSpotMarketOrder } from "@/lib/binance";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +53,12 @@ export async function POST(req: Request) {
     if (!isSameOriginRequest(req)) {
       return NextResponse.json({ error: "跨站请求已拒绝" }, {
         status: 403, headers: { "Cache-Control": "no-store" },
+      });
+    }
+    const clientMode = req.headers.get("x-binance-client-environment");
+    if (clientMode !== getServerBinanceSpotMode()) {
+      return NextResponse.json({ error: "浏览器与服务端 Binance 环境配置不一致，已阻止下单" }, {
+        status: 409, headers: { "Cache-Control": "no-store" },
       });
     }
     if (!(req.headers.get("content-type") ?? "").toLowerCase().includes("application/json")) {
