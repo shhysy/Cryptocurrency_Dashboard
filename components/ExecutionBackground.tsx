@@ -4,14 +4,10 @@ import { useEffect, useRef } from "react";
 import type { DashboardData } from "@/lib/types";
 import { strategyConfig } from "@/strategy.config";
 import { listBuyOrders } from "@/lib/execution/store.browser";
-import { listSellEvents } from "@/lib/execution/sell-store.browser";
 import { syncBuyOrderFromBinance } from "@/lib/execution/sync-buy-order.browser";
-import { syncSellOrderFromBinance } from "@/lib/execution/sync-sell-order.browser";
-import { dispatchPendingTradeNotifications } from "@/lib/execution/notification-dispatch.browser";
 import {
   LIVE_EARN_REDEMPTION_ENABLED,
   BINANCE_SPOT_BUY_SUBMISSION_ENABLED,
-  BINANCE_SPOT_SELL_SUBMISSION_ENABLED,
 } from "@/lib/binance.browser";
 import { prepareQueuedBuyDryRun } from "@/lib/execution/binance-order.browser";
 import { submitQueuedBuyOrder } from "@/lib/execution/buy-order-submit.browser";
@@ -20,11 +16,12 @@ import {
   reconcileEarnRedemptionIntent,
   submitPlannedEarnRedemption,
 } from "@/lib/execution/earn-redemption.browser";
-import { submitQueuedSellEvent } from "@/lib/execution/sell-order-submit.browser";
+import { runSellAutomationTick } from "@/lib/execution/sell-automation-tick";
 
 /**
- * Dashboard-level background reconciler. Reconciliation remains read-only;
- * new testnet submissions require the dashboard's latest refresh to be valid.
+ * 看板级后台对账与受控提交。
+ * 对账默认只读；测试网新单提交依赖看板最近一次刷新有效且 executionAllowed。
+ * 卖出链路统一走 runSellAutomationTick（入队 → 对账 → 受控提交 → 通知）。
  */
 export default function ExecutionBackground({
   onChange,
@@ -61,25 +58,27 @@ export default function ExecutionBackground({
           }
         }
 
-        const sellEvents = await listSellEvents();
-        for (const event of sellEvents) {
-          if (!active) return;
-          if (event.status !== "reconcile_required" ||
-              (!event.clientOrderId && !event.exchangeOrderId)) continue;
-          const key = "SELL:" + event.eventKey;
-          if (inFlight.current.has(key)) continue;
-          inFlight.current.add(key);
-          try {
-            const result = await syncSellOrderFromBinance(event.eventKey);
-            if (result.action !== "wait" || result.newlyRecordedFills > 0) changed = true;
-          } catch (error) {
-            console.warn("[execution-reconcile] SELL", event.eventKey, error);
-          } finally {
-            inFlight.current.delete(key);
+        // 卖出：统一节拍（含信号入队、对账、可选提交、成交通知）
+        try {
+          const sellTick = await runSellAutomationTick(data, {
+            attemptLiveSubmit: executionAllowed,
+          });
+          if (
+            sellTick.enqueued > 0 ||
+            sellTick.synced > 0 ||
+            sellTick.submitted > 0 ||
+            sellTick.notificationsSent > 0
+          ) {
+            changed = true;
           }
+          if (sellTick.errors.length > 0) {
+            console.warn("[execution-sell-tick]", sellTick.errors.slice(0, 3).join("；"));
+          }
+        } catch (error) {
+          console.warn("[execution-sell-tick] failed", error);
         }
-        // Live execution is deliberately gated by independent, compile-time
-        // switches. All three switches remain false in the checked-in build.
+
+        // 买入提交仍由本组件编排（GPT 主责）；仅在许可与数据新鲜时尝试
         const dataAgeMs = Date.now() - data.updatedAt;
         const dataFresh = dataAgeMs >= 0 && dataAgeMs <= 120_000;
         if (active && executionAllowed && dataFresh &&
@@ -116,7 +115,7 @@ export default function ExecutionBackground({
                         if (result.outcome !== "waiting") changed = true;
                       }
                     }
-                    // Do not buy against a balance snapshot taken before redemption.
+                    // 赎回到账前的余额快照不得用于买入
                     break;
                   }
                 }
@@ -132,29 +131,8 @@ export default function ExecutionBackground({
               }
             }
           }
-
-          if (BINANCE_SPOT_SELL_SUBMISSION_ENABLED) {
-            const queuedSells = await listSellEvents();
-            const event = queuedSells.find((item) =>
-              item.status === "pending" &&
-              ["take_profit", "indicator_profit", "trail_stop", "base_reduce"].includes(item.kind)
-            );
-            if (event) {
-              try {
-                await submitQueuedSellEvent(event.eventKey);
-                changed = true;
-              } catch (error) {
-                console.warn("[execution-submit] SELL blocked", event.eventKey, error);
-              }
-            }
-          }
         }
 
-        const notifications = await dispatchPendingTradeNotifications();
-        if (notifications.sent > 0) changed = true;
-        if (notifications.failed > 0) {
-          console.warn("[trade-notifications] delivery failed", notifications.reason);
-        }
         if (active && changed) onChange();
       } catch (error) {
         console.warn("[execution-reconcile] background tick failed", error);
