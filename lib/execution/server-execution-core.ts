@@ -69,7 +69,7 @@ export function validateServerExecutionIntent(
   if (!/^[A-Z0-9]{5,24}$/.test(input.symbol) || !input.symbol.endsWith("USDT")) return "只允许白名单格式的 USDT 现货交易对";
   if (input.side !== "BUY" && input.side !== "SELL") return "订单方向无效";
   if (input.quoteAsset !== "USDT") return "当前执行层只允许 USDT 报价资产";
-  if (typeof input.amount !== "string" || !DECIMAL_AMOUNT.test(input.amount) || Number(input.amount) <= 0) {
+  if (typeof input.amount !== "string" || !DECIMAL_AMOUNT.test(input.amount) ||\n      !Number.isFinite(Number(input.amount)) || Number(input.amount) <= 0) {
     return "订单金额或数量必须是正数十进制字符串";
   }
   if (!Number.isSafeInteger(input.createdAt) || input.createdAt <= 0) return "订单意图创建时间无效";
