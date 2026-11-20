@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildSellEventReservations,
   confirmedBaseReduceFilledQty,
+  isTerminalReconciledPartial,
   protectedBaseQtyAfterReductions,
   takeProfitTierFullyFilled,
 } from "./sell-signal-queue";
@@ -105,13 +106,14 @@ describe("止盈部分成交后安全续卖", () => {
     expect(buildSellEventReservations(data(), existing).records).toHaveLength(0);
   });
 
-  it("部分成交终态且无待对账时，可对剩余目标生成 resume 事件", () => {
+  it("部分成交终态且对账完整时，可对剩余目标生成 resume", () => {
     const existing: SellEventRecord[] = [{
       eventKey: "sell:BTC:take_profit:2:止盈1",
       symbol: "BTC", kind: "take_profit", status: "partially_filled",
       requestedQty: 0.15, filledQty: 0.05, createdAt: 1, updatedAt: 1,
       exchangeOrderId: "1", fillIds: ["a"], lastError: null,
     }];
+    expect(isTerminalReconciledPartial(existing[0])).toBe(true);
     expect(takeProfitTierFullyFilled(existing, ":止盈1")).toBe(false);
     const plan = buildSellEventReservations(data(), existing);
     expect(plan.records).toHaveLength(1);
@@ -119,15 +121,26 @@ describe("止盈部分成交后安全续卖", () => {
     expect(plan.records[0].requestedQty).toBeCloseTo(0.1, 8);
   });
 
+  it("仅有 partially_filled 但无成交明细时禁止续卖", () => {
+    const existing: SellEventRecord[] = [{
+      eventKey: "sell:BTC:take_profit:2:止盈1",
+      symbol: "BTC", kind: "take_profit", status: "partially_filled",
+      requestedQty: 0.15, filledQty: 0.05, createdAt: 1, updatedAt: 1,
+      exchangeOrderId: "1", fillIds: [], lastError: null,
+    }];
+    expect(isTerminalReconciledPartial(existing[0])).toBe(false);
+    expect(buildSellEventReservations(data(), existing).records).toHaveLength(0);
+  });
+
   it("仍有 reconcile_required 时禁止续卖", () => {
     const existing: SellEventRecord[] = [{
       eventKey: "sell:BTC:take_profit:2:止盈1",
       symbol: "BTC", kind: "take_profit", status: "reconcile_required",
       requestedQty: 0.15, filledQty: 0.05, createdAt: 1, updatedAt: 1,
-      exchangeOrderId: "1", fillIds: [], lastError: "timeout",
+      exchangeOrderId: "1", fillIds: ["a"], lastError: "timeout",
     }];
     const plan = buildSellEventReservations(data(), existing);
     expect(plan.records).toHaveLength(0);
-    expect(plan.blocked.some((b) => b.reason.includes("对账"))).toBe(true);
+    expect(plan.blocked.some((b) => b.reason.includes("对账") || b.reason.includes("待处理"))).toBe(true);
   });
 });
