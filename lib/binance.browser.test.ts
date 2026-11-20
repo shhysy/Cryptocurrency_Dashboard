@@ -69,8 +69,9 @@ describe("Binance 成交历史分页完整性", () => {
   }));
 
   it("指定订单成交查询达到20页上限仍返回满页时拒绝返回截断数据", async () => {
+    let page = 0;
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      new Response(JSON.stringify(fullPage(1)), { status: 200 }),
+      new Response(JSON.stringify(fullPage(page++ * 1000 + 1)), { status: 200 }),
     );
     try {
       await expect(fetchSpotTradesForOrder("BTCUSDT", 55))
@@ -95,8 +96,9 @@ describe("Binance 成交历史分页完整性", () => {
   });
 
   it("BUY历史成交查询达到5页上限仍返回满页时拒绝返回截断数据", async () => {
+    let page = 0;
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      new Response(JSON.stringify(fullPage(1)), { status: 200 }),
+      new Response(JSON.stringify(fullPage(page++ * 1000 + 1)), { status: 200 }),
     );
     try {
       await expect(fetchBuyTrades("BTC", "USDT"))
