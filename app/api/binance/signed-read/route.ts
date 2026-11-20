@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchSignedBinanceRead } from "@/lib/binance";
+import { fetchSignedBinanceRead, getServerBinanceSpotMode } from "@/lib/binance";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +56,11 @@ export async function POST(req: Request) {
     if (!isSameOriginRequest(req)) {
       return NextResponse.json({ error: "跨站请求已拒绝" }, {
         status: 403, headers: { "Cache-Control": "no-store" },
+      });
+    }
+    if (req.headers.get("x-binance-client-environment") !== getServerBinanceSpotMode()) {
+      return NextResponse.json({ error: "浏览器与服务端 Binance 环境配置不一致" }, {
+        status: 409, headers: { "Cache-Control": "no-store" },
       });
     }
 
