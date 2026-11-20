@@ -1,5 +1,15 @@
 import type { Candle } from "./types";
 
+export const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** 仅保留已完整结束的周线；K线时间戳为该周开盘时间。 */
+export function closedWeeklyCandles(candles: Candle[], now = Date.now()): Candle[] {
+  return candles.filter((candle) =>
+    Number.isFinite(candle.t) && candle.t + WEEK_MS <= now &&
+    Number.isFinite(candle.c) && Number.isFinite(candle.h) && Number.isFinite(candle.l)
+  );
+}
+
 /** Wilder RSI。数据不足 period+1 根时返回 null。 */
 export function rsi(closes: number[], period = 14): number | null {
   if (closes.length < period + 1) return null;
