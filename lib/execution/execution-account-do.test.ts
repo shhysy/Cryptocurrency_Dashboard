@@ -49,7 +49,7 @@ class FakeSql {
     } else if (query.includes("SELECT intent_id, symbol, side, amount, state, attempt")) {
       const row = this.intents.get(String(bindings[0]));
       rows = row ? [row] : [];
-    } else if (query.includes("FROM account_lock WHERE singleton = 1")) {
+    } else if (query.startsWith("SELECT") && query.includes("FROM account_lock WHERE singleton = 1")) {
       rows = this.lock ? [this.lock] : [];
     } else if (query.includes("SELECT symbol, side, amount, state, attempt, client_order_id FROM order_intents")) {
       const row = this.intents.get(String(bindings[0]));
