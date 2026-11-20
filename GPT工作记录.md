@@ -363,3 +363,11 @@
   - `a280740667275a8dd6bf79d3294b86d654554f4a`：移除自定义行情域名。
   - `81ab002fb38671bd5838a252fbcd521e6db2bfc3`：增加非官方域名拒绝测试。
 - 仍未运行CI；生产端服务端预检目前覆盖交易对/市场过滤器/余额，但策略固定额度、SELL底仓/周期仓约束仍需服务端可信订单意图与持久化成交账本配合，不能只依赖浏览器本地状态。
+
+### Grok SELL修复独立复核（尚未通过）
+- Grok已新增 `sell-order-status.ts`，并在 `sync-sell-order.browser.ts` 接线：NEW/PARTIALLY_FILLED 映射为 reconcile_required，终态且成交对账完整后才可能进入本地 partially_filled。
+- GPT已在Issue #2提出三项阻断复核：
+  1. `sell-order-status.ts` 与 `order-reconcile.ts` 使用固定绝对容差 `1e-8` 判断卖满/超量，对小数量可能误判；需改为按stepSize精度/安全十进制比较并补小数数量测试。
+  2. `localEventEligibleForTakeProfitResume` 不应允许 `executed` 但 `filledQty < requestedQty` 的事件续卖；确认仅终态未卖满partial可续卖，并检查 `EXPIRED_IN_MATCH` 等终态。
+  3. `runSellAutomationTick` 当前先入队再同步旧partial事件；旧版本IndexedDB中可能遗留仍开放订单的partial状态，升级首个tick可能在复核前创建resume。需先同步旧事件再入队，或提供旧状态冻结迁移，并加升级兼容测试。
+- 截至本记录，Grok工作记录仍要求跑专项SELL测试、全量测试、typecheck；GPT尚未获得最新CI全绿证据。SELL仍标记未验收，Outbox继续暂停。
