@@ -621,6 +621,39 @@ describe("账户级Durable Object持久化基础", () => {
     expect(sql.lock).toBeNull();
   });
 
+  it("Binance EXPIRED_IN_MATCH零成交终态可安全释放预留", async () => {
+    const { coordinator, sql } = makeCoordinator();
+    await coordinator.fetch(new Request("https://do.internal/internal/intents", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(intent),
+    }));
+    const claimedResponse = await coordinator.fetch(new Request("https://do.internal/internal/claim", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, asset: "USDT", availableBalance: "100", snapshotAt: Date.now() }),
+    }));
+    const claimed = await claimedResponse.json() as { attempt: number; leaseToken: string };
+    await coordinator.fetch(new Request("https://do.internal/internal/mark-submitting", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken }),
+    }));
+    const terminalAt = Date.now();
+    const response = await coordinator.fetch(new Request("https://do.internal/internal/finalize", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        intentId: intent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken,
+        exchangeOrderId: "90005", exchangeStatus: "EXPIRED_IN_MATCH", executedQty: "0",
+        cumulativeQuoteQty: "0", exchangeTerminalAt: terminalAt, fills: [],
+      }),
+    }));
+    const body = await response.json() as { state: string; consumedAmount: string };
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ ok: true, state: "expired", fillCount: 0, consumedAmount: "0" });
+    expect(sql.lock).toBeNull();
+    expect(sql.reservations.get(`${intent.intentId}:1:USDT`)).toMatchObject({
+      state: "settled", consumed_amount: "0",
+    });
+  });
+
   it("逐笔成交与交易所累计数量不一致时拒绝落账和释放资金", async () => {
     const { coordinator, sql } = makeCoordinator();
     await coordinator.fetch(new Request("https://do.internal/internal/intents", {
