@@ -162,7 +162,10 @@ export class ExecutionAccountDO {
         String(now),
         now,
       );
-      await this.state.storage.setAlarm(now + 5 * 60_000);
+      const currentAlarm = await this.state.storage.getAlarm();
+      if (currentAlarm === null || currentAlarm <= now) {
+        await this.state.storage.setAlarm(now + 5 * 60_000);
+      }
       return Response.json({ ok: true, watchdogAt: now });
     }
 
