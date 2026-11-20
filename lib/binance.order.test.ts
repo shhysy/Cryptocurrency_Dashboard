@@ -11,6 +11,31 @@ const orderResponse = {
   transactTime: 1_800_000_000_000,
 };
 
+const exchangeInfoResponse = {
+  symbols: [{
+    symbol: "BTCUSDT", status: "TRADING", baseAsset: "BTC", quoteAsset: "USDT",
+    quoteOrderQtyMarketAllowed: true,
+    filters: [
+      { filterType: "MARKET_LOT_SIZE", minQty: "0.00001", maxQty: "1000", stepSize: "0.00001" },
+      { filterType: "MIN_NOTIONAL", minNotional: "5", applyToMarket: true },
+    ],
+  }],
+};
+
+function mockBinanceFetch() {
+  return vi.fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify(exchangeInfoResponse), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify([
+      { symbol: "BTCUSDT", lastPrice: "100000", priceChangePercent: "0" },
+    ]), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ serverTime: Date.now() }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ balances: [
+      { asset: "USDT", free: "1000", locked: "0" },
+      { asset: "BTC", free: "1", locked: "0" },
+    ] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify(orderResponse), { status: 200 }));
+}
+
 describe("服务端 Spot 下单适配器环境隔离", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -29,9 +54,7 @@ describe("服务端 Spot 下单适配器环境隔离", () => {
   it("生产模式只使用生产 endpoint 和生产凭证", async () => {
     vi.stubEnv("BINANCE_SPOT_ENVIRONMENT", "production");
     vi.stubEnv("BINANCE_PRODUCTION_BUY_ENABLED", "1");
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ serverTime: Date.now() }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(orderResponse), { status: 200 }));
+    const fetchMock = mockBinanceFetch();
     vi.stubGlobal("fetch", fetchMock);
 
     const { submitSpotMarketOrder } = await import("./binance");
@@ -40,16 +63,15 @@ describe("服务端 Spot 下单适配器环境隔离", () => {
     });
 
     expect(result.orderId).toBe(987654);
-    expect(String(fetchMock.mock.calls[0][0])).toContain("https://api.binance.com/api/v3/time");
-    expect(String(fetchMock.mock.calls[1][0])).toContain("https://api.binance.com/api/v3/order");
-    expect(fetchMock.mock.calls[1][1]?.headers).toMatchObject({ "X-MBX-APIKEY": "SIMULATED_PRODUCTION_KEY" });
+    expect(String(fetchMock.mock.calls[0][0])).toContain("https://api.binance.com/api/v3/exchangeInfo");
+    expect(String(fetchMock.mock.calls[2][0])).toContain("https://api.binance.com/api/v3/time");
+    expect(String(fetchMock.mock.calls[4][0])).toContain("https://api.binance.com/api/v3/order");
+    expect(fetchMock.mock.calls[4][1]?.headers).toMatchObject({ "X-MBX-APIKEY": "SIMULATED_PRODUCTION_KEY" });
   });
 
   it("测试网模式只使用测试网 endpoint 和测试网凭证", async () => {
     vi.stubEnv("BINANCE_TESTNET_SELL_ENABLED", "1");
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ serverTime: Date.now() }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ ...orderResponse, status: "NEW" }), { status: 200 }));
+    const fetchMock = mockBinanceFetch();
     vi.stubGlobal("fetch", fetchMock);
 
     const { submitSpotMarketOrder } = await import("./binance");
@@ -57,9 +79,10 @@ describe("服务端 Spot 下单适配器环境隔离", () => {
       side: "SELL", symbol: "BTCUSDT", amount: "0.001", clientOrderId: "gpt-sim-order-001",
     });
 
-    expect(String(fetchMock.mock.calls[0][0])).toContain("https://testnet.binance.vision/api/v3/time");
-    expect(String(fetchMock.mock.calls[1][0])).toContain("https://testnet.binance.vision/api/v3/order");
-    expect(fetchMock.mock.calls[1][1]?.headers).toMatchObject({ "X-MBX-APIKEY": "SIMULATED_TESTNET_KEY" });
+    expect(String(fetchMock.mock.calls[0][0])).toContain("https://testnet.binance.vision/api/v3/exchangeInfo");
+    expect(String(fetchMock.mock.calls[2][0])).toContain("https://testnet.binance.vision/api/v3/time");
+    expect(String(fetchMock.mock.calls[4][0])).toContain("https://testnet.binance.vision/api/v3/order");
+    expect(fetchMock.mock.calls[4][1]?.headers).toMatchObject({ "X-MBX-APIKEY": "SIMULATED_TESTNET_KEY" });
   });
 
   it("生产开关关闭时在发起任何网络请求前拒绝订单", async () => {
