@@ -591,6 +591,6 @@
 ### 当前未完成与安全边界
 - `/internal/finalize` 和 `/internal/renew-lease` 仍只接受Worker内部DO绑定调用；没有连接Binance服务端查单、成交历史分页读取或真实余额快照，也没有从可信策略事件生成订单意图。
 - Cron仍只写看门狗心跳；DO Alarm尚未扫描scheduler_tasks、领取任务或派发执行。
-- 本轮新加SELL部分成交及基础资产手续费测试提交 `b55625986a751e07a1440bd8c584350ad447d6ac` 对应CI Run `44758920412` 在本记录更新时仍运行，尚未计入428项通过测试。
+- 本轮新加SELL部分成交及基础资产手续费测试提交 `b55625986a751e07a1440bd8c584350ad447d6ac` 对应CI Run `44758920412` 已成功：50个测试文件、429项测试通过；typecheck、Next.js production build、Cloudflare OpenNext build全部通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44758920412
 - SELL方面，Grok已把满单判断改为只容忍IEEE-754误差，并将底仓减仓统计改为需要唯一成交台账；但真实fill ledger尚未接入 `buildSellEventReservations/enqueueEligibleSellSignals`，已在Issue #2要求继续接线。Outbox和生产交易保持关闭。
 - 因此DO内部结算原语尚不能视为完整自动交易闭环；未部署、未使用真实Key、未向生产账户发送订单。
