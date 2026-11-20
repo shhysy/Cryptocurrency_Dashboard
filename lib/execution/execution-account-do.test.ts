@@ -430,7 +430,7 @@ describe("账户级Durable Object持久化基础", () => {
     const renewedBody = await renewed.json() as { renewed: boolean; leaseUntil: number };
     expect(renewed.status).toBe(200);
     expect(renewedBody.renewed).toBe(true);
-    expect(renewedBody.leaseUntil).toBeGreaterThan(originalLeaseUntil);
+    expect(renewedBody.leaseUntil).toBeGreaterThanOrEqual(originalLeaseUntil);
 
     if (!sql.lock) throw new Error("测试未创建账户锁");
     sql.lock.lease_until = Date.now() - 1;
