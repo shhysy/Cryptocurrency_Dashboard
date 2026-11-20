@@ -310,6 +310,7 @@ describe("账户级Durable Object持久化基础", () => {
     expect(sql.lock?.intent_id).toBe(intent.intentId);
     expect([...sql.reservations.values()]).toEqual([{
       intent_id: intent.intentId, asset: "USDT", amount: "100", attempt: 1,
+      state: "reserved", consumed_amount: "0",
     }]);
   });
 
@@ -530,7 +531,7 @@ describe("账户级Durable Object持久化基础", () => {
     expect(response.status).toBe(200);
     expect(body).toMatchObject({ ok: true, state: "filled", fillCount: 1, consumedAmount: "50" });
     expect(sql.fills.size).toBe(1);
-    expect(sql.reservations.get(`${intent.intentId}:1`)).toMatchObject({
+    expect(sql.reservations.get(`${intent.intentId}:1:USDT`)).toMatchObject({
       state: "settled", consumed_amount: "50",
     });
     expect(sql.intents.get(intent.intentId)?.state).toBe("filled");
@@ -568,7 +569,7 @@ describe("账户级Durable Object持久化基础", () => {
     expect(response.status).toBe(409);
     expect(sql.fills.size).toBe(0);
     expect(sql.lock?.intent_id).toBe(intent.intentId);
-    expect(sql.reservations.get(`${intent.intentId}:1`)?.state).toBe("reserved");
+    expect(sql.reservations.get(`${intent.intentId}:1:USDT`)?.state).toBe("reserved");
   });
 
   it("拒绝重复tradeId，且不能因重复成交明细释放预留", async () => {
