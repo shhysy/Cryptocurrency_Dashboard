@@ -79,7 +79,6 @@ describe("V3.3 sell signal reservation", () => {
     expect(buildSellEventReservations(data({ stale: true }), []).records).toHaveLength(0);
   });
 
-
   it("does not reserve the same take-profit tier again on a later week", () => {
     const later = data({
       coins: [{
@@ -89,7 +88,7 @@ describe("V3.3 sell signal reservation", () => {
     });
     const existing: SellEventRecord = {
       eventKey: "sell:BTC:take_profit:2:止盈1",
-      symbol: "BTC", kind: "take_profit", status: "executed", requestedQty: 0.15,
+      symbol: "BTC", kind: "take_profit", status: "executed", requestedQty: 0.15, filledQty: 0.15,
       createdAt: 1, updatedAt: 1, exchangeOrderId: "100", fillIds: ["BTC-1"], lastError: null,
     };
     expect(buildSellEventReservations(later, [existing]).records).toHaveLength(0);
@@ -127,7 +126,6 @@ describe("V3.3 sell signal reservation", () => {
     expect(buildSellEventReservations(baseReduce, [existing]).records).toHaveLength(0);
   });
 
-
   it("does not double-subtract already executed sells from refreshed account balance", () => {
     const d = data({
       coins: [{
@@ -156,7 +154,6 @@ describe("V3.3 sell signal reservation", () => {
     const plan = buildSellEventReservations(d, []);
     expect(plan.records[0].requestedQty).toBeCloseTo(0.1, 12);
   });
-});
 
   it("uses actual filled quantity for a terminal partial indicator-profit event", () => {
     const indicator = data({
@@ -176,7 +173,7 @@ describe("V3.3 sell signal reservation", () => {
     expect(plan.records[0].requestedQty).toBeCloseTo(0.2, 12);
   });
 
-  it("does not recreate a take-profit tier after a terminal partial fill", () => {
+  it("同周/跨周：终态部分成交且对账完整时，按剩余目标生成 resume", () => {
     const later = data({
       coins: [{
         ...data().coins[0],
@@ -190,5 +187,27 @@ describe("V3.3 sell signal reservation", () => {
       createdAt: 1, updatedAt: 1, exchangeOrderId: "103",
       fillIds: ["BTC-4"], lastError: null,
     };
-    expect(buildSellEventReservations(later, [partial]).records).toHaveLength(0);
+    const plan = buildSellEventReservations(later, [partial]);
+    expect(plan.records).toHaveLength(1);
+    expect(plan.records[0].eventKey).toContain("resume");
+    expect(plan.records[0].requestedQty).toBeCloseTo(0.1, 8);
   });
+
+  it("跨周：底仓减仓仍在 pending 时禁止再创建", () => {
+    const later = data({
+      coins: [{
+        ...data().coins[0],
+        series: [{ t: 5, c: 50000 }, { t: 6, c: 51000 }, { t: 7, c: 52000 }],
+        signal: { ...sellSignal, action: { ...sellSignal.action, kind: "baseReduce", label: "底仓减仓", qty: 0.2 } },
+      }],
+    });
+    const existing: SellEventRecord = {
+      eventKey: "sell:BTC:base_reduce:1:底仓减仓",
+      symbol: "BTC", kind: "base_reduce", status: "pending", requestedQty: 0.2,
+      createdAt: 1, updatedAt: 1, exchangeOrderId: null, fillIds: [], lastError: null,
+    };
+    const plan = buildSellEventReservations(later, [existing]);
+    expect(plan.records).toHaveLength(0);
+    expect(plan.blocked.some((b) => b.reason.includes("底仓减仓"))).toBe(true);
+  });
+});
