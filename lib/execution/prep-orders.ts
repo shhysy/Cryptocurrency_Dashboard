@@ -40,7 +40,7 @@ export interface PrepOrderRow {
   triggerPrice: number;
   triggerRule: string;
   plannedUsdt: number | null;
-  /** 相对当时周期仓的卖出比例 */
+  /** 相对本轮初始周期仓的档位目标比例；实际数量不得超过剩余周期仓 */
   sellRatioOfCycle: number | null;
   status: PrepStatus;
   anchor: "head" | "avgCost";
@@ -193,7 +193,7 @@ export function buildInitialPrepPlan(input: {
       anchor: "avgCost",
       headPrice,
       avgCost,
-      note: `卖出当时周期仓的 ${(tp.ratio * 100).toFixed(0)}%`,
+      note: `本档目标为本轮初始周期仓的 ${(tp.ratio * 100).toFixed(0)}%，实际不超过剩余周期仓`,
       updatedAt: now,
     });
   });
@@ -316,7 +316,7 @@ export function rebuildPrepPlanAfterTakeProfit(input: {
       avgCost,
       note: doneTp.has(tier)
         ? "本档已执行"
-        : `卖出当时周期仓的 ${(tp.ratio * 100).toFixed(0)}%；均价更新后重算`,
+        : `本档目标为本轮初始周期仓的 ${(tp.ratio * 100).toFixed(0)}%；均价更新后重算`,
       updatedAt: now,
     });
   });
