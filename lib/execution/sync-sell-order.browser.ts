@@ -12,6 +12,7 @@ import {
   updateSellEvent,
   type SellEventRecord,
 } from "./sell-store.browser";
+import { localSellStatusAfterReconciledSnapshot } from "./sell-order-status";
 
 export interface SellOrderSyncResult {
   action: "wait" | "partial" | "complete" | "manual_review";
@@ -21,9 +22,8 @@ export interface SellOrderSyncResult {
 }
 
 /**
- * Read-only reconciliation for a SELL order whose exchange order ID has
- * already been bound to a reserved sell event. This function never submits,
- * cancels, or retries an order.
+ * 只读对账：已绑定交易所订单号的卖出事件。
+ * 不提交、不撤单、不重试下单。
  */
 export async function syncSellOrderFromBinance(
   eventKey: string,
@@ -141,13 +141,15 @@ export async function syncSellOrderFromBinance(
   }
 
   const fillIds = [...new Set([...event.fillIds, ...reconciled.fills.map((fill) => fill.fillId)])];
-  const terminal = snapshot.status === "FILLED" || snapshot.status === "CANCELED" ||
-    snapshot.status === "EXPIRED" || snapshot.status === "REJECTED";
+  const localStatus = localSellStatusAfterReconciledSnapshot({
+    exchangeStatus: String(snapshot.status),
+    executedQty: Number(snapshot.executedQty),
+    origQty: Number(snapshot.origQty),
+  });
+  const terminal = localStatus !== "reconcile_required";
   const nextEvent: SellEventRecord = {
     ...event,
-    status: terminal
-      ? (Number(snapshot.executedQty) + 1e-8 < Number(snapshot.origQty) ? "partially_filled" : "executed")
-      : "reconcile_required",
+    status: localStatus,
     fillIds,
     filledQty: Number(snapshot.executedQty),
     lastError: terminal ? null : "卖出订单仍未进入终态；已记录当前确认成交，继续只读对账",
