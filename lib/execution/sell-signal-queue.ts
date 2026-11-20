@@ -6,6 +6,7 @@ import {
   reserveSellEvent,
   type SellEventRecord,
 } from "./sell-store.browser";
+import { localEventEligibleForTakeProfitResume } from "./sell-order-status";
 
 const KIND_MAP: Record<string, SellEventKind> = {
   takeProfit: "take_profit",
@@ -61,16 +62,11 @@ export function hasOpenBaseReduce(events: SellEventRecord[]): boolean {
   );
 }
 
+/** 终态且对账完整的部分成交才可作为 resume 依据（与 sell-order-status 一致） */
 export function isTerminalReconciledPartial(
   event: Pick<SellEventRecord, "status" | "filledQty" | "requestedQty" | "fillIds" | "exchangeOrderId">,
 ): boolean {
-  if (event.status !== "partially_filled" && event.status !== "executed") return false;
-  if (!Number.isFinite(event.filledQty) || (event.filledQty as number) <= 0) return false;
-  if (!Number.isFinite(event.requestedQty) || event.requestedQty <= 0) return false;
-  if ((event.filledQty as number) + 1e-12 >= event.requestedQty) return false;
-  if (!event.exchangeOrderId) return false;
-  if (!Array.isArray(event.fillIds) || event.fillIds.length === 0) return false;
-  return true;
+  return localEventEligibleForTakeProfitResume(event);
 }
 
 export function takeProfitTierFullyFilled(events: SellEventRecord[], suffix: string): boolean {
