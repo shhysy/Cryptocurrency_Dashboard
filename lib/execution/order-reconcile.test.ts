@@ -62,6 +62,17 @@ describe("Binance 订单对账与幂等 ID", () => {
   it("未查到订单不能假定失败并重发", () => {
     expect(decideOrderReconciliation(null).action).toBe("manual_review");
   });
+
+  it("微小订单的真实未成交差额不能被绝对容差误判为FILLED", () => {
+    const decision = decideOrderReconciliation({
+      status: "FILLED",
+      origQty: 1e-10,
+      executedQty: 1.00005e-10,
+      cummulativeQuoteQty: 0.000005,
+      orderId: 9,
+    });
+    expect(decision.action).toBe("manual_review");
+  });
 });
 
 
