@@ -122,7 +122,10 @@ async function postSpotMarketOrder(input: {
 }): Promise<BinanceSpotOrderSubmitResponse> {
   const response = await fetch("/api/binance/spot-order", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Binance-Client-Environment": BINANCE_SPOT_ENVIRONMENT,
+    },
     credentials: "same-origin",
     cache: "no-store",
     body: JSON.stringify(input),
