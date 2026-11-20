@@ -26,7 +26,29 @@ export function assertDuplicateExecutionFillMatches(existing: ExecutionFill, exi
 }
 
 
-const EPSILON = 1e-8;
+/**
+ * Compare values using only floating-point representation error.
+ * Never use a fixed absolute epsilon for asset quantities: 1e-8 is larger
+ * than many valid BTC/ETH fills and can hide materially missing fills.
+ */
+function numbersMatchAtFloatPrecision(a: number, b: number, operations = 1): boolean {
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  const scale = Math.max(Math.abs(a), Math.abs(b), Number.MIN_VALUE);
+  const tolerance = Number.EPSILON * 16 * scale * Math.max(1, operations);
+  return Math.abs(a - b) <= tolerance;
+}
+
+function compensatedSum(values: number[]): number {
+  let sum = 0;
+  let correction = 0;
+  for (const value of values) {
+    const adjusted = value - correction;
+    const next = sum + adjusted;
+    correction = (next - sum) - adjusted;
+    sum = next;
+  }
+  return sum;
+}
 
 function collectMatchingTrades(
   order: FillOrderSnapshot,
@@ -54,8 +76,7 @@ function collectMatchingTrades(
     // Binance quoteQty should agree with price × quantity within a small
     // floating-point tolerance. A mismatch must not enter the cost ledger.
     const calculatedQuote = trade.price * trade.qty;
-    const quoteTolerance = Math.max(EPSILON, Math.abs(calculatedQuote) * EPSILON);
-    if (Math.abs(calculatedQuote - trade.quoteQty) > quoteTolerance) {
+    if (!numbersMatchAtFloatPrecision(calculatedQuote, trade.quoteQty, 2)) {
       throw new Error("成交明细价格、数量与成交金额不一致");
     }
 
@@ -122,13 +143,11 @@ export function reconcileConfirmedBuyFills(
     };
   });
 
-  const filledQty = fills.reduce((sum, fill) => sum + fill.qty, 0);
-  const filledQuote = fills.reduce((sum, fill) => sum + fill.quoteQty, 0);
-  const qtyTolerance = Math.max(EPSILON, order.executedQty * EPSILON);
-  const quoteTolerance = Math.max(EPSILON, order.cummulativeQuoteQty * EPSILON);
+  const filledQty = compensatedSum(fills.map((fill) => fill.qty));
+  const filledQuote = compensatedSum(fills.map((fill) => fill.quoteQty));
   const complete =
-    Math.abs(filledQty - order.executedQty) <= qtyTolerance &&
-    Math.abs(filledQuote - order.cummulativeQuoteQty) <= quoteTolerance;
+    numbersMatchAtFloatPrecision(filledQty, order.executedQty, fills.length + 1) &&
+    numbersMatchAtFloatPrecision(filledQuote, order.cummulativeQuoteQty, fills.length + 1);
 
   return {
     complete,
@@ -173,13 +192,11 @@ export function reconcileConfirmedSellFills(
     };
   });
 
-  const filledQty = fills.reduce((sum, fill) => sum + fill.qty, 0);
-  const filledQuote = fills.reduce((sum, fill) => sum + fill.quoteQty, 0);
-  const qtyTolerance = Math.max(EPSILON, order.executedQty * EPSILON);
-  const quoteTolerance = Math.max(EPSILON, order.cummulativeQuoteQty * EPSILON);
+  const filledQty = compensatedSum(fills.map((fill) => fill.qty));
+  const filledQuote = compensatedSum(fills.map((fill) => fill.quoteQty));
   const complete =
-    Math.abs(filledQty - order.executedQty) <= qtyTolerance &&
-    Math.abs(filledQuote - order.cummulativeQuoteQty) <= quoteTolerance;
+    numbersMatchAtFloatPrecision(filledQty, order.executedQty, fills.length + 1) &&
+    numbersMatchAtFloatPrecision(filledQuote, order.cummulativeQuoteQty, fills.length + 1);
 
   return {
     complete,
