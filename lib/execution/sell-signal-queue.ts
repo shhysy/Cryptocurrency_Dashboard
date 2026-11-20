@@ -19,9 +19,82 @@ export interface SellSignalQueuePlan {
   blocked: { symbol: string; reason: string }[];
 }
 
+/** 已确认的底仓减仓成交数量（仅 executed / partially_filled 且 filledQty>0） */
+export function confirmedBaseReduceFilledQty(events: SellEventRecord[]): number {
+  return events
+    .filter((event) =>
+      event.kind === "base_reduce" &&
+      (event.status === "executed" || event.status === "partially_filled") &&
+      Number.isFinite(event.filledQty) &&
+      (event.filledQty as number) > 0,
+    )
+    .reduce((sum, event) => sum + (event.filledQty as number), 0);
+}
+
 /**
- * Build stable sell-event reservations from fresh dashboard signals.
- * The reservation is an intent only; it does not submit a Binance order.
+ * 受保护底仓数量 = 累计买入 × 底仓比例 − 已确认底仓减仓成交。
+ * 不得继续保护已经卖掉的底仓，否则会低估周期仓可卖量。
+ */
+export function protectedBaseQtyAfterReductions(
+  boughtQty: number,
+  baseRatio: number,
+  baseReduceFilledQty: number,
+): number {
+  if (!Number.isFinite(boughtQty) || boughtQty <= 0) return 0;
+  if (!Number.isFinite(baseRatio) || baseRatio <= 0) return 0;
+  const nominal = boughtQty * baseRatio;
+  const reduced = Number.isFinite(baseReduceFilledQty) ? Math.max(0, baseReduceFilledQty) : 0;
+  return Math.max(0, nominal - reduced);
+}
+
+function tierSuffix(label: string | undefined, kind: string): string {
+  return `:${label || kind}`;
+}
+
+/** 止盈档是否仍有未完结的活动单（禁止再挂新单） */
+export function takeProfitTierHasOpenWork(events: SellEventRecord[], suffix: string): boolean {
+  return events.some((event) =>
+    event.kind === "take_profit" &&
+    event.eventKey.includes(suffix) &&
+    (event.status === "pending" || event.status === "reconcile_required"),
+  );
+}
+
+/**
+ * 止盈档是否已按请求数量完全满足（不可再开同档新意图）。
+ * 部分成交且已终态、filledQty < requestedQty 时返回 false，允许安全续卖剩余。
+ */
+export function takeProfitTierFullyFilled(events: SellEventRecord[], suffix: string): boolean {
+  const tierEvents = events.filter((event) =>
+    event.kind === "take_profit" && event.eventKey.includes(suffix),
+  );
+  if (tierEvents.length === 0) return false;
+  const filled = tierEvents
+    .filter((event) => event.status === "executed" || event.status === "partially_filled")
+    .reduce((sum, event) => sum + (Number.isFinite(event.filledQty) ? (event.filledQty as number) : 0), 0);
+  const target = Math.max(
+    0,
+    ...tierEvents.map((event) => (Number.isFinite(event.requestedQty) ? event.requestedQty : 0)),
+  );
+  if (target <= 0) {
+    return tierEvents.some((event) => event.status === "executed" || event.status === "partially_filled");
+  }
+  return filled + 1e-12 >= target;
+}
+
+/** 同档已确认成交合计 */
+export function takeProfitTierFilledQty(events: SellEventRecord[], suffix: string): number {
+  return events
+    .filter((event) =>
+      event.kind === "take_profit" &&
+      event.eventKey.includes(suffix) &&
+      (event.status === "executed" || event.status === "partially_filled"),
+    )
+    .reduce((sum, event) => sum + (Number.isFinite(event.filledQty) ? (event.filledQty as number) : 0), 0);
+}
+
+/**
+ * 从看板卖出信号生成稳定的卖出事件预约（仅意图，不向币安下单）。
  */
 export function buildSellEventReservations(
   data: DashboardData,
@@ -44,41 +117,60 @@ export function buildSellEventReservations(
       : coin.series[coin.series.length - 1]?.t;
     if (!Number.isFinite(sourceWeek)) continue;
 
-    const eventKey = makeSellEventKey(coin.symbol, kind, `${sourceWeek}:${action.label || action.kind}`);
+    const suffix = tierSuffix(action.label, action.kind);
+    let eventKey = makeSellEventKey(coin.symbol, kind, `${sourceWeek}:${action.label || action.kind}`);
     const symbolEvents = existingEvents.filter((event) => event.symbol === coin.symbol);
     if (symbolEvents.some((event) => event.eventKey === eventKey)) continue;
 
-    const activeEvents = symbolEvents.filter((event) =>
-      event.status === "pending" || event.status === "reconcile_required" || event.status === "partially_filled" || event.status === "executed"
+    const activeOpen = symbolEvents.filter((event) =>
+      event.status === "pending" || event.status === "reconcile_required",
     );
-    // A take-profit tier is a one-time event per asset; a later weekly candle
-    // must not create a second reservation for the same tier.
-    if (kind === "take_profit" && activeEvents.some((event) =>
-      event.kind === "take_profit" && event.eventKey.endsWith(`:${action.label || action.kind}`)
-    )) continue;
+
+    if (kind === "take_profit") {
+      if (takeProfitTierHasOpenWork(symbolEvents, suffix)) {
+        blocked.push({ symbol: coin.symbol, reason: "该止盈档仍有待处理或待对账订单，禁止重复提交" });
+        continue;
+      }
+      if (takeProfitTierFullyFilled(symbolEvents, suffix)) {
+        continue;
+      }
+      const alreadyFilled = takeProfitTierFilledQty(symbolEvents, suffix);
+      if (alreadyFilled > 0) {
+        eventKey = makeSellEventKey(
+          coin.symbol,
+          kind,
+          `${sourceWeek}:${action.label || action.kind}:resume:${alreadyFilled}`,
+        );
+        if (symbolEvents.some((event) => event.eventKey === eventKey)) continue;
+      }
+    }
+
     const profile = strategyConfig.profiles[coin.signal.group];
     const boughtQty = coin.buys.reduce((sum, trade) => sum + trade.qty, 0);
-    const baseQty = boughtQty * profile.baseRatio;
-    const cycleInitialQty = Math.max(0, boughtQty - baseQty);
-    // Pending/reconcile-required sells reserve cycle quantity. Executed sells
-    // are already reflected in the fresh Binance balance and must not be subtracted twice.
-    const cycleReservedQty = activeEvents
-      .filter((event) =>
-        event.kind !== "base_reduce" &&
-        (event.status === "pending" || event.status === "reconcile_required")
-      )
+    const baseReduceFilled = confirmedBaseReduceFilledQty(symbolEvents);
+    const baseQty = protectedBaseQtyAfterReductions(boughtQty, profile.baseRatio, baseReduceFilled);
+    const nominalBase = boughtQty * profile.baseRatio;
+    const cycleInitialQty = Math.max(0, boughtQty - nominalBase);
+    const cycleReservedQty = activeOpen
+      .filter((event) => event.kind !== "base_reduce")
       .reduce((sum, event) => sum + event.requestedQty, 0);
-    const indicatorEvents = activeEvents.filter((event) => event.kind === "indicator_profit");
-    const indicatorProfitSoldQty = indicatorEvents.reduce((sum, event) => sum + (event.status === "pending" || event.status === "reconcile_required"
+    const indicatorEvents = symbolEvents.filter((event) => event.kind === "indicator_profit");
+    const indicatorProfitSoldQty = indicatorEvents.reduce((sum, event) => sum + (
+      event.status === "pending" || event.status === "reconcile_required"
         ? event.requestedQty
-        : (event.filledQty ?? event.requestedQty)), 0);
+        : (event.filledQty ?? (event.status === "executed" || event.status === "partially_filled" ? event.requestedQty : 0))
+    ), 0);
     const lastIndicatorProfitAt = indicatorEvents.length
       ? Math.max(...indicatorEvents.map((event) => event.updatedAt))
       : null;
-    const baseReduceExecuted = activeEvents.some((event) => event.kind === "base_reduce");
+    const baseReduceExecuted = baseReduceFilled > 0 || symbolEvents.some((event) =>
+      event.kind === "base_reduce" && event.status === "executed",
+    );
 
     const state: SellGuardState = {
-      executedEventKeys: symbolEvents.filter((event) => (event.status === "executed" || event.status === "partially_filled")).map((event) => event.eventKey),
+      executedEventKeys: symbolEvents
+        .filter((event) => event.status === "executed" || event.status === "partially_filled")
+        .map((event) => event.eventKey),
       pendingEventKeys: symbolEvents
         .filter((event) => event.status === "pending" || event.status === "reconcile_required")
         .map((event) => event.eventKey),
@@ -88,12 +180,26 @@ export function buildSellEventReservations(
       baseReduceExecuted,
     };
 
+    let desiredQty = action.qty as number;
+    if (kind === "take_profit") {
+      const alreadyFilled = takeProfitTierFilledQty(symbolEvents, suffix);
+      if (alreadyFilled > 0) {
+        desiredQty = Math.max(0, desiredQty - alreadyFilled);
+      }
+    }
+    if (desiredQty <= 0) continue;
+
+    const cycleAvailableQty = Math.max(
+      0,
+      Math.min(coin.qty - baseQty, cycleInitialQty - cycleReservedQty),
+    );
+
     const guard = guardSellIntent({
       symbol: coin.symbol,
       kind,
       eventKey,
-      desiredQty: action.qty as number,
-      cycleAvailableQty: Math.max(0, Math.min(coin.qty - baseQty, cycleInitialQty - cycleReservedQty)),
+      desiredQty,
+      cycleAvailableQty,
       baseAvailableQty: Math.max(0, Math.min(coin.qty, baseQty)),
       now: data.updatedAt,
       allowBaseReduction: kind === "base_reduce",
