@@ -57,3 +57,13 @@
 - [ ] SELL回归测试全部通过
 - [ ] 全量测试与类型检查通过
 - [ ] CI通过并交GPT独立复核
+
+
+## GPT正式任务单：自动交易实盘切换前置交付（2026-11-20）
+
+- GitHub任务单：#2 https://github.com/shhysy/Cryptocurrency_Dashboard/issues/2
+- 任务由GPT主导，Grok先完成SELL状态机返工；SELL相关测试、全量测试、类型检查和最新CI全绿后，才开始Outbox租约审计。
+- 实盘切换的目标是用户只需在服务端环境变量中切换 `BINANCE_SPOT_ENVIRONMENT=production` 并配置生产凭证及显式执行开关；不得通过浏览器变量传递Key/Secret。
+- GPT已独立核实：当前 `/api/binance/testnet-order` 与 `submitTestnetSpotMarketOrder` 明确拒绝production；浏览器BUY/SELL开关仅测试网有效；生产下单尚无实现。因此“只替换Key即可实盘”目前不成立。
+- Grok不得自行扩展生产下单适配器或开启生产开关；若SELL返工中发现共享订单接口必须调整，先提交方案给GPT。
+- 所有验证仍使用mock/dry-run/Spot Testnet；禁止真实订单、真实赎回和真实密钥提交。
