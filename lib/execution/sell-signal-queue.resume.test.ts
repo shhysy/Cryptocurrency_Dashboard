@@ -112,6 +112,7 @@ describe("止盈部分成交后安全续卖", () => {
       symbol: "BTC", kind: "take_profit", status: "partially_filled",
       requestedQty: 0.15, filledQty: 0.05, createdAt: 1, updatedAt: 1,
       exchangeOrderId: "1", fillIds: ["a"], lastError: null,
+      exchangeTerminalStatus: "CANCELED", fillReconcileCompletedAt: 1_700_000_000_000, lotStepSize: 0.00001,
     }];
     expect(isTerminalReconciledPartial(existing[0])).toBe(true);
     expect(takeProfitTierFullyFilled(existing, ":止盈1")).toBe(false);
