@@ -2,6 +2,7 @@ import {
   validateServerExecutionIntent,
   type ServerExecutionIntent,
 } from "./server-execution-core";
+import { expiredSchedulerLeaseDecision } from "./scheduler-task-core";
 
 interface SqlCursor {
   toArray(): unknown[];
@@ -174,17 +175,38 @@ export class ExecutionAccountDO {
     sql.exec(`
       CREATE TABLE IF NOT EXISTS scheduler_tasks (
         task_id TEXT PRIMARY KEY,
-        task_type TEXT NOT NULL,
+        task_type TEXT NOT NULL CHECK (task_type IN ('reconcile_intent', 'health_check')),
         due_at INTEGER NOT NULL,
-        state TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (state IN ('pending', 'leased', 'completed', 'manual_review')),
         attempt INTEGER NOT NULL DEFAULT 0,
+        lease_token TEXT,
+        lease_until INTEGER,
+        next_attempt_at INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
     `);
+    // 对已存在的旧版scheduler_tasks表做向前兼容迁移。
+    // Cloudflare SQLite通过PRAGMA读取实际列，避免重复ALTER导致部署失败。
+    const schedulerColumns = sql.exec("PRAGMA table_info(scheduler_tasks)").toArray()
+      .map((row) => row && typeof row === "object"
+        ? (row as { name?: unknown }).name
+        : null)
+      .filter((name): name is string => typeof name === "string");
+    const existingColumns = new Set(schedulerColumns);
+    const schedulerMigrations: Array<[string, string]> = [
+      ["lease_token", "ALTER TABLE scheduler_tasks ADD COLUMN lease_token TEXT"],
+      ["lease_until", "ALTER TABLE scheduler_tasks ADD COLUMN lease_until INTEGER"],
+      ["next_attempt_at", "ALTER TABLE scheduler_tasks ADD COLUMN next_attempt_at INTEGER NOT NULL DEFAULT 0"],
+      ["last_error", "ALTER TABLE scheduler_tasks ADD COLUMN last_error TEXT"],
+    ];
+    for (const [column, statement] of schedulerMigrations) {
+      if (!existingColumns.has(column)) sql.exec(statement);
+    }
     sql.exec(`
       CREATE INDEX IF NOT EXISTS idx_scheduler_tasks_due
-      ON scheduler_tasks(state, due_at)
+      ON scheduler_tasks(state, next_attempt_at, due_at, lease_until)
     `);
   }
 
@@ -847,12 +869,64 @@ export class ExecutionAccountDO {
   async alarm(): Promise<void> {
     await this.ready;
     const now = Date.now();
-    this.state.storage.sql.exec(
+    const sql = this.state.storage.sql;
+    sql.exec(
       `INSERT INTO account_metadata(key, value, updated_at)
        VALUES ('last_alarm_at', ?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
       String(now),
       now,
     );
+
+    // Alarm只做持久化租约恢复和下一次唤醒安排，不在SQLite事务中执行网络请求，
+    // 也不会把任务伪标记为完成。真正的只读任务执行器在后续任务中接入。
+    this.state.storage.transactionSync(() => {
+      const expiredRows = sql.exec(
+        `SELECT task_id, attempt FROM scheduler_tasks
+         WHERE state = 'leased' AND lease_until IS NOT NULL AND lease_until <= ?
+         ORDER BY lease_until ASC LIMIT 100`,
+        now,
+      ).toArray();
+      for (const value of expiredRows) {
+        if (!value || typeof value !== "object") continue;
+        const row = value as { task_id?: unknown; attempt?: unknown };
+        if (typeof row.task_id !== "string" || !Number.isSafeInteger(row.attempt) ||
+            (row.attempt as number) <= 0) continue;
+        const decision = expiredSchedulerLeaseDecision(row.attempt as number, now);
+        if (decision.state === "manual_review") {
+          sql.exec(
+            `UPDATE scheduler_tasks
+             SET state = 'manual_review', lease_token = NULL, lease_until = NULL,
+                 last_error = '租约过期且达到最大尝试次数', updated_at = ?
+             WHERE task_id = ? AND state = 'leased' AND attempt = ? AND lease_until <= ?`,
+            now, row.task_id, row.attempt, now,
+          );
+        } else {
+          sql.exec(
+            `UPDATE scheduler_tasks
+             SET state = 'pending', lease_token = NULL, lease_until = NULL,
+                 next_attempt_at = ?, last_error = '租约过期，等待退避后重试', updated_at = ?
+             WHERE task_id = ? AND state = 'leased' AND attempt = ? AND lease_until <= ?`,
+            decision.nextAttemptAt, now, row.task_id, row.attempt, now,
+          );
+        }
+      }
+    });
+
+    const dueRows = sql.exec(
+      `SELECT MIN(CASE
+        WHEN state = 'pending' THEN MAX(due_at, next_attempt_at)
+        WHEN state = 'leased' THEN lease_until
+        ELSE NULL END) AS next_at
+       FROM scheduler_tasks WHERE state IN ('pending', 'leased')`,
+    ).toArray();
+    const nextAt = dueRows[0] && typeof dueRows[0] === "object"
+      ? (dueRows[0] as { next_at?: unknown }).next_at
+      : null;
+    if (typeof nextAt === "number" && Number.isSafeInteger(nextAt) && nextAt > 0) {
+      await this.state.storage.setAlarm(Math.max(now + 1_000, nextAt));
+    } else if (this.state.storage.deleteAlarm) {
+      await this.state.storage.deleteAlarm();
+    }
   }
 }
