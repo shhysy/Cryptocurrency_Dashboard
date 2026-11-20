@@ -16,6 +16,7 @@ interface DurableStorage {
   sql: SqlStorage;
   getAlarm(): Promise<number | null>;
   setAlarm(timestamp: number): Promise<void>;
+  deleteAlarm?(): Promise<void>;
   transactionSync<T>(callback: () => T): T;
 }
 
