@@ -556,3 +556,11 @@
 - 未实现租约续期、终态fill ledger对账、手续费与预留消耗核算、资金释放和account_lock释放。
 - Cron只写心跳，Alarm只记录触发；尚未从SQLite scheduler_tasks中领取并执行任务。
 - 因此该基础层仍不可用于真实交易；生产BUY/SELL与Simple Earn真实赎回保持关闭。
+
+
+## 成交账本与订单attempt关联字段准备（2026-11-20）
+- 为后续终态成交对账和资金释放准备，`fills` SQLite表增加 `intent_id` 与 `attempt` 字段，并新增按 `intent_id + attempt + order_id` 查询的索引。
+- 提交：`fcbc66ddd81c7a3ec286ec57d97e5ee8d9d34970`（扩展成交账本以绑定订单意图与attempt）。
+- 该提交只扩展schema，尚未新增fill写入或终态finalize接口；对应Actions Run `44711219283` 在记录时仍在运行，未提前宣称通过。
+- 订单提交前fencing/unknown/takeover代码提交 `7f4f018b02bd28fadd10897f384d372971d3225d` 的CI Run `44710982129` 已成功：50个测试文件、427项测试全部通过；typecheck、Next.js build、Cloudflare OpenNext build全部通过。
+- 后续实现fill写入时必须按symbol+tradeId唯一，校验intentId/attempt/orderId一致；只有逐笔fill数量与交易所累计数量/金额完全一致且交易所终态明确，才允许释放reservation和account_lock。
