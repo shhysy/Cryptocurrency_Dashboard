@@ -98,6 +98,6 @@ describe("服务端订单状态机", () => {
     expect(() => assertExecutionLease(lease, { ...lease, attempt: 1 }, 4000)).toThrow("fencing token");
     expect(() => assertExecutionLease(lease, lease, 5000)).toThrow("租约已过期");
     expect(() => assertExecutionLease({ ...lease, leaseUntil: Number.NaN }, lease, 4000)).toThrow("租约已过期");
-    expect(() => assertExecutionLease(lease, { ...lease, token: "" }, 4000)).toThrow("fencing token");\n    expect(() => assertExecutionLease({ ...lease, leaseUntil: Number.NaN }, lease, 4000)).toThrow("租约已过期");\n    expect(() => assertExecutionLease(lease, { ...lease, token: "" }, 4000)).toThrow("fencing token");
+    expect(() => assertExecutionLease(lease, { ...lease, token: "" }, 4000)).toThrow("fencing token");
   });
 });
