@@ -3,7 +3,7 @@ import type { CoinCard, DashboardData } from "../lib/types";
 import type { TradeLedgerEntry } from "../lib/execution/types";
 import type { SellEventRecord } from "../lib/execution/sell-store.browser";
 import type { Action, CoinSignal } from "./types";
-import { buildVerdict } from "./engine";
+import { buildVerdict, calculateTakeProfitQty } from "./engine";
 
 const WEEK_MS = 7 * 864e5;
 const EPSILON = 1e-8;
@@ -116,7 +116,8 @@ export function applyPostTakeProfitRebuy(
     const signal = coin.signal;
 
     // The three TP tiers are strictly sequential. A later price target cannot
-    // skip an earlier tier; each tier sells a fraction of the then-current cycle inventory.
+    // skip an earlier tier. Each tier targets a fraction of the initial cycle
+    // inventory for this holding round, capped by the currently remaining cycle quantity.
     const currentRoundTpFills = replay.lastFlatAt === null
       ? tpFills
       : tpFills.filter((fill) => fill.time > replay.lastFlatAt!);
@@ -142,13 +143,14 @@ export function applyPostTakeProfitRebuy(
     if (nextTier !== undefined) {
       const tp = profile.takeProfit[nextTier - 1];
       const trigger = avgCost * tp.mult;
+      const initialCycleQty = Math.max(0, boughtQty * (1 - profile.baseRatio));
       if (coin.price >= trigger && cycleQty > EPSILON) {
-        const qty = Math.min(cycleQty * tp.ratio, cycleQty);
+        const qty = calculateTakeProfitQty(initialCycleQty, cycleQty, tp.ratio);
         const action: Action = {
           kind: "takeProfit", label: `止盈${nextTier}`, side: "sell",
           plannedUsdt: null, usdt: qty * coin.price, qty,
           sellPct: qty / coin.qty, limits: [], blocked: [],
-          notes: [`价格达到当前均价 × ${tp.mult}；卖出当前周期仓的 ${Math.round(tp.ratio * 100)}%`],
+          notes: [`价格达到当前均价 × ${tp.mult}；本档目标为本轮初始周期仓的 ${Math.round(tp.ratio * 100)}%，最多卖出剩余周期仓`],
         };
         return {
           ...coin, avgCost, returnPct,
