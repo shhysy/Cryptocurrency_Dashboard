@@ -15,19 +15,46 @@ describe("server-side Binance Spot Testnet order adapter", () => {
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.includes("/api/v3/exchangeInfo")) {
+        return new Response(JSON.stringify({ symbols: [{
+          symbol: "BTCUSDT",
+          status: "TRADING",
+          baseAsset: "BTC",
+          quoteAsset: "USDT",
+          quoteOrderQtyMarketAllowed: true,
+          filters: [
+            { filterType: "MARKET_LOT_SIZE", minQty: "0.00001", maxQty: "1000", stepSize: "0.00001" },
+            { filterType: "MIN_NOTIONAL", minNotional: "5", applyToMarket: true },
+          ],
+        }] }), { status: 200 });
+      }
+      if (url.includes("/api/v3/ticker/24hr")) {
+        return new Response(JSON.stringify([
+          { symbol: "BTCUSDT", lastPrice: "100000", priceChangePercent: "0" },
+        ]), { status: 200 });
+      }
       if (url.includes("/api/v3/time")) {
         return new Response(JSON.stringify({ serverTime: Date.now() }), { status: 200 });
       }
-      return new Response(JSON.stringify({
-        symbol: "BTCUSDT",
-        orderId: 987654,
-        clientOrderId: "gpt-test-buy-123",
-        status: "NEW",
-        origQty: "0.001",
-        executedQty: "0",
-        cummulativeQuoteQty: "0",
-        transactTime: Date.now(),
-      }), { status: 200 });
+      if (url.includes("/api/v3/account")) {
+        return new Response(JSON.stringify({ balances: [
+          { asset: "USDT", free: "1000", locked: "0" },
+          { asset: "BTC", free: "1", locked: "0" },
+        ] }), { status: 200 });
+      }
+      if (url.includes("/api/v3/order?")) {
+        return new Response(JSON.stringify({
+          symbol: "BTCUSDT",
+          orderId: 987654,
+          clientOrderId: "gpt-test-buy-123",
+          status: "NEW",
+          origQty: "0.001",
+          executedQty: "0",
+          cummulativeQuoteQty: "0",
+          transactTime: Date.now(),
+        }), { status: 200 });
+      }
+      throw new Error(`Unexpected Binance test request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
 
