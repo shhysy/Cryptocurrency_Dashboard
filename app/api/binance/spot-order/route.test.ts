@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { submitSpotMarketOrder } = vi.hoisted(() => ({ submitSpotMarketOrder: vi.fn() }));
-vi.mock("@/lib/binance", () => ({ submitSpotMarketOrder }));
+const { submitSpotMarketOrder, getServerBinanceSpotMode } = vi.hoisted(() => ({
+  submitSpotMarketOrder: vi.fn(),
+  getServerBinanceSpotMode: vi.fn(() => "testnet"),
+}));
+vi.mock("@/lib/binance", () => ({ submitSpotMarketOrder, getServerBinanceSpotMode }));
 
 import { POST } from "./route";
 
@@ -17,6 +20,7 @@ function makeRequest(body: unknown = payload, overrides: {
       authorization: overrides.authorization ?? "Basic " + btoa("user:correct-password"),
       origin: overrides.origin ?? "https://dashboard.example",
       "content-type": overrides.contentType ?? "application/json",
+      "x-binance-client-environment": "testnet",
     },
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
@@ -45,6 +49,15 @@ describe("统一 Spot 下单路由安全", () => {
     expect((await POST(makeRequest(payload, { origin: "https://attacker.example" }))).status).toBe(403);
     expect((await POST(makeRequest(payload, { origin: "" }))).status).toBe(403);
     expect(submitSpotMarketOrder).not.toHaveBeenCalled();
+  });
+
+
+  it("浏览器和服务端环境不一致时拒绝下单", async () => {
+    getServerBinanceSpotMode.mockReturnValue("production");
+    const response = await POST(makeRequest());
+    expect(response.status).toBe(409);
+    expect(submitSpotMarketOrder).not.toHaveBeenCalled();
+    getServerBinanceSpotMode.mockReturnValue("testnet");
   });
 
   it("拒绝非 JSON、额外字段、错误 JSON 和超大请求", async () => {
