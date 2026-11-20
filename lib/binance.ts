@@ -364,7 +364,7 @@ interface SpotExchangeFilter {
 }
 
 function scaledDecimal(value: string, decimals: number): bigint {
-  if (!/^(?:0|[1-9]\\d*)(?:\\.\\d+)?$/.test(value)) throw new Error("币安交易规则返回无效数字");
+  if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) throw new Error("币安交易规则返回无效数字");
   const [whole, fraction = ""] = value.split(".");
   if (fraction.length > decimals) throw new Error("订单精度超过币安交易规则");
   return BigInt(whole) * (10n ** BigInt(decimals)) +
@@ -465,7 +465,7 @@ export async function submitSpotMarketOrder(
     throw new Error(mode === "testnet" ? "服务端缺少 Binance Testnet API Key/Secret" : "服务端缺少 Binance Production API Key/Secret");
   }
   if (!/^[A-Z0-9]{5,24}$/.test(input.symbol)) throw new Error("交易对格式无效");
-  if (!/^(?:0|[1-9]\\d*)(?:\\.\\d{1,8})?$/.test(input.amount) || Number(input.amount) <= 0) {
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(input.amount) || Number(input.amount) <= 0) {
     throw new Error("订单数量或金额无效");
   }
   if (!/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) throw new Error("clientOrderId 格式无效");
