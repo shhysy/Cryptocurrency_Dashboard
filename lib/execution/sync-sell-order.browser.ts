@@ -92,13 +92,19 @@ export async function syncSellOrderFromBinance(
   });
 
   if (decision.action === "wait") {
-    if (event.status === "partially_filled") {
+    // 非终态：无论本地是 partial 还是已 reconcile_required，都必须清除陈旧终态/对账证明
+    const hasStaleProof =
+      event.status === "partially_filled" ||
+      Boolean(event.exchangeTerminalStatus) ||
+      Number.isFinite(event.fillReconcileCompletedAt);
+    if (hasStaleProof) {
       await updateSellEvent({
         ...event,
         status: "reconcile_required",
         exchangeTerminalStatus: undefined,
         fillReconcileCompletedAt: undefined,
-        lastError: decision.reason ?? "卖出订单仍未进入终态，已冻结本地 partial，禁止 resume",
+        lotStepSize: undefined,
+        lastError: decision.reason ?? "卖出订单仍未进入终态，已清除旧终态证明并冻结，禁止 resume",
         updatedAt: Date.now(),
       });
     }
@@ -153,6 +159,7 @@ export async function syncSellOrderFromBinance(
 
   const fillIds = [...new Set([...event.fillIds, ...reconciled.fills.map((fill) => fill.fillId)])];
 
+  // 先读取并验证 stepSize，再做数量终态分类；拿不到有效步长不得写入可续卖证明
   let lotStepSize: number | undefined;
   try {
     const rules = await fetchSpotSymbolFilters(pair);
@@ -163,6 +170,21 @@ export async function syncSellOrderFromBinance(
     if (Number.isFinite(step) && step > 0) lotStepSize = step;
   } catch {
     lotStepSize = undefined;
+  }
+  if (lotStepSize === undefined) {
+    const reason = "无法取得有效 MARKET_LOT_SIZE/LOT_SIZE.stepSize，禁止用回退容差生成终态/续卖证明";
+    await updateSellEvent({
+      ...event,
+      status: "reconcile_required",
+      fillIds,
+      filledQty: Number(snapshot.executedQty),
+      exchangeTerminalStatus: undefined,
+      fillReconcileCompletedAt: undefined,
+      lotStepSize: undefined,
+      lastError: reason,
+      updatedAt: Date.now(),
+    });
+    return { action: "manual_review", newlyRecordedFills, orderStatus: snapshot.status, reason };
   }
 
   const localStatus = localSellStatusAfterReconciledSnapshot({
@@ -182,7 +204,7 @@ export async function syncSellOrderFromBinance(
     updatedAt: now,
     exchangeTerminalStatus: terminal ? String(snapshot.status).toUpperCase() : undefined,
     fillReconcileCompletedAt: terminal ? now : undefined,
-    lotStepSize: lotStepSize,
+    lotStepSize,
   };
   await updateSellEvent(nextEvent);
 
