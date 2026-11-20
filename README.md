@@ -114,7 +114,7 @@ BINANCE_API_SECRET=你的生产只读_API_Secret
 
 测试网模式固定使用 `https://testnet.binance.vision`，只读取测试网凭证，不会回退到生产 Key；生产模式只读取生产凭证。测试网不支持 Simple Earn，因此测试网环境会拒绝 Simple Earn 路径。
 
-**当前完成边界：** Dashboard 的账户与行情请求已切换到 Next.js 服务端，浏览器不持有 Binance Secret；统一 `/api/binance/spot-order` 已提供 BUY/SELL MARKET 服务端入口，并在提交前复核交易对状态、USDT报价、市场过滤器、价格和账户可用余额。环境与方向开关由服务端独立控制，生产BUY/SELL默认关闭。CI Run `44705630796` 已通过 `npm test`、TypeScript typecheck、Next.js production build 和 Cloudflare OpenNext build；后续新增的自定义Worker入口正在单独验证。SELL状态机仍待GPT独立验收；服务端持久化订单队列、账户级互斥、Cron/Alarm调度和跨设备恢复尚未完成，因此目前不能视为可无人值守实盘运行。当前后台节拍仍依赖看板页面挂载，关闭页面后不会持续执行。Simple Earn真实赎回仍关闭。服务端执行架构评审稿见[服务端自动执行架构设计](docs/策略3.3/服务端自动执行架构设计.md)。
+**当前完成边界：** Dashboard 的账户与行情请求已切换到 Next.js 服务端，浏览器不持有 Binance Secret；统一 `/api/binance/spot-order` 已提供 BUY/SELL MARKET 服务端入口，并在提交前复核交易对状态、USDT报价、市场过滤器、价格和账户可用余额。环境与方向开关由服务端独立控制，生产BUY/SELL默认关闭。CI Run `44705630796` 已通过 `npm test`、TypeScript typecheck、Next.js production build 和 Cloudflare OpenNext build；自定义Worker入口、账户级Durable Object SQLite基础表、内部幂等订单意图落库、每分钟Cron看门狗和DO Alarm心跳已进入开发分支，但尚未部署；账户级原子资金预留、订单attempt/fencing持久化、Binance执行器接线、逾期任务调度和跨设备恢复尚未完成。当前真正的策略节拍仍依赖看板页面挂载，关闭页面后不会持续执行，因此目前不能视为可无人值守实盘运行。SELL状态机仍待GPT独立验收。Simple Earn真实赎回仍关闭。服务端执行架构评审稿见[服务端自动执行架构设计](docs/策略3.3/服务端自动执行架构设计.md)。
 
 ## 安全提醒
 
