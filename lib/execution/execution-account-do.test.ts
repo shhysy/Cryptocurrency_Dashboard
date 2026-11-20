@@ -577,6 +577,50 @@ describe("账户级Durable Object持久化基础", () => {
     expect(sql.lock).toBeNull();
   });
 
+  it("SELL部分成交将基础资产手续费计入消耗后再释放剩余预留", async () => {
+    const { coordinator, sql } = makeCoordinator();
+    const sellIntent = {
+      ...intent,
+      intentId: "v33:BTC:reduce:2026W47",
+      strategyEventId: "BTC:reduce:2026W47",
+      side: "SELL",
+      amount: "0.01",
+    };
+    await coordinator.fetch(new Request("https://do.internal/internal/intents", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(sellIntent),
+    }));
+    const claimedResponse = await coordinator.fetch(new Request("https://do.internal/internal/claim", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: sellIntent.intentId, asset: "BTC", availableBalance: "0.01", snapshotAt: Date.now() }),
+    }));
+    const claimed = await claimedResponse.json() as { attempt: number; leaseToken: string };
+    await coordinator.fetch(new Request("https://do.internal/internal/mark-submitting", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: sellIntent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken }),
+    }));
+    const terminalAt = Date.now();
+    const response = await coordinator.fetch(new Request("https://do.internal/internal/finalize", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        intentId: sellIntent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken,
+        exchangeOrderId: "90004", exchangeStatus: "CANCELED", executedQty: "0.009",
+        cumulativeQuoteQty: "500", exchangeTerminalAt: terminalAt,
+        fills: [{
+          tradeId: "70004", orderId: "90004", qty: "0.009", quoteQty: "500",
+          commission: "0.0001", commissionAsset: "BTC", filledAt: terminalAt,
+        }],
+      }),
+    }));
+    const body = await response.json() as { state: string; consumedAmount: string };
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ ok: true, state: "partial_terminal", consumedAmount: "0.0091" });
+    expect(sql.reservations.get(`${sellIntent.intentId}:1:BTC`)).toMatchObject({
+      state: "settled", consumed_amount: "0.0091",
+    });
+    expect(sql.lock).toBeNull();
+  });
+
   it("逐笔成交与交易所累计数量不一致时拒绝落账和释放资金", async () => {
     const { coordinator, sql } = makeCoordinator();
     await coordinator.fetch(new Request("https://do.internal/internal/intents", {
