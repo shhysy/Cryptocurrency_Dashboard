@@ -19,9 +19,13 @@ const API_KEY = "";
 const API_SECRET = "";
 const BASE = BINANCE_SPOT_API_BASE;
 export const BINANCE_SPOT_BUY_SUBMISSION_ENABLED =
-  BINANCE_SPOT_ENVIRONMENT === "testnet" && process.env.NEXT_PUBLIC_BINANCE_TESTNET_BUY_ENABLED === "1";
+  BINANCE_SPOT_ENVIRONMENT === "testnet"
+    ? process.env.NEXT_PUBLIC_BINANCE_TESTNET_BUY_ENABLED === "1"
+    : process.env.NEXT_PUBLIC_BINANCE_PRODUCTION_BUY_ENABLED === "1";
 export const BINANCE_SPOT_SELL_SUBMISSION_ENABLED =
-  BINANCE_SPOT_ENVIRONMENT === "testnet" && process.env.NEXT_PUBLIC_BINANCE_TESTNET_SELL_ENABLED === "1";
+  BINANCE_SPOT_ENVIRONMENT === "testnet"
+    ? process.env.NEXT_PUBLIC_BINANCE_TESTNET_SELL_ENABLED === "1"
+    : process.env.NEXT_PUBLIC_BINANCE_PRODUCTION_SELL_ENABLED === "1";
 
 function assertSimpleEarnProductionOnly(): void {
   assertSimpleEarnSupported(BINANCE_SPOT_ENVIRONMENT);
@@ -110,13 +114,13 @@ export interface BinanceSpotOrderSubmitResponse {
 
 export const LIVE_SPOT_SELL_SUBMISSION_ENABLED = false as const;
 
-async function postTestnetMarketOrder(input: {
+async function postSpotMarketOrder(input: {
   side: "BUY" | "SELL";
   symbol: string;
   amount: string;
   clientOrderId: string;
 }): Promise<BinanceSpotOrderSubmitResponse> {
-  const response = await fetch("/api/binance/testnet-order", {
+  const response = await fetch("/api/binance/spot-order", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "same-origin",
@@ -126,19 +130,19 @@ async function postTestnetMarketOrder(input: {
   const raw = await response.text();
   let parsed: unknown;
   try { parsed = JSON.parse(raw); } catch {
-    throw new Error("测试网订单代理响应无法解析；必须按 clientOrderId 对账，禁止重发");
+    throw new Error("订单代理响应无法解析；必须按 clientOrderId 对账，禁止重发");
   }
   if (!response.ok) {
     const detail = parsed && typeof parsed === "object" && "detail" in parsed
       ? String((parsed as { detail: unknown }).detail)
-      : "测试网订单提交失败";
+      : "订单提交失败";
     throw new Error(detail.slice(0, 220));
   }
   const order = parsed as BinanceSpotOrderSubmitResponse;
   if (order.symbol !== input.symbol || order.clientOrderId !== input.clientOrderId ||
       !Number.isSafeInteger(order.orderId) || order.orderId <= 0 ||
       !["NEW", "PARTIALLY_FILLED", "FILLED", "CANCELED", "REJECTED", "EXPIRED"].includes(order.status)) {
-    throw new Error("测试网订单响应不匹配；必须按 clientOrderId 对账，禁止重发");
+    throw new Error("订单响应不匹配；必须按 clientOrderId 对账，禁止重发");
   }
   return order;
 }
@@ -146,23 +150,23 @@ async function postTestnetMarketOrder(input: {
 export async function submitSpotMarketSell(input: {
   symbol: string; quantity: string; clientOrderId: string;
 }): Promise<BinanceSpotOrderSubmitResponse> {
-  if (!BINANCE_SPOT_SELL_SUBMISSION_ENABLED) throw new Error("测试网卖出开关未启用；不会发送订单 POST");
+  if (!BINANCE_SPOT_SELL_SUBMISSION_ENABLED) throw new Error("当前环境卖出开关未启用；不会发送订单 POST");
   if (!/^[A-Z0-9]{5,24}$/.test(input.symbol) ||
       !/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(input.quantity) ||
       Number(input.quantity) <= 0 || !/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) {
-    throw new Error("测试网市价卖单参数无效");
+    throw new Error("现货市价卖单参数无效");
   }
-  return postTestnetMarketOrder({ side: "SELL", symbol: input.symbol, amount: input.quantity, clientOrderId: input.clientOrderId });
+  return postSpotMarketOrder({ side: "SELL", symbol: input.symbol, amount: input.quantity, clientOrderId: input.clientOrderId });
 }
 
 export async function submitSpotMarketBuy(input: {
   symbol: string; quoteOrderQty: string; clientOrderId: string;
 }): Promise<BinanceSpotOrderSubmitResponse> {
-  if (!BINANCE_SPOT_BUY_SUBMISSION_ENABLED) throw new Error("测试网买入开关未启用；不会发送订单 POST");
+  if (!BINANCE_SPOT_BUY_SUBMISSION_ENABLED) throw new Error("当前环境买入开关未启用；不会发送订单 POST");
   if (!/^[A-Z0-9]{5,24}$/.test(input.symbol) ||
       !/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(input.quoteOrderQty) ||
       Number(input.quoteOrderQty) <= 0 || !/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) {
-    throw new Error("测试网市价买单参数无效");
+    throw new Error("现货市价买单参数无效");
   }
   return postTestnetMarketOrder({ side: "BUY", symbol: input.symbol, amount: input.quoteOrderQty, clientOrderId: input.clientOrderId });
 }
