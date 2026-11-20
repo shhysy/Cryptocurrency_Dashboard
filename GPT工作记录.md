@@ -337,3 +337,21 @@
 - 检查浏览器调用链时发现BUY函数仍引用已重命名的 `postTestnetMarketOrder`，会导致类型检查失败；已修复为 `postSpotMarketOrder`，提交 `ae2503dd11226417f4199ff4811d77fff50b0da6`。
 - 修正生产适配器测试：生产公开行情可能走 `data-api.binance.vision`，但签名账户读取与下单必须固定走 `api.binance.com`；测试断言改为验证签名请求域名，提交 `75490b80d1ac3d0ba51ea975238c4a8fcc3ba55e`。
 - 当前仍未实际执行测试；这次静态复核已发现并修正一处会影响类型检查的旧函数名引用，说明必须等CI结果后才能继续判断。
+
+### 环境一致性与浏览器密钥面收敛
+- `getServerBinanceSpotMode`：服务端只返回当前环境名称，不暴露任何凭证。
+- `/api/binance/spot-order`：要求浏览器提交的环境标识与服务端运行环境一致，否则409拒绝下单，避免行情/账户/交易环境错配。
+- `/api/binance/signed-read`：增加相同环境一致性检查，避免测试网界面读取生产账户数据或反向错配。
+- `lib/binance.browser.ts`：下单和签名只读请求都附带环境标识；移除浏览器端HMAC、时钟签名和Simple Earn直接POST代码，Earn赎回统一 fail-closed，明确等待服务端专用实现。
+- 新增测试：下单路由与signed-read路由环境不一致均返回409且不触发币安请求。
+- 相关提交：
+  - `1c6172fa17938fd21b7e5bbda7716445b7e34466`：增加服务端环境标识。
+  - `30017508da223ecf7cbaea8233619b6ffa4beefb`：下单路由环境一致性校验。
+  - `5aad09c4db08bb1e5bd07ef4976d66563529257a`：下单请求携带客户端环境标识。
+  - `d27d954e6e9de412e3047582c36a40ee861283ff`：下单路由环境错配测试。
+  - `01a2a09b925bc4ec97496c5de51a0b598f7f5aa9`：签名只读请求携带客户端环境标识。
+  - `c547dc6d3ef15c19238b45091622153700f5dfbd`：signed-read服务端环境一致性校验。
+  - `0b937136df5598733d25b98dc6e1da09b1a75bd4`：signed-read环境错配测试。
+  - `7765ef4003e358995e8160558687890019abfdb9`、`0444a42ccb84e62131e4406e1084e01f7cd08ec1`：修正Earn说明并彻底移除浏览器端签名/赎回实现。
+  - `3a792a4bbac04e3b70d4fc30d4f619cb2f5c9841`：补充生产凭证权限与开关说明。
+- 当前CI仍未获得可确认的最新结果；不能将新增测试标记为通过。
