@@ -26,7 +26,8 @@ export interface SellSignalQueuePlan {
 /**
  * 仅统计具备终态+对账证明的底仓减仓成交。
  * - 终态必须通过 isExchangeSpotOrderTerminal（拒绝 NEW/PARTIALLY_FILLED/未知）
- * - 按 symbol+fillId 去重；若 fillIds 与已计入事件部分重叠，整条跳过（禁止部分去重却全额累加）
+ * - fillReconcileCompletedAt 必须为安全整数时间戳
+ * - fillIds 不得为空/空串/事件内重复；跨事件部分重叠整条跳过
  * - 旧 IndexedDB 无证明的记录不减少受保护底仓
  */
 export function confirmedBaseReduceFilledQty(events: SellEventRecord[]): number {
@@ -36,11 +37,15 @@ export function confirmedBaseReduceFilledQty(events: SellEventRecord[]): number 
     if (event.kind !== "base_reduce") continue;
     if (event.status !== "executed" && event.status !== "partially_filled") continue;
     if (!event.exchangeTerminalStatus || !isExchangeSpotOrderTerminal(event.exchangeTerminalStatus)) continue;
-    if (!Number.isFinite(event.fillReconcileCompletedAt) || (event.fillReconcileCompletedAt as number) <= 0) continue;
+    const completedAt = event.fillReconcileCompletedAt;
+    if (!Number.isSafeInteger(completedAt) || (completedAt as number) <= 0) continue;
     if (!Number.isFinite(event.filledQty) || (event.filledQty as number) <= 0) continue;
     if (!Array.isArray(event.fillIds) || event.fillIds.length === 0) continue;
+    const normalized = event.fillIds.map((id) => String(id ?? "").trim()).filter(Boolean);
+    if (normalized.length !== event.fillIds.length) continue;
+    if (new Set(normalized).size !== normalized.length) continue;
 
-    const keys = event.fillIds.map((id) => `${event.symbol}:${id}`);
+    const keys = normalized.map((id) => `${event.symbol}:${id}`);
     const overlap = keys.some((key) => seenFillIds.has(key));
     const allSeen = keys.every((key) => seenFillIds.has(key));
     if (allSeen) continue;
