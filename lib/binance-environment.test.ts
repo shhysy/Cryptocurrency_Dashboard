@@ -153,3 +153,34 @@ describe("Server-side Testnet order gate", () => {
     expect(isTestnetOrderSubmissionEnabled("production", "SELL", env)).toBe(false);
   });
 });
+
+describe("服务端现货订单环境与方向双重隔离", () => {
+  it("测试网开关不能授权生产买卖", async () => {
+    const { isSpotOrderSubmissionEnabled } = await import("./binance-environment");
+    const env = { BINANCE_TESTNET_BUY_ENABLED: "1", BINANCE_TESTNET_SELL_ENABLED: "1" };
+    expect(isSpotOrderSubmissionEnabled("production", "BUY", env)).toBe(false);
+    expect(isSpotOrderSubmissionEnabled("production", "SELL", env)).toBe(false);
+  });
+
+  it("生产 BUY 和 SELL 必须分别显式授权", async () => {
+    const { isSpotOrderSubmissionEnabled } = await import("./binance-environment");
+    const buyOnly = { BINANCE_PRODUCTION_BUY_ENABLED: "1" };
+    expect(isSpotOrderSubmissionEnabled("production", "BUY", buyOnly)).toBe(true);
+    expect(isSpotOrderSubmissionEnabled("production", "SELL", buyOnly)).toBe(false);
+  });
+
+  it("生产开关不能授权测试网，测试网开关也不能授权生产", async () => {
+    const { isSpotOrderSubmissionEnabled } = await import("./binance-environment");
+    const productionOnly = { BINANCE_PRODUCTION_BUY_ENABLED: "1", BINANCE_PRODUCTION_SELL_ENABLED: "1" };
+    expect(isSpotOrderSubmissionEnabled("testnet", "BUY", productionOnly)).toBe(false);
+    expect(isSpotOrderSubmissionEnabled("testnet", "SELL", productionOnly)).toBe(false);
+  });
+
+  it("所有环境未配置开关时默认禁止订单提交", async () => {
+    const { isSpotOrderSubmissionEnabled } = await import("./binance-environment");
+    for (const mode of ["testnet", "production"] as const) {
+      expect(isSpotOrderSubmissionEnabled(mode, "BUY", {})).toBe(false);
+      expect(isSpotOrderSubmissionEnabled(mode, "SELL", {})).toBe(false);
+    }
+  });
+});
