@@ -469,7 +469,7 @@ export class ExecutionAccountDO {
         const result = this.state.storage.transactionSync(() => {
           const sql = this.state.storage.sql;
           const lockRows = sql.exec(
-            "SELECT intent_id, attempt, lease_token, lease_until FROM account_lock WHERE singleton = 1",
+            "SELECT intent_id, attempt, lease_token, lease_until, asset, reserved_amount FROM account_lock WHERE singleton = 1",
           ).toArray();
           const lock = lockRows[0] as {
             intent_id?: string; attempt?: number; lease_token?: string; lease_until?: number;
@@ -655,7 +655,8 @@ export class ExecutionAccountDO {
       if (summedQty === null || summedQuoteQty === null ||
           compareDecimalStrings(summedQty, executedQty) !== 0 ||
           compareDecimalStrings(summedQuoteQty, cumulativeQuoteQty) !== 0 ||
-          ((compareDecimalStrings(executedQty, "0") === 0) !== (normalizedFills.length === 0))) {
+          ((compareDecimalStrings(executedQty, "0") === 0) !== (normalizedFills.length === 0)) ||
+          (exchangeStatus === "FILLED" && compareDecimalStrings(executedQty, "0") === 0)) {
         return Response.json({ error: "逐笔成交数量/金额与交易所累计成交不一致，禁止释放资金" }, { status: 409 });
       }
 
@@ -668,6 +669,7 @@ export class ExecutionAccountDO {
           ).toArray();
           const lock = lockRows[0] as {
             intent_id?: string; attempt?: number; lease_token?: string; lease_until?: number;
+            asset?: string; reserved_amount?: string;
           } | undefined;
           if (!lock || lock.intent_id !== intentId || lock.attempt !== attempt ||
               lock.lease_token !== leaseToken || !Number.isSafeInteger(lock.lease_until) ||
@@ -782,7 +784,7 @@ export class ExecutionAccountDO {
           if (reservationUpdated.length !== 1) throw new Error("资金预留状态已变化，拒绝释放");
           const intentUpdated = sql.exec(
             "UPDATE order_intents SET state = ?, exchange_order_id = ?, exchange_terminal_at = ?, fills_reconciled_at = ?, updated_at = ?, last_error = NULL WHERE intent_id = ? AND attempt = ? AND state IN ('submitting', 'unknown', 'reconciling') RETURNING intent_id",
-            nextState, exchangeOrderId, exchangeTerminalAt, now, now, intentId, attempt,
+            nextState, exchangeOrderId, exchangeTerminalAt, Math.max(now, exchangeTerminalAt as number), now, intentId, attempt,
           ).toArray();
           if (intentUpdated.length !== 1) throw new Error("订单状态已变化，拒绝终态写入");
           const attemptUpdated = sql.exec(
