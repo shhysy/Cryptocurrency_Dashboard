@@ -20,7 +20,7 @@ export interface Profile {
   baseRatio: number; // 长期底仓比例（按累计买入数量锁定）
   adds: { drop: number; usdt: number }[]; // 补仓档位：较头仓价下跌 drop 时补 usdt
   reserve: { usdt: number; drop: number }; // 特殊行情备用金
-  takeProfit: { mult: number; ratio: number }[]; // 价格 ≥ 均价 × mult 时卖出周期仓的 ratio
+  takeProfit: { mult: number; ratio: number }[]; // 价格 ≥ 均价 × mult 时，按本轮初始周期仓的 ratio 设定本档目标（不超过剩余周期仓）
   trailStart: number; // 价格曾达到均价 × 该倍数后启用追踪止损
   trailDrawdown: number; // 追踪止损：自峰值回撤比例
 }
@@ -130,9 +130,9 @@ export const strategyConfig = {
       ],
       reserve: { usdt: 100, drop: 0.85 },
       takeProfit: [
-        { mult: 2, ratio: 0.5 },
-        { mult: 3, ratio: 0.3 },
-        { mult: 5, ratio: 0.8 },
+        { mult: 1.3, ratio: 0.5 },
+        { mult: 1.6, ratio: 0.3 },
+        { mult: 2, ratio: 0.8 },
       ],
       trailStart: 1.2,
       trailDrawdown: 0.2,
