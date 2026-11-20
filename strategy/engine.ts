@@ -55,16 +55,16 @@ export function btcMarketState(
   weekly: Candle[],
   price: number,
   cfg: StrategyConfig = strategyConfig,
-  now = Date.now(),
+  atTime = Date.now(),
 ): MarketState | null {
-  const closed = closedWeeklyCandles(weekly, now);
+  const closed = closedWeeklyCandles(weekly, atTime);
   const closes = closed.map((candle) => candle.c);
-  const now = sma(closes, cfg.ma.weeklyPeriod);
+  const currentMa = sma(closes, cfg.ma.weeklyPeriod);
   const before = sma(closes.slice(0, -cfg.ma.directionWeeks), cfg.ma.weeklyPeriod);
-  if (now === null || before === null) return null;
-  const px = closes[closes.length - 1];
-  if (px < now && now < before) return "bear";
-  if (px >= now && now >= before) return "bull";
+  if (currentMa === null || before === null) return null;
+  const px = price;
+  if (px < currentMa && currentMa < before) return "bear";
+  if (px >= currentMa && currentMa >= before) return "bull";
   return "transition";
 }
 
