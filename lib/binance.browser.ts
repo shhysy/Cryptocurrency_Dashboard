@@ -168,7 +168,7 @@ export async function submitSpotMarketBuy(input: {
       Number(input.quoteOrderQty) <= 0 || !/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) {
     throw new Error("现货市价买单参数无效");
   }
-  return postTestnetMarketOrder({ side: "BUY", symbol: input.symbol, amount: input.quoteOrderQty, clientOrderId: input.clientOrderId });
+  return postSpotMarketOrder({ side: "BUY", symbol: input.symbol, amount: input.quoteOrderQty, clientOrderId: input.clientOrderId });
 }
 
 export interface FlexibleEarnRedemptionSubmitResponse {
