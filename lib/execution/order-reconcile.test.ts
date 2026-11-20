@@ -67,7 +67,7 @@ describe("Binance 订单对账与幂等 ID", () => {
     const decision = decideOrderReconciliation({
       status: "FILLED",
       origQty: 1e-10,
-      executedQty: 1.00005e-10,
+      executedQty: 1.00000005e-10,
       cummulativeQuoteQty: 0.000005,
       orderId: 9,
     });
