@@ -186,11 +186,32 @@ describe("V3.3 sell signal reservation", () => {
       requestedQty: 0.15, filledQty: 0.05,
       createdAt: 1, updatedAt: 1, exchangeOrderId: "103",
       fillIds: ["BTC-4"], lastError: null,
+      exchangeTerminalStatus: "CANCELED",
+      fillReconcileCompletedAt: 1_700_000_000_000,
+      lotStepSize: 0.00001,
     };
     const plan = buildSellEventReservations(later, [partial]);
     expect(plan.records).toHaveLength(1);
     expect(plan.records[0].eventKey).toContain("resume");
     expect(plan.records[0].requestedQty).toBeCloseTo(0.1, 8);
+  });
+
+  it("终态 partial 缺少对账证明时不得续卖", () => {
+    const later = data({
+      coins: [{
+        ...data().coins[0],
+        series: [{ t: 2, c: 50000 }, { t: 3, c: 51000 }, { t: 4, c: 52000 }],
+      }],
+    });
+    const legacy: SellEventRecord = {
+      eventKey: "sell:BTC:take_profit:2:止盈1",
+      symbol: "BTC", kind: "take_profit", status: "partially_filled",
+      requestedQty: 0.15, filledQty: 0.05,
+      createdAt: 1, updatedAt: 1, exchangeOrderId: "103",
+      fillIds: ["BTC-4"], lastError: null,
+    };
+    const plan = buildSellEventReservations(later, [legacy]);
+    expect(plan.records).toHaveLength(0);
   });
 
   it("跨周：底仓减仓仍在 pending 时禁止再创建", () => {
