@@ -638,12 +638,14 @@ export class ExecutionAccountDO {
         const filledAt = fill.filledAt;
         if (!/^[0-9]{1,32}$/.test(tradeId) || seenTradeIds.has(tradeId) ||
             orderId !== exchangeOrderId ||
+            qty.length > 48 || quoteQty.length > 48 || commission.length > 48 ||
             compareDecimalStrings(qty, "0") === null || compareDecimalStrings(qty, "0")! <= 0 ||
             compareDecimalStrings(quoteQty, "0") === null || compareDecimalStrings(quoteQty, "0")! <= 0 ||
             compareDecimalStrings(commission, "0") === null || compareDecimalStrings(commission, "0")! < 0 ||
             !/^[A-Z0-9]{2,12}$/.test(commissionAsset) ||
             !Number.isSafeInteger(filledAt) || (filledAt as number) <= 0 ||
-            (filledAt as number) > Date.now() + 5_000) {
+            (filledAt as number) > Date.now() + 5_000 ||
+            (filledAt as number) > (exchangeTerminalAt as number)) {
           return Response.json({ error: "成交明细存在无效字段或重复tradeId" }, { status: 400 });
         }
         seenTradeIds.add(tradeId);
@@ -707,7 +709,9 @@ export class ExecutionAccountDO {
           const reservation = reservationRows[0] as { asset?: string; amount?: string; state?: string } | undefined;
           const expectedAsset = order.side === "BUY" ? "USDT" : order.symbol.slice(0, -4);
           if (!reservation || reservation.state !== "reserved" || reservation.asset !== expectedAsset ||
-              lock.asset !== expectedAsset || compareDecimalStrings(reservation.amount ?? "", order.amount ?? "") !== 0) {
+              lock.asset !== expectedAsset ||
+              compareDecimalStrings(lock.reserved_amount ?? "", reservation.amount ?? "") !== 0 ||
+              compareDecimalStrings(reservation.amount ?? "", order.amount ?? "") !== 0) {
             throw new Error("资金预留与订单方向/金额不一致");
           }
 
@@ -758,6 +762,11 @@ export class ExecutionAccountDO {
           if (consumedAmount === null || compareDecimalStrings(consumedAmount, reservation.amount ?? "") === null ||
               compareDecimalStrings(consumedAmount, reservation.amount ?? "")! > 0) {
             throw new Error("实际消耗（含预留资产手续费）超过预留金额，转人工核对且不释放锁");
+          }
+
+          if (exchangeStatus === "FILLED" && order.side === "SELL" &&
+              compareDecimalStrings(executedQty, order.amount ?? "") !== 0) {
+            throw new Error("SELL订单交易所FILLED数量与原始委托数量不一致，拒绝释放");
           }
 
           const nextState = exchangeStatus === "FILLED"
