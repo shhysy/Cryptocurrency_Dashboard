@@ -60,9 +60,36 @@ export function takeProfitTierHasOpenWork(events: SellEventRecord[], suffix: str
   );
 }
 
+/** 同币是否存在活动中的底仓减仓（跨周也锁定） */
+export function hasOpenBaseReduce(events: SellEventRecord[]): boolean {
+  return events.some((event) =>
+    event.kind === "base_reduce" &&
+    (event.status === "pending" || event.status === "reconcile_required"),
+  );
+}
+
 /**
- * 止盈档是否已按请求数量完全满足（不可再开同档新意图）。
- * 部分成交且已终态、filledQty < requestedQty 时返回 false，允许安全续卖剩余。
+ * 部分成交是否已终态且对账完整，才允许作为 resume 依据。
+ * 仅有 partially_filled 状态名不够：需要成交量、成交 ID、交易所订单号。
+ */
+export function isTerminalReconciledPartial(
+  event: Pick<SellEventRecord, "status" | "filledQty" | "requestedQty" | "fillIds" | "exchangeOrderId">,
+): boolean {
+  if (event.status !== "partially_filled" && event.status === "executed") {
+    /* fall through */
+  }
+  if (event.status !== "partially_filled" && event.status !== "executed") return false;
+  if (!Number.isFinite(event.filledQty) || (event.filledQty as number) <= 0) return false;
+  if (!Number.isFinite(event.requestedQty) || event.requestedQty <= 0) return false;
+  if ((event.filledQty as number) + 1e-12 >= event.requestedQty) return false;
+  if (!event.exchangeOrderId) return false;
+  if (!Array.isArray(event.fillIds) || event.fillIds.length === 0) return false;
+  return true;
+}
+
+/**
+ * 止盈档是否已按「档位目标」完全满足。
+ * 目标取同档最大 requestedQty；成交取已确认 filledQty 之和。
  */
 export function takeProfitTierFullyFilled(events: SellEventRecord[], suffix: string): boolean {
   const tierEvents = events.filter((event) =>
@@ -70,14 +97,17 @@ export function takeProfitTierFullyFilled(events: SellEventRecord[], suffix: str
   );
   if (tierEvents.length === 0) return false;
   const filled = tierEvents
-    .filter((event) => event.status === "executed" || event.status === "partially_filled")
-    .reduce((sum, event) => sum + (Number.isFinite(event.filledQty) ? (event.filledQty as number) : 0), 0);
+    .filter((event) =>
+      (event.status === "executed" || event.status === "partially_filled") &&
+      Number.isFinite(event.filledQty),
+    )
+    .reduce((sum, event) => sum + (event.filledQty as number), 0);
   const target = Math.max(
     0,
     ...tierEvents.map((event) => (Number.isFinite(event.requestedQty) ? event.requestedQty : 0)),
   );
   if (target <= 0) {
-    return tierEvents.some((event) => event.status === "executed" || event.status === "partially_filled");
+    return tierEvents.some((event) => event.status === "executed");
   }
   return filled + 1e-12 >= target;
 }
@@ -88,9 +118,23 @@ export function takeProfitTierFilledQty(events: SellEventRecord[], suffix: strin
     .filter((event) =>
       event.kind === "take_profit" &&
       event.eventKey.includes(suffix) &&
-      (event.status === "executed" || event.status === "partially_filled"),
+      (event.status === "executed" || event.status === "partially_filled") &&
+      Number.isFinite(event.filledQty),
     )
-    .reduce((sum, event) => sum + (Number.isFinite(event.filledQty) ? (event.filledQty as number) : 0), 0);
+    .reduce((sum, event) => sum + (event.filledQty as number), 0);
+}
+
+/**
+ * 同档是否存在「已终态、已对账、未卖满」的部分成交，允许生成 resume。
+ */
+export function takeProfitTierCanResume(events: SellEventRecord[], suffix: string): boolean {
+  if (takeProfitTierHasOpenWork(events, suffix)) return false;
+  if (takeProfitTierFullyFilled(events, suffix)) return false;
+  return events.some((event) =>
+    event.kind === "take_profit" &&
+    event.eventKey.includes(suffix) &&
+    isTerminalReconciledPartial(event),
+  );
 }
 
 /**
@@ -120,13 +164,18 @@ export function buildSellEventReservations(
     const suffix = tierSuffix(action.label, action.kind);
     let eventKey = makeSellEventKey(coin.symbol, kind, `${sourceWeek}:${action.label || action.kind}`);
     const symbolEvents = existingEvents.filter((event) => event.symbol === coin.symbol);
-    if (symbolEvents.some((event) => event.eventKey === eventKey)) continue;
 
     const activeOpen = symbolEvents.filter((event) =>
       event.status === "pending" || event.status === "reconcile_required",
     );
 
-    if (kind === "take_profit") {
+    if (kind === "base_reduce") {
+      if (hasOpenBaseReduce(symbolEvents)) {
+        blocked.push({ symbol: coin.symbol, reason: "该币已有进行中的底仓减仓（含跨周），禁止重复创建" });
+        continue;
+      }
+      if (symbolEvents.some((event) => event.eventKey === eventKey)) continue;
+    } else if (kind === "take_profit") {
       if (takeProfitTierHasOpenWork(symbolEvents, suffix)) {
         blocked.push({ symbol: coin.symbol, reason: "该止盈档仍有待处理或待对账订单，禁止重复提交" });
         continue;
@@ -136,13 +185,24 @@ export function buildSellEventReservations(
       }
       const alreadyFilled = takeProfitTierFilledQty(symbolEvents, suffix);
       if (alreadyFilled > 0) {
+        if (!takeProfitTierCanResume(symbolEvents, suffix)) {
+          blocked.push({
+            symbol: coin.symbol,
+            reason: "止盈档已有成交记录但未满足终态对账条件，禁止续卖",
+          });
+          continue;
+        }
         eventKey = makeSellEventKey(
           coin.symbol,
           kind,
           `${sourceWeek}:${action.label || action.kind}:resume:${alreadyFilled}`,
         );
         if (symbolEvents.some((event) => event.eventKey === eventKey)) continue;
+      } else if (symbolEvents.some((event) => event.eventKey === eventKey)) {
+        continue;
       }
+    } else if (symbolEvents.some((event) => event.eventKey === eventKey)) {
+      continue;
     }
 
     const profile = strategyConfig.profiles[coin.signal.group];
@@ -158,7 +218,7 @@ export function buildSellEventReservations(
     const indicatorProfitSoldQty = indicatorEvents.reduce((sum, event) => sum + (
       event.status === "pending" || event.status === "reconcile_required"
         ? event.requestedQty
-        : (event.filledQty ?? (event.status === "executed" || event.status === "partially_filled" ? event.requestedQty : 0))
+        : (Number.isFinite(event.filledQty) ? (event.filledQty as number) : 0)
     ), 0);
     const lastIndicatorProfitAt = indicatorEvents.length
       ? Math.max(...indicatorEvents.map((event) => event.updatedAt))
