@@ -55,13 +55,13 @@ export function buildDashboard(
 
   const totalValue = base.reduce((s, b) => s + b.marketValue, 0);
   const totalInvested = base.reduce((s, b) => s + (b.qty > 0 ? b.cost.invested : 0), 0);
+  const now = Date.now();
   const btcWeekly = raw.weekly.BTC ?? [];
   const btcPrice = raw.tickers.BTC?.price ?? btcWeekly.at(-1)?.c ?? 0;
-  const btcState = btcMarketState(btcWeekly, btcPrice, cfg);
+  const btcState = btcMarketState(btcWeekly, btcPrice, cfg, now);
   const fearGreed = raw.fearGreed ?? null;
   const held = base.filter((b) => b.qty > 0);
   const cashUsdt = raw.balances?.USDT ?? raw.extraAssets?.find((asset) => asset.asset === "USDT")?.usdt ?? 0;
-  const now = Date.now();
   const account = {
     known: Boolean(raw.accountKnown),
     cashUsdt,
