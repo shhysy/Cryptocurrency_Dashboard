@@ -1,4 +1,4 @@
-export type ExchangeOrderStatus = "NEW" | "PARTIALLY_FILLED" | "FILLED" | "CANCELED" | "REJECTED" | "EXPIRED" | "UNKNOWN";
+export type ExchangeOrderStatus = "NEW" | "PARTIALLY_FILLED" | "FILLED" | "CANCELED" | "REJECTED" | "EXPIRED" | "EXPIRED_IN_MATCH" | "UNKNOWN";
 
 export interface ExchangeOrderSnapshot {
   status: ExchangeOrderStatus;
@@ -24,7 +24,7 @@ function qtyTol(referenceQty: number): number {
 /** Only terminal exchange states release the one-order-at-a-time submission lock. */
 export function isExchangeOrderTerminal(status: ExchangeOrderStatus): boolean {
   return status === "FILLED" || status === "CANCELED" ||
-    status === "REJECTED" || status === "EXPIRED";
+    status === "REJECTED" || status === "EXPIRED" || status === "EXPIRED_IN_MATCH";
 }
 
 /** Never resubmit while Binance may still have an open or partially-filled order. */
@@ -51,6 +51,7 @@ export function decideOrderReconciliation(snapshot: ExchangeOrderSnapshot | null
         : { action: "manual_review", reason: "FILLED 订单成交数量与原始委托数量不一致或订单 ID 缺失" };
     case "CANCELED":
     case "EXPIRED":
+    case "EXPIRED_IN_MATCH":
       return snapshot.executedQty > 0 && snapshot.cummulativeQuoteQty > 0
         ? { action: "apply_partial_then_wait", executedQty: snapshot.executedQty, quoteQty: snapshot.cummulativeQuoteQty }
         : snapshot.executedQty === 0 && snapshot.cummulativeQuoteQty === 0
