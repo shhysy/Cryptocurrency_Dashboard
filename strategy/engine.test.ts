@@ -28,7 +28,8 @@ function coin(closes: number[], over: Partial<CoinInput> = {}): CoinInput {
   const currentWeekOpen = 300 * WEEK;
   const timedWeekly = weekly.map((candle, index) => ({
     ...candle,
-    t: currentWeekOpen - (weekly.length - 1 - index) * WEEK,
+    // 保留历史周线相对交易时间的顺序，只把最后一根标记为当前未收盘周线。
+    t: index === weekly.length - 1 ? currentWeekOpen : index * WEEK,
   }));
   return { symbol: "BTC", price: closes.at(-1)!, weekly: timedWeekly, qty: 0, avgCost: null, invested: 0, marketValue: 0, buys: [], ...over };
 }
