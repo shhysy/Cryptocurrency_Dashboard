@@ -481,6 +481,31 @@ interface RawTrade {
   isBuyer: boolean;
 }
 
+/**
+ * Binance myTrades is capped at 1,000 rows per page. A full final page means
+ * the caller has not proved that the history is complete; fail closed rather
+ * than reconciling a truncated fill ledger as if it were authoritative.
+ */
+function nextTradePageFromId(
+  rows: Array<{ id: number }>,
+  page: number,
+  maxPages: number,
+  currentFromId: number | undefined,
+  label: string,
+): number | null {
+  if (!Array.isArray(rows)) throw new Error(`${label}响应格式无效，成交明细不完整`);
+  if (rows.length < 1000) return null;
+  const lastId = rows[rows.length - 1]?.id;
+  if (!Number.isSafeInteger(lastId) || lastId < 0 ||
+      (currentFromId !== undefined && lastId < currentFromId)) {
+    throw new Error(`${label}分页成交 ID 无效或未递增，暂停自动记账`);
+  }
+  if (page === maxPages - 1) {
+    throw new Error(`${label}达到分页安全上限，无法证明成交明细完整，暂停自动记账`);
+  }
+  return lastId + 1;
+}
+
 export interface BinanceSpotOrderSnapshot {
   symbol: string;
   orderId: number;
@@ -533,8 +558,9 @@ export async function fetchSpotTradesForOrder(symbol: string, orderId: number): 
       commission: Number(t.commission), commissionAsset: t.commissionAsset,
       time: t.time, isBuyer: t.isBuyer,
     })));
-    if (rows.length < 1000) break;
-    fromId = rows[rows.length - 1].id + 1;
+    const nextFromId = nextTradePageFromId(rows, page, 20, fromId, "指定订单成交查询");
+    if (nextFromId === null) break;
+    fromId = nextFromId;
   }
   return all;
 }
@@ -567,8 +593,9 @@ export async function fetchSpotTrades(symbol: string, maxPages = 5): Promise<Bin
       commission: Number(t.commission), commissionAsset: t.commissionAsset,
       time: t.time, isBuyer: t.isBuyer,
     })));
-    if (rows.length < 1000) break;
-    fromId = rows[rows.length - 1].id + 1;
+    const nextFromId = nextTradePageFromId(rows, page, maxPages, fromId, "账户成交查询");
+    if (nextFromId === null) break;
+    fromId = nextFromId;
   }
   return all;
 }
@@ -584,8 +611,9 @@ export async function fetchBuyTrades(base: string, quote: string): Promise<Trade
       ...(fromId !== undefined ? { fromId } : {}),
     });
     all.push(...rows);
-    if (rows.length < 1000) break;
-    fromId = rows[rows.length - 1].id + 1;
+    const nextFromId = nextTradePageFromId(rows, page, 5, fromId, "BUY历史成交查询");
+    if (nextFromId === null) break;
+    fromId = nextFromId;
   }
   return all
     .filter((t) => t.isBuyer)
