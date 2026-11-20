@@ -9,17 +9,28 @@ export type LocalSellStatusAfterSync =
   | "partially_filled"
   | "reconcile_required";
 
-export function quantityTolerance(referenceQty: number, stepSize?: number): number {
-  if (Number.isFinite(stepSize) && (stepSize as number) > 0) {
-    return Math.max(1e-15, (stepSize as number) * 0.51);
-  }
+/**
+ * 仅容忍 IEEE-754 表示误差，不得用 stepSize 半步把未成交差额抬成卖满。
+ * stepSize 仅用于独立校验数量是否为合法步长倍数，不参与满单判定放大。
+ */
+export function quantityTolerance(referenceQty: number, _stepSize?: number): number {
   const scale = Math.max(Math.abs(referenceQty), 1e-18);
-  return Math.max(1e-15, scale * 1e-9);
+  return Math.max(Number.EPSILON * Math.max(1, scale), scale * 1e-15);
 }
 
+/** executed 是否已达到或超过 target（仅浮点表示误差） */
 export function qtyMeetsOrExceeds(executed: number, target: number, stepSize?: number): boolean {
   if (!Number.isFinite(executed) || !Number.isFinite(target) || target <= 0) return false;
   return executed + quantityTolerance(target, stepSize) >= target;
+}
+
+/** 数量是否为 stepSize 的整数倍（用于规则校验，不用于抬高成交） */
+export function qtyIsStepMultiple(qty: number, stepSize: number): boolean {
+  if (!Number.isFinite(qty) || qty < 0) return false;
+  if (!Number.isFinite(stepSize) || stepSize <= 0) return false;
+  const n = qty / stepSize;
+  const nearest = Math.round(n);
+  return Math.abs(n - nearest) <= 1e-9;
 }
 
 export function isExchangeSpotOrderTerminal(exchangeStatus: string): boolean {
@@ -47,15 +58,31 @@ export function localSellStatusAfterReconciledSnapshot(input: {
   if (!Number.isFinite(executed) || !Number.isFinite(orig) || orig <= 0 || executed < 0) {
     return "reconcile_required";
   }
+  if (Number.isFinite(input.stepSize) && (input.stepSize as number) > 0) {
+    if (!qtyIsStepMultiple(executed, input.stepSize as number) && executed > 0) {
+      return "reconcile_required";
+    }
+  }
   if (qtyMeetsOrExceeds(executed, orig, input.stepSize)) {
     return "executed";
   }
   return "partially_filled";
 }
 
+function fillIdsAreValidProof(fillIds: unknown): boolean {
+  if (!Array.isArray(fillIds) || fillIds.length === 0) return false;
+  const normalized: string[] = [];
+  for (const id of fillIds) {
+    if (typeof id !== "string") return false;
+    const t = id.trim();
+    if (!t) return false;
+    normalized.push(t);
+  }
+  return new Set(normalized).size === normalized.length;
+}
+
 /**
  * 仅终态未卖满的 partially_filled，且具备可验证对账证明时允许止盈续卖。
- * 必须有：exchangeTerminalStatus（终态）、fillReconcileCompletedAt、fillIds、exchangeOrderId。
  * 旧 IndexedDB 缺少证明字段时一律冻结（返回 false）。
  */
 export function localEventEligibleForTakeProfitResume(event: {
@@ -73,7 +100,7 @@ export function localEventEligibleForTakeProfitResume(event: {
   if (!event.exchangeTerminalStatus || !isExchangeSpotOrderTerminal(event.exchangeTerminalStatus)) {
     return false;
   }
-  if (!Number.isFinite(event.fillReconcileCompletedAt) || (event.fillReconcileCompletedAt as number) <= 0) {
+  if (!Number.isSafeInteger(event.fillReconcileCompletedAt) || (event.fillReconcileCompletedAt as number) <= 0) {
     return false;
   }
   const step = event.stepSize ?? event.lotStepSize;
@@ -81,6 +108,6 @@ export function localEventEligibleForTakeProfitResume(event: {
   if (!Number.isFinite(event.requestedQty) || event.requestedQty <= 0) return false;
   if (qtyMeetsOrExceeds(event.filledQty as number, event.requestedQty, step)) return false;
   if (!event.exchangeOrderId) return false;
-  if (!Array.isArray(event.fillIds) || event.fillIds.length === 0) return false;
+  if (!fillIdsAreValidProof(event.fillIds)) return false;
   return true;
 }
