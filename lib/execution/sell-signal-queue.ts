@@ -23,14 +23,35 @@ export interface SellSignalQueuePlan {
   blocked: { symbol: string; reason: string }[];
 }
 
+export type BaseReduceLedgerFill = {
+  symbol: string;
+  fillId: string;
+  qty: number;
+  side?: string;
+  sellKind?: string;
+};
+
 /**
- * 仅统计具备终态+对账证明的底仓减仓成交。
- * - 终态必须通过 isExchangeSpotOrderTerminal（拒绝 NEW/PARTIALLY_FILLED/未知）
- * - fillReconcileCompletedAt 必须为安全整数时间戳
- * - fillIds 不得为空/空串/事件内重复；跨事件部分重叠整条跳过
- * - 旧 IndexedDB 无证明的记录不减少受保护底仓
+ * 仅在提供唯一成交台账时统计底仓减仓；无台账 → fail-closed 返回 0。
+ * 对每条事件：按 fillIds 从台账汇总 qty，必须与 event.filledQty 在浮点容差内一致。
  */
-export function confirmedBaseReduceFilledQty(events: SellEventRecord[]): number {
+export function confirmedBaseReduceFilledQty(
+  events: SellEventRecord[],
+  ledgerFills?: BaseReduceLedgerFill[],
+): number {
+  if (!Array.isArray(ledgerFills) || ledgerFills.length === 0) {
+    return 0;
+  }
+  const ledgerByKey = new Map<string, number>();
+  for (const fill of ledgerFills) {
+    if (!fill?.symbol || !fill.fillId) continue;
+    if (!Number.isFinite(fill.qty) || fill.qty <= 0) continue;
+    if (fill.side && fill.side !== "SELL") continue;
+    if (fill.sellKind && fill.sellKind !== "base_reduce") continue;
+    const key = `${fill.symbol}:${fill.fillId}`;
+    ledgerByKey.set(key, (ledgerByKey.get(key) ?? 0) + fill.qty);
+  }
+
   const seenFillIds = new Set<string>();
   let sum = 0;
   for (const event of events) {
@@ -51,8 +72,19 @@ export function confirmedBaseReduceFilledQty(events: SellEventRecord[]): number 
     if (allSeen) continue;
     if (overlap) continue;
 
+    let ledgerSum = 0;
+    let missing = false;
+    for (const key of keys) {
+      const q = ledgerByKey.get(key);
+      if (q === undefined) { missing = true; break; }
+      ledgerSum += q;
+    }
+    if (missing) continue;
+    const tol = Math.max(Number.EPSILON * 16, Math.abs(event.filledQty as number) * 1e-12);
+    if (Math.abs(ledgerSum - (event.filledQty as number)) > tol) continue;
+
     for (const key of keys) seenFillIds.add(key);
-    sum += event.filledQty as number;
+    sum += ledgerSum;
   }
   return sum;
 }
@@ -205,6 +237,7 @@ export function buildSellEventReservations(
 
     const profile = strategyConfig.profiles[coin.signal.group];
     const boughtQty = coin.buys.reduce((sum, trade) => sum + trade.qty, 0);
+    // 无成交台账时 fail-closed：不减少受保护底仓
     const baseReduceFilled = confirmedBaseReduceFilledQty(symbolEvents);
     const baseQty = protectedBaseQtyAfterReductions(boughtQty, profile.baseRatio, baseReduceFilled);
     const nominalBase = boughtQty * profile.baseRatio;
