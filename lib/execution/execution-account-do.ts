@@ -415,6 +415,143 @@ export class ExecutionAccountDO {
       }
     }
 
+    if (
+      (url.pathname === "/internal/mark-submitting" || url.pathname === "/internal/mark-unknown" ||
+       url.pathname === "/internal/takeover") &&
+      request.method === "POST"
+    ) {
+      let input: Record<string, unknown>;
+      try {
+        const rawBody = await request.text();
+        if (new TextEncoder().encode(rawBody).byteLength > 16_384) {
+          return Response.json({ error: "租约请求体过大" }, { status: 413 });
+        }
+        const parsed: unknown = JSON.parse(rawBody);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return Response.json({ error: "租约请求参数无效" }, { status: 400 });
+        }
+        input = parsed as Record<string, unknown>;
+      } catch {
+        return Response.json({ error: "租约请求JSON无效" }, { status: 400 });
+      }
+
+      const intentId = typeof input.intentId === "string" ? input.intentId : "";
+      const attempt = input.attempt;
+      const leaseToken = typeof input.leaseToken === "string" ? input.leaseToken : "";
+      if (!intentId || !Number.isSafeInteger(attempt) || (attempt as number) <= 0 || !leaseToken) {
+        return Response.json({ error: "intentId、attempt或leaseToken无效" }, { status: 400 });
+      }
+
+      const now = Date.now();
+      try {
+        const result = this.state.storage.transactionSync(() => {
+          const sql = this.state.storage.sql;
+          const lockRows = sql.exec(
+            "SELECT intent_id, attempt, lease_token, lease_until FROM account_lock WHERE singleton = 1",
+          ).toArray();
+          const lock = lockRows[0] as {
+            intent_id?: string; attempt?: number; lease_token?: string; lease_until?: number;
+          } | undefined;
+          if (!lock || lock.intent_id !== intentId || lock.attempt !== attempt) {
+            throw new Error("账户活动订单锁不存在或attempt不匹配");
+          }
+
+          const orderRows = sql.exec(
+            "SELECT state, client_order_id, attempt FROM order_intents WHERE intent_id = ?",
+            intentId,
+          ).toArray();
+          const order = orderRows[0] as {
+            state?: string; client_order_id?: string; attempt?: number;
+          } | undefined;
+          if (!order || order.attempt !== attempt || !order.client_order_id) {
+            throw new Error("订单attempt或clientOrderId不存在");
+          }
+
+          if (url.pathname === "/internal/takeover") {
+            if (lock.lease_until === undefined || !Number.isSafeInteger(lock.lease_until) ||
+                lock.lease_until > now) {
+              throw new Error("当前租约尚未过期，不允许接管");
+            }
+            if (order.state !== "submitting" && order.state !== "unknown" && order.state !== "reconciling") {
+              throw new Error("只有提交中/未知/对账中的订单允许接管，且接管仅用于查单对账");
+            }
+            const nextToken = crypto.randomUUID();
+            const nextLeaseUntil = now + 30_000;
+            const lockUpdated = sql.exec(
+              `UPDATE account_lock
+               SET lease_token = ?, lease_until = ?, updated_at = ?
+               WHERE singleton = 1 AND intent_id = ? AND attempt = ?
+                 AND lease_token = ? AND lease_until <= ?
+               RETURNING intent_id`,
+              nextToken, nextLeaseUntil, now, intentId, attempt, leaseToken, now,
+            ).toArray();
+            if (lockUpdated.length !== 1) throw new Error("租约已被其他执行者接管，拒绝覆盖");
+            sql.exec(
+              "UPDATE order_attempts SET lease_token = ?, state = 'reconciling', updated_at = ? WHERE intent_id = ? AND attempt = ? AND lease_token = ?",
+              nextToken, now, intentId, attempt, leaseToken,
+            );
+            sql.exec(
+              "UPDATE order_intents SET state = 'reconciling', updated_at = ? WHERE intent_id = ? AND attempt = ? AND state IN ('submitting', 'unknown', 'reconciling')",
+              now, intentId, attempt,
+            );
+            sql.exec(
+              "INSERT INTO audit_events(intent_id, event_type, created_at) VALUES (?, 'lease_taken_over_reconcile_only', ?)",
+              intentId, now,
+            );
+            return {
+              intentId, attempt, clientOrderId: order.client_order_id,
+              leaseToken: nextToken, leaseUntil: nextLeaseUntil, reconcileOnly: true,
+            };
+          }
+
+          if (lock.lease_token !== leaseToken || !Number.isSafeInteger(lock.lease_until) ||
+              (lock.lease_until as number) <= now) {
+            throw new Error("租约已过期或leaseToken不匹配；拒绝写入");
+          }
+
+          if (url.pathname === "/internal/mark-submitting") {
+            if (order.state !== "reserved") throw new Error("只有reserved订单允许进入submitting");
+            const updated = sql.exec(
+              "UPDATE order_intents SET state = 'submitting', updated_at = ? WHERE intent_id = ? AND attempt = ? AND state = 'reserved' RETURNING intent_id",
+              now, intentId, attempt,
+            ).toArray();
+            if (updated.length !== 1) throw new Error("订单状态已变化，拒绝提交前写入");
+            sql.exec(
+              "UPDATE order_attempts SET state = 'submitting', updated_at = ? WHERE intent_id = ? AND attempt = ? AND lease_token = ?",
+              now, intentId, attempt, leaseToken,
+            );
+            sql.exec(
+              "INSERT INTO audit_events(intent_id, event_type, created_at) VALUES (?, 'intent_marked_submitting', ?)",
+              intentId, now,
+            );
+            return { intentId, attempt, clientOrderId: order.client_order_id, state: "submitting" };
+          }
+
+          if (order.state !== "submitting" && order.state !== "reconciling") {
+            throw new Error("只有submitting/reconciling订单允许标记unknown");
+          }
+          sql.exec(
+            "UPDATE order_intents SET state = 'unknown', last_error = ?, updated_at = ? WHERE intent_id = ? AND attempt = ?",
+            typeof input.reason === "string" ? input.reason.slice(0, 500) : "提交结果不明确，等待按clientOrderId对账",
+            now, intentId, attempt,
+          );
+          sql.exec(
+            "UPDATE order_attempts SET state = 'unknown', updated_at = ? WHERE intent_id = ? AND attempt = ? AND lease_token = ?",
+            now, intentId, attempt, leaseToken,
+          );
+          sql.exec(
+            "INSERT INTO audit_events(intent_id, event_type, created_at) VALUES (?, 'intent_marked_unknown', ?)",
+            intentId, now,
+          );
+          return { intentId, attempt, clientOrderId: order.client_order_id, state: "unknown", locked: true };
+        });
+        return Response.json({ ok: true, ...result });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "租约状态写入失败";
+        return Response.json({ ok: false, error: reason }, { status: 409 });
+      }
+    }
+
     return Response.json({ error: "内部执行协调器路径不存在" }, { status: 404 });
   }
 
