@@ -28,7 +28,7 @@ const apiSecret = () => SPOT_ENV.apiSecret;
 // 公开行情优先走只读行情域名 data-api.binance.vision（无需 Key，对云厂商 IP 更宽松），失败再回退
 const PUBLIC_BASES = SPOT_TESTNET
   ? [SPOT_BASE]
-  : ["https://data-api.binance.vision", process.env.BINANCE_BASE_URL, "https://api.binance.com"].filter(Boolean) as string[];
+  : ["https://data-api.binance.vision", "https://api.binance.com"];
 
 /** 账户余额 / 成交默认开启（需要主域名 + 签名）。设置 ENABLE_ACCOUNT=0 可关闭（如部署到受限的云环境）。 */
 export const accountEnabled = () => process.env.ENABLE_ACCOUNT !== "0";
