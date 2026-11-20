@@ -564,3 +564,33 @@
 - 该提交只扩展schema，尚未新增fill写入或终态finalize接口；对应Actions Run `44711219283` 在记录时仍在运行，未提前宣称通过。
 - 订单提交前fencing/unknown/takeover代码提交 `7f4f018b02bd28fadd10897f384d372971d3225d` 的CI Run `44710982129` 已成功：50个测试文件、427项测试全部通过；typecheck、Next.js build、Cloudflare OpenNext build全部通过。
 - 后续实现fill写入时必须按symbol+tradeId唯一，校验intentId/attempt/orderId一致；只有逐笔fill数量与交易所累计数量/金额完全一致且交易所终态明确，才允许释放reservation和account_lock。
+
+
+## P2-B成交逐笔核对、终态结算与租约续期（2026-11-20）
+
+### 实际实现
+- 新增内部 `POST /internal/finalize`，输入必须包含原订单intentId/attempt/leaseToken、交易所订单ID和终态、累计executedQty/cummulativeQuoteQty、交易所终态时间及逐笔fills。
+- 在写入前验证：交易所终态仅允许FILLED/CANCELED/EXPIRED/REJECTED；tradeId数字格式且单次事件唯一；每笔fill必须属于同一exchangeOrderId；qty/quoteQty为正十进制、commission非负、commissionAsset合法；成交时间不能晚于终态时间。
+- 使用BigInt十进制加总逐笔qty和quoteQty，必须与交易所累计数量/金额精确一致；零成交必须没有fills，FILLED不允许零成交。
+- SQLite事务内再次验证账户锁、当前leaseToken、intent/attempt/clientOrderId、reservation资产/金额；逐笔写入fills，tradeId已存在时仅允许所有字段完全一致的幂等重放，任何归属/内容冲突拒绝覆盖。
+- BUY将USDT手续费计入USDT实际消耗；SELL将基础资产手续费计入基础资产实际消耗。实际消耗不得超过预留金额。
+- 成交账本数量与终态快照一致后，在同一SQLite事务中结算reservation、写入intent/attempt终态、记录exchangeOrderId与成交对账时间，并删除account_lock释放剩余预留。SELL FILLED数量必须等于原始委托数量；部分成交后终态记为partial_terminal，不自动生成下一笔订单。
+- 新增内部 `POST /internal/renew-lease`：只允许当前token在租约未过期时续租30秒；过期租约不能复活，必须先走原订单reconcile-only接管。
+- 增加测试覆盖BUY满单成交结算、逐笔数量不匹配拒绝释放、重复tradeId拒绝、有效租约续期、过期租约续期拒绝。
+
+### 提交与CI
+- `6b2c1799b40d270d8429e2b627fa8f6367da6850`：实现逐笔成交核对与订单终态资金释放。
+- `65b6ccb208620cf8ffe65bf22ab61c1867a6ff25`、`6fb8fab104e04d96422325accb45ba433556b1b2`：补充账户锁资产读取与终态时间校验。
+- `8fa8083faf05acc2fba6f9afbcc3fbb0137aa04c`、`b0fa468ef0286d2b3fe9a8fb6e4ad6f5c3a18b75`、`7b737f828f7560b4006942935861097b405dca52`：增加终态核对回归测试并修正FakeSql测试桩分支。
+- `b2822fb4a8f7eedf83872ca2ebfaa60104b9088c`：加强成交时间、预留金额和SELL满单数量校验。
+- `76a2624f3d2dfa2126c0e69df6dfe4341141a754`：实现订单执行租约安全续期。
+- `a7c3057023947b73e3a40b708c700dd7d5cc3456`、`ac8e370e43531d87a549d39ccd0a908326195dbb`：增加续租/过期拒绝测试并消除毫秒边界抖动。
+- Run `44758757429` 成功：50个测试文件、428项测试通过；TypeScript typecheck、Next.js production build、Cloudflare OpenNext build全部通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44758757429
+- 架构文档：`fe89d5d3beaf935418df46abf89cc543f29bdb67`；规则矩阵：`7ad42816b8baae784e3ee97c1249ef0f854192ff`；README：`11a2609b6b3a7451d5fa43e1c78cbde2bf3a2963`。
+
+### 当前未完成与安全边界
+- `/internal/finalize` 和 `/internal/renew-lease` 仍只接受Worker内部DO绑定调用；没有连接Binance服务端查单、成交历史分页读取或真实余额快照，也没有从可信策略事件生成订单意图。
+- Cron仍只写看门狗心跳；DO Alarm尚未扫描scheduler_tasks、领取任务或派发执行。
+- 本轮新加SELL部分成交及基础资产手续费测试提交 `b55625986a751e07a1440bd8c584350ad447d6ac` 对应CI Run `44758920412` 在本记录更新时仍运行，尚未计入428项通过测试。
+- SELL方面，Grok已把满单判断改为只容忍IEEE-754误差，并将底仓减仓统计改为需要唯一成交台账；但真实fill ledger尚未接入 `buildSellEventReservations/enqueueEligibleSellSignals`，已在Issue #2要求继续接线。Outbox和生产交易保持关闭。
+- 因此DO内部结算原语尚不能视为完整自动交易闭环；未部署、未使用真实Key、未向生产账户发送订单。
