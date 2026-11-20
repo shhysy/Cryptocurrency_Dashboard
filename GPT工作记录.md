@@ -97,3 +97,51 @@
 - 删除后工作簿保持11张表；原有2291个公式、13项数据验证规则保留；LibreOffice重算后1276个公式单元格有缓存值、0个公式缓存错误；工作簿内“回测”文字残留为0。
 - 工作簿更新提交：`80a273f`（新增自动交易执行表并删除回测表）、`ddda51b`（清理最后的回测提示）、`2e97a6f`（重算并保存公式缓存）。以最后提交的 `策略3.3.xlsx` 为准。
 - 本次仅更新工作簿及工作记录，没有修改订单执行代码，也没有启用生产交易或真实理财赎回。
+
+
+## 策略3.3代码核对与首轮差异修复（2026-11-20）
+
+### 用户确认的策略口径
+- 用户明确确认：止盈比例50% / 30% / 80%以**本轮初始周期仓**为统一基数，而不是每次按剩余周期仓重复乘比例。
+- 以初始周期仓100个币为例：止盈1目标50个、止盈2目标30个、止盈3目标80个；前两档累计卖出80个后，第三档最多只能卖出剩余20个。
+- 该口径已写入 `docs/策略3.3/策略3.3用户确认决策.md` 和 `docs/策略3.3/策略3.3规则实现矩阵.md`。
+
+### 已修复的代码差异
+1. `strategy.config.ts`：保守型止盈倍数修正为1.3 / 1.6 / 2；积极型继续使用2 / 3 / 5。
+2. `strategy/engine.ts`：新增初始周期仓止盈数量计算函数；普通策略止盈目标以本轮初始周期仓为基数，并受剩余周期仓约束；周线指标不再使用未收盘周线；追踪止损峰值改用买入后的已收盘周线最高价。
+3. `strategy/post-take-profit-rebuy.ts`：止盈后顺序档位按初始周期仓比例计算，保留当前剩余周期仓上限。
+4. `lib/execution/prep-orders.ts`：人工计划的止盈比例说明同步改为初始周期仓目标口径，避免CSV/人工计划说明与自动策略不一致。
+5. `strategy/indicators.ts`、`lib/dashboard.ts`：增加已收盘周线筛选，并让BTC市场状态与策略评分使用同一收盘周线口径；实时价格仍独立用于价格/MA比较、突破及交易触发。
+6. `components/Dashboard.tsx`、`components/ExecutionBackground.tsx`：刷新开始和刷新失败时撤销新订单许可；只有Binance非STALE、账户已知且快照年龄不超过120秒时，才允许创建/提交新订单；只读对账不受此限制。
+7. `lib/mock.ts`：调整示例买入场景，使其在不使用未收盘周线计算RSI的条件下仍能正确展示买入信号。
+8. 补充/更新 `strategy/engine.test.ts`、`strategy/post-take-profit-rebuy.test.ts`、`lib/execution/prep-orders.test.ts`，覆盖止盈比例、资产分类、未收盘周线、追踪止损最高价及回归场景。
+
+### 本轮修改文件
+- `strategy.config.ts`
+- `strategy/engine.ts`
+- `strategy/indicators.ts`
+- `strategy/engine.test.ts`
+- `strategy/post-take-profit-rebuy.ts`
+- `strategy/post-take-profit-rebuy.test.ts`
+- `lib/execution/prep-orders.ts`
+- `lib/execution/prep-orders.test.ts`
+- `lib/dashboard.ts`
+- `lib/mock.ts`
+- `lib/mock.test.ts`
+- `components/Dashboard.tsx`
+- `components/ExecutionBackground.tsx`
+- `docs/策略3.3/策略3.3用户确认决策.md`
+- `docs/策略3.3/策略3.3规则实现矩阵.md`
+
+### 测试与提交记录
+- CI Run `44695407917`（提交 `a0d419b800f1df0d91d7501cec20cac850085e76`）：npm测试通过，TypeScript类型检查通过。
+- 后续又追加 `components/Dashboard.tsx` 快照年龄许可检查（提交 `1123eceb9a0be5e9a6e0a537cd86fb0e56b43f3a`）及矩阵记录（提交 `21164be741fed9891d88f3dd47dafd3a6013b2fd`）；两项提交对应的最新CI当时仍在运行，须以最终状态为准。
+- 期间多次CI失败属于修复过程中的中间提交：旧测试仍按“剩余周期仓比例”断言、测试K线时间未模拟当前未收盘周线、以及变量命名/组件属性未同步；均已在后续提交中修正。不得把中间失败记录误认为最终结果。
+- 所有Git提交说明均使用中文。
+- 本轮没有开启生产BUY/SELL，没有启用Simple Earn真实赎回，也没有使用真实资金下单。
+
+### 尚未完成的核对项
+- 仍需逐项核对策略3.3工作簿的成交量、清仓冷却、基本面失效、白名单和组合限制等H项/未决规则。
+- 需审查卖出部分成交终态后同一止盈档剩余目标是否有安全恢复/续卖机制。
+- 需核对底仓减仓后周期仓可卖数量是否按确认成交正确重算。
+- 需完成测试网买卖全链路实测、历史回测/样本外验证和独立风险验收；当前CI通过不等于实盘验收。
