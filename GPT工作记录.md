@@ -642,3 +642,13 @@
 - CI Run： https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44766274501（检查中）。
 - 剩余风险：FakeSql测试只验证查询/迁移路径，不证明真实Cloudflare SQLite重启和并发语义；尚未有scheduler enqueue/claim/ack/retry和Alarm任务消费。
 - 生产BUY/SELL、Simple Earn真实赎回、Outbox投递保持关闭。
+
+
+
+## Grok SELL独立复核发现（2026-11-20）
+
+- 检查了Grok最新 sell-signal-queue.ts、sell-order-status.ts、sync-sell-order.browser.ts 和相关测试。
+- 正向确认：syncSellOrderFromBinance 的非终态 wait 分支现在会把旧 partially_filled 降级为 reconcile_required，并清除旧终态/成交对账证明；跨周base_reduce锁不再按sourceWeek过滤；底仓成交台账已要求SELL方向、base_reduce类型和唯一fillId。
+- 新发现阻断项：普通 take_profit partial resume的 localEventEligibleForTakeProfitResume / takeProfitTierCanResume 仍主要信任事件本地fillIds/filledQty/终态证明；当前看到的ledger逐笔核验只应用于base_reduce。要求Grok将止盈partial resume也绑定唯一SELL成交台账，逐笔核对symbol、fillId、side和数量合计。
+- 已将该项加入《自动交易系统总需求清单》GROK-SELL-01A，并在Issue #2留言要求Grok补实现和缺失/重复/冲突/数量不匹配测试。SELL 01-05只视为代码侧阶段性交付，尚未通过GPT独立验收。
+- 最新已观察到的CI：GPT DO测试修正提交 1b7ad8d3e4d62223f2e8cefef2b345510fcbfae1 对应Run 44766500560 成功；DO Alarm避免空转提交 96ac2444f957a6f0fb63742e15933e46851f0bdd 对应Run 44766640327 成功。Grok需求清单更新提交对应Run 44766552735 成功。以上CI通过不替代真实Cloudflare运行时测试和SELL业务逻辑独立验收。
