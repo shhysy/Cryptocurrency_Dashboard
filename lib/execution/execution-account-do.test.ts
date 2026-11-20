@@ -110,7 +110,13 @@ describe("账户级Durable Object持久化基础", () => {
 
     expect(response.status).toBe(200);
     expect(body.ok).toBe(true);
-    expect(getAlarm()).toBe(body.watchdogAt + 5 * 60_000);
+    const firstAlarm = getAlarm();
+    expect(firstAlarm).toBe(body.watchdogAt + 5 * 60_000);
+
+    await coordinator.fetch(new Request("https://do.internal/internal/watchdog", {
+      method: "POST",
+    }));
+    expect(getAlarm()).toBe(firstAlarm);
     expect(sql.statements.some((statement) => statement.includes("last_watchdog_at"))).toBe(true);
   });
 });
