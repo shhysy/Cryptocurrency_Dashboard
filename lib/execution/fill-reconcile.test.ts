@@ -157,6 +157,26 @@ describe("真实卖出成交核对", () => {
     }], "BTC", "USDT")).toThrow("无法可靠换算为 USDT");
   });
 
+  it("小于1e-8的卖出成交差异不能被绝对容差吞掉", async () => {
+    const { reconcileConfirmedSellFills } = await import("./fill-reconcile");
+    const tinyOrder = {
+      orderId: 78,
+      symbol: "BTCUSDT",
+      executedQty: 1e-10,
+      cummulativeQuoteQty: 0.000005,
+    };
+    const tinyFill: BinanceSpotTrade = {
+      ...sellFill,
+      id: 10,
+      orderId: 78,
+      qty: 2e-10,
+      quoteQty: 0.00001,
+      commission: 0,
+    };
+    const result = reconcileConfirmedSellFills(tinyOrder, [tinyFill], "BTC", "USDT");
+    expect(result.complete).toBe(false);
+  });
+
   it("逐笔成交与订单累计值不一致时不确认", async () => {
     const { reconcileConfirmedSellFills } = await import("./fill-reconcile");
     const result = reconcileConfirmedSellFills(sellOrder, [], "BTC", "USDT");
