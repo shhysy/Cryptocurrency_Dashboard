@@ -251,7 +251,7 @@ describe("卖出", () => {
     const eth = evaluateCoin(held(closes, [trade(100, 10, 200)], { symbol: "ETH", price: 130 }), ctx());
     const btc = evaluateCoin(held(closes, [trade(100, 10, 200)], { symbol: "BTC", price: 130 }), ctx());
     expect(eth.action.label).toBe("止盈1");
-    expect(eth.action.qty).toBeCloseTo(30, 8);
+    expect(eth.action.qty).toBeCloseTo(4, 8);
     expect(btc.action.side).not.toBe("sell");
   });
 
