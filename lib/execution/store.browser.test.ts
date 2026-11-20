@@ -187,7 +187,7 @@ describe("IndexedDB BUY reservation and claim integration", () => {
     });
 
     await expect(reserveAndClaimBuyOrderSubmission({
-      orderId: second.id, symbol: "ETHUSDT", requestedUsdt: 50,
+      orderId: second.id, symbol: "BTCUSDT", requestedUsdt: 50,
       observedFreeUsdt: 100, minNotionalUsdt: 5,
       expectedOrderUpdatedAt: second.updatedAt, expectedAttemptCount: 0, now: 81,
     })).rejects.toThrow("可预留 USDT 不足");
