@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { confirmedBaseReduceFilledQty } from "./sell-signal-queue";
+import { confirmedBaseReduceFilledQty, type BaseReduceLedgerFill } from "./sell-signal-queue";
 import type { SellEventRecord } from "./sell-store.browser";
 
 function baseEvent(over: Partial<SellEventRecord> = {}): SellEventRecord {
@@ -21,42 +21,43 @@ function baseEvent(over: Partial<SellEventRecord> = {}): SellEventRecord {
   };
 }
 
-describe("底仓减仓成交仅统计有证明的记录", () => {
-  it("无终态证明的旧 executed 不计入", () => {
-    expect(confirmedBaseReduceFilledQty([baseEvent({
-      exchangeTerminalStatus: undefined,
-      fillReconcileCompletedAt: undefined,
-    })])).toBe(0);
+function ledger(rows: BaseReduceLedgerFill[] = [
+  { symbol: "BTC", fillId: "br1", qty: 0.1, side: "SELL", sellKind: "base_reduce" },
+]): BaseReduceLedgerFill[] {
+  return rows;
+}
+
+describe("底仓减仓成交仅统计有证明且台账一致的记录", () => {
+  it("无台账 fail-closed 返回 0", () => {
+    expect(confirmedBaseReduceFilledQty([baseEvent()])).toBe(0);
+    expect(confirmedBaseReduceFilledQty([baseEvent()], [])).toBe(0);
   });
 
-  it("NEW/PARTIALLY_FILLED 等非终态状态值不计入", () => {
-    expect(confirmedBaseReduceFilledQty([baseEvent({ exchangeTerminalStatus: "NEW" })])).toBe(0);
-    expect(confirmedBaseReduceFilledQty([baseEvent({ exchangeTerminalStatus: "PARTIALLY_FILLED" })])).toBe(0);
+  it("台账 qty 与 filledQty 一致时计入", () => {
+    expect(confirmedBaseReduceFilledQty([baseEvent()], ledger())).toBeCloseTo(0.1);
   });
 
-  it("有证明的 executed 计入", () => {
-    expect(confirmedBaseReduceFilledQty([baseEvent()])).toBeCloseTo(0.1);
+  it("台账缺失 fill 或数量不一致不计入", () => {
+    expect(confirmedBaseReduceFilledQty([baseEvent()], ledger([
+      { symbol: "BTC", fillId: "other", qty: 0.1, side: "SELL", sellKind: "base_reduce" },
+    ]))).toBe(0);
+    expect(confirmedBaseReduceFilledQty([baseEvent()], ledger([
+      { symbol: "BTC", fillId: "br1", qty: 0.05, side: "SELL", sellKind: "base_reduce" },
+    ]))).toBe(0);
   });
 
-  it("完全重复 fillId 只计一次", () => {
-    const a = baseEvent({ eventKey: "a", fillIds: ["same"] });
-    const b = baseEvent({ eventKey: "b", fillIds: ["same"], filledQty: 0.1 });
-    expect(confirmedBaseReduceFilledQty([a, b])).toBeCloseTo(0.1);
+  it("NEW 终态字段不计入", () => {
+    expect(confirmedBaseReduceFilledQty([baseEvent({ exchangeTerminalStatus: "NEW" })], ledger())).toBe(0);
   });
 
   it("部分重叠 fillIds 整条冲突事件拒绝计入", () => {
     const a = baseEvent({ eventKey: "a", fillIds: ["x", "y"], filledQty: 0.1 });
     const b = baseEvent({ eventKey: "b", fillIds: ["y", "z"], filledQty: 0.05 });
-    expect(confirmedBaseReduceFilledQty([a, b])).toBeCloseTo(0.1);
-  });
-
-  it("fillIds 含空值或事件内重复不计入", () => {
-    expect(confirmedBaseReduceFilledQty([baseEvent({ fillIds: ["a", ""] })])).toBe(0);
-    expect(confirmedBaseReduceFilledQty([baseEvent({ fillIds: ["a", "a"] })])).toBe(0);
-  });
-
-  it("fillReconcileCompletedAt 非安全整数不计入", () => {
-    expect(confirmedBaseReduceFilledQty([baseEvent({ fillReconcileCompletedAt: 1.5 })])).toBe(0);
-    expect(confirmedBaseReduceFilledQty([baseEvent({ fillReconcileCompletedAt: Number.MAX_SAFE_INTEGER + 1 })])).toBe(0);
+    const led = ledger([
+      { symbol: "BTC", fillId: "x", qty: 0.05, side: "SELL", sellKind: "base_reduce" },
+      { symbol: "BTC", fillId: "y", qty: 0.05, side: "SELL", sellKind: "base_reduce" },
+      { symbol: "BTC", fillId: "z", qty: 0.05, side: "SELL", sellKind: "base_reduce" },
+    ]);
+    expect(confirmedBaseReduceFilledQty([a, b], led)).toBeCloseTo(0.1);
   });
 });

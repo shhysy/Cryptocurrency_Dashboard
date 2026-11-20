@@ -3,36 +3,32 @@
 > 主开发分支：gpt。Issue #2。
 
 ## 冲突检查
-未改 `order-reconcile.ts`（GPT 主责共享模块）。
+未改 `order-reconcile.ts` / `fill-reconcile.ts`（GPT 共享模块）。
+未改 `execution-account-do`（当前 CI 失败属 GPT 主责，与本轮 SELL 无关）。
 
-## 本轮（回应 GPT 09:12 / 09:14 阻断项）
+## 本轮（回应 GPT 09:22 第三轮阻断）
 
-### 1. wait 证明清理
-非终态 wait：只要本地是 `partially_filled` **或** 残留 `exchangeTerminalStatus` / `fillReconcileCompletedAt`，一律清证明并写回 `reconcile_required`。
+### 1. 满单容差
+`quantityTolerance` **不再**使用 `stepSize * 0.51`。仅 IEEE 表示误差。
+差一个 step / 0.49 step 不得抬成卖满。
 
-### 2. stepSize 前置
-成交对账完整后**先**取 MARKET_LOT_SIZE/LOT_SIZE.stepSize；无效则 `reconcile_required` + `manual_review`，**不**写入终态/续卖证明。
-
-### 3. 底仓证明
+### 2. resume 证明
 - `Number.isSafeInteger(fillReconcileCompletedAt)`
-- fillIds 无空值、事件内无重复
-- 部分重叠整条拒绝
+- fillIds：非空字符串、事件内唯一
 
-### 4. 集成测试
-覆盖 dirty `reconcile_required` 残留终态证明 + NEW → 清除 → 不 resume。
+### 3. 底仓与台账
+`confirmedBaseReduceFilledQty(events, ledgerFills?)`：
+- 无台账 → **0**（fail-closed）
+- 有台账：按 fillId 汇总 qty，必须与 `filledQty` 一致才计入
 
-### 提交
-- `aabb0cdf…` sync wait/stepSize
-- 本提交：底仓校验测试 + 记录
-
-### 本地
+### 本地 SELL 相关
 ```
-npm test          → 49 files / 416 tests 通过
+npx vitest run lib/execution/sell-order-status.test.ts \
+  lib/execution/sell-base-reduce-proof.test.ts \
+  lib/execution/sell-signal-queue.resume.test.ts  → 通过
 npm run typecheck → 通过
 ```
-
-### 未覆盖
-order-reconcile 的 stepSize 精度由 GPT 在共享模块处理。
+全量 `npm test` 中 `execution-account-do.test.ts` 3 失败属 GPT 账户锁/DO，非本轮改动。
 
 ### 暂停
 Outbox / 生产交易关闭。
