@@ -254,6 +254,37 @@ describe("账户级Durable Object持久化基础", () => {
     expect(sql.statements.filter((statement) => statement.includes("CREATE TABLE IF NOT EXISTS"))).toHaveLength(8);
   });
 
+  it("调度任务表包含持久化租约、退避与人工复核字段", async () => {
+    const { coordinator, sql } = makeCoordinator();
+    await coordinator.fetch(new Request("https://do.internal/internal/health"));
+
+    const schedulerSchema = sql.statements.find((statement) =>
+      statement.includes("CREATE TABLE IF NOT EXISTS scheduler_tasks"));
+    expect(schedulerSchema).toContain("lease_token TEXT");
+    expect(schedulerSchema).toContain("lease_until INTEGER");
+    expect(schedulerSchema).toContain("next_attempt_at INTEGER NOT NULL");
+    expect(schedulerSchema).toContain("last_error TEXT");
+    expect(sql.statements).toContain("PRAGMA table_info(scheduler_tasks)");
+    expect(sql.statements.some((statement) =>
+      statement.includes("CREATE INDEX IF NOT EXISTS idx_scheduler_tasks_due"))).toBe(true);
+  });
+
+  it("Alarm恢复过期调度租约并计算下一次持久化唤醒", async () => {
+    const { coordinator, sql } = makeCoordinator();
+    await coordinator.alarm();
+
+    expect(sql.statements.some((statement) =>
+      statement.includes("SELECT task_id, attempt FROM scheduler_tasks") &&
+      statement.includes("lease_until <= ?"))).toBe(true);
+    expect(sql.statements.some((statement) =>
+      statement.includes("SET state = 'pending'") &&
+      statement.includes("next_attempt_at = ?"))).toBe(true);
+    expect(sql.statements.some((statement) =>
+      statement.includes("SET state = 'manual_review'"))).toBe(true);
+    expect(sql.statements.some((statement) =>
+      statement.includes("SELECT MIN(CASE"))).toBe(true);
+  });
+
   it("拒绝策略版本错误或非正数金额，不写入订单意图", async () => {
     const { coordinator, sql } = makeCoordinator();
     const response = await coordinator.fetch(new Request("https://do.internal/internal/intents", {
