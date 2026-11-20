@@ -579,6 +579,235 @@ export class ExecutionAccountDO {
       }
     }
 
+
+    if (url.pathname === "/internal/finalize" && request.method === "POST") {
+      let input: Record<string, unknown>;
+      try {
+        const rawBody = await request.text();
+        if (new TextEncoder().encode(rawBody).byteLength > 512_000) {
+          return Response.json({ error: "成交对账请求体过大" }, { status: 413 });
+        }
+        const parsed: unknown = JSON.parse(rawBody);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return Response.json({ error: "成交对账参数无效" }, { status: 400 });
+        }
+        input = parsed as Record<string, unknown>;
+      } catch {
+        return Response.json({ error: "成交对账JSON无效" }, { status: 400 });
+      }
+
+      const intentId = typeof input.intentId === "string" ? input.intentId : "";
+      const attempt = input.attempt;
+      const leaseToken = typeof input.leaseToken === "string" ? input.leaseToken : "";
+      const exchangeOrderId = typeof input.exchangeOrderId === "string" ? input.exchangeOrderId : "";
+      const exchangeStatus = input.exchangeStatus;
+      const executedQty = typeof input.executedQty === "string" ? input.executedQty : "";
+      const cumulativeQuoteQty = typeof input.cumulativeQuoteQty === "string" ? input.cumulativeQuoteQty : "";
+      const exchangeTerminalAt = input.exchangeTerminalAt;
+      const fills = input.fills;
+      const terminalStatuses = ["FILLED", "CANCELED", "EXPIRED", "REJECTED"];
+      if (!intentId || !Number.isSafeInteger(attempt) || (attempt as number) <= 0 ||
+          !leaseToken || !/^[0-9]{1,32}$/.test(exchangeOrderId) ||
+          !terminalStatuses.includes(String(exchangeStatus)) ||
+          !Number.isSafeInteger(exchangeTerminalAt) || (exchangeTerminalAt as number) <= 0 ||
+          (exchangeTerminalAt as number) > Date.now() + 5_000 ||
+          compareDecimalStrings(executedQty, "0") === null ||
+          compareDecimalStrings(cumulativeQuoteQty, "0") === null ||
+          compareDecimalStrings(executedQty, "0")! < 0 ||
+          compareDecimalStrings(cumulativeQuoteQty, "0")! < 0 ||
+          !Array.isArray(fills) || fills.length > 1000) {
+        return Response.json({ error: "交易所终态或累计成交字段无效" }, { status: 400 });
+      }
+
+      const normalizedFills: Array<{
+        tradeId: string; orderId: string; qty: string; quoteQty: string;
+        commission: string; commissionAsset: string; filledAt: number;
+      }> = [];
+      const seenTradeIds = new Set<string>();
+      for (const value of fills) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          return Response.json({ error: "成交明细格式无效" }, { status: 400 });
+        }
+        const fill = value as Record<string, unknown>;
+        const tradeId = typeof fill.tradeId === "string" ? fill.tradeId : "";
+        const orderId = typeof fill.orderId === "string" ? fill.orderId : "";
+        const qty = typeof fill.qty === "string" ? fill.qty : "";
+        const quoteQty = typeof fill.quoteQty === "string" ? fill.quoteQty : "";
+        const commission = typeof fill.commission === "string" ? fill.commission : "";
+        const commissionAsset = typeof fill.commissionAsset === "string" ? fill.commissionAsset : "";
+        const filledAt = fill.filledAt;
+        if (!/^[0-9]{1,32}$/.test(tradeId) || seenTradeIds.has(tradeId) ||
+            orderId !== exchangeOrderId ||
+            compareDecimalStrings(qty, "0") === null || compareDecimalStrings(qty, "0")! <= 0 ||
+            compareDecimalStrings(quoteQty, "0") === null || compareDecimalStrings(quoteQty, "0")! <= 0 ||
+            compareDecimalStrings(commission, "0") === null || compareDecimalStrings(commission, "0")! < 0 ||
+            !/^[A-Z0-9]{2,12}$/.test(commissionAsset) ||
+            !Number.isSafeInteger(filledAt) || (filledAt as number) <= 0 ||
+            (filledAt as number) > Date.now() + 5_000) {
+          return Response.json({ error: "成交明细存在无效字段或重复tradeId" }, { status: 400 });
+        }
+        seenTradeIds.add(tradeId);
+        normalizedFills.push({ tradeId, orderId, qty, quoteQty, commission, commissionAsset, filledAt: filledAt as number });
+      }
+
+      const summedQty = addDecimalStrings(normalizedFills.map((fill) => fill.qty));
+      const summedQuoteQty = addDecimalStrings(normalizedFills.map((fill) => fill.quoteQty));
+      if (summedQty === null || summedQuoteQty === null ||
+          compareDecimalStrings(summedQty, executedQty) !== 0 ||
+          compareDecimalStrings(summedQuoteQty, cumulativeQuoteQty) !== 0 ||
+          ((compareDecimalStrings(executedQty, "0") === 0) !== (normalizedFills.length === 0))) {
+        return Response.json({ error: "逐笔成交数量/金额与交易所累计成交不一致，禁止释放资金" }, { status: 409 });
+      }
+
+      const now = Date.now();
+      try {
+        const finalized = this.state.storage.transactionSync(() => {
+          const sql = this.state.storage.sql;
+          const lockRows = sql.exec(
+            "SELECT intent_id, attempt, lease_token, lease_until FROM account_lock WHERE singleton = 1",
+          ).toArray();
+          const lock = lockRows[0] as {
+            intent_id?: string; attempt?: number; lease_token?: string; lease_until?: number;
+          } | undefined;
+          if (!lock || lock.intent_id !== intentId || lock.attempt !== attempt ||
+              lock.lease_token !== leaseToken || !Number.isSafeInteger(lock.lease_until) ||
+              (lock.lease_until as number) <= now) {
+            throw new Error("账户锁或租约不匹配/已过期，拒绝终态释放");
+          }
+
+          const intentRows = sql.exec(
+            "SELECT symbol, side, amount, state, attempt, client_order_id FROM order_intents WHERE intent_id = ?",
+            intentId,
+          ).toArray();
+          const order = intentRows[0] as {
+            symbol?: string; side?: string; amount?: string; state?: string;
+            attempt?: number; client_order_id?: string;
+          } | undefined;
+          if (!order || order.attempt !== attempt || !order.symbol ||
+              (order.state !== "reconciling" && order.state !== "unknown" && order.state !== "submitting")) {
+            throw new Error("订单状态/attempt不允许终态核对");
+          }
+
+          const attemptRows = sql.exec(
+            "SELECT client_order_id, lease_token FROM order_attempts WHERE intent_id = ? AND attempt = ?",
+            intentId, attempt,
+          ).toArray();
+          const attemptRow = attemptRows[0] as { client_order_id?: string; lease_token?: string } | undefined;
+          if (!attemptRow || attemptRow.client_order_id !== order.client_order_id ||
+              attemptRow.lease_token !== leaseToken) {
+            throw new Error("attempt记录与订单或当前租约不一致");
+          }
+
+          const reservationRows = sql.exec(
+            "SELECT asset, amount, state FROM reservations WHERE intent_id = ? AND attempt = ?",
+            intentId, attempt,
+          ).toArray();
+          const reservation = reservationRows[0] as { asset?: string; amount?: string; state?: string } | undefined;
+          const expectedAsset = order.side === "BUY" ? "USDT" : order.symbol.slice(0, -4);
+          if (!reservation || reservation.state !== "reserved" || reservation.asset !== expectedAsset ||
+              lock.asset !== expectedAsset || compareDecimalStrings(reservation.amount ?? "", order.amount ?? "") !== 0) {
+            throw new Error("资金预留与订单方向/金额不一致");
+          }
+
+          let reservedAssetCommission = "0";
+          for (const fill of normalizedFills) {
+            if (fill.commissionAsset === expectedAsset) {
+              const next = addDecimalStrings([reservedAssetCommission, fill.commission]);
+              if (next === null) throw new Error("手续费累计失败");
+              reservedAssetCommission = next;
+            }
+            const inserted = sql.exec(
+              `INSERT INTO fills(
+                symbol, trade_id, intent_id, attempt, order_id, qty,
+                quote_qty, commission, commission_asset, filled_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(symbol, trade_id) DO NOTHING
+              RETURNING trade_id`,
+              order.symbol, fill.tradeId, intentId, attempt, exchangeOrderId,
+              fill.qty, fill.quoteQty, fill.commission, fill.commissionAsset, fill.filledAt,
+            ).toArray();
+            if (inserted.length === 0) {
+              const existingFillRows = sql.exec(
+                "SELECT intent_id, attempt, order_id, qty, quote_qty, commission, commission_asset, filled_at FROM fills WHERE symbol = ? AND trade_id = ?",
+                order.symbol, fill.tradeId,
+              ).toArray();
+              const existingFill = existingFillRows[0] as {
+                intent_id?: string; attempt?: number; order_id?: string; qty?: string;
+                quote_qty?: string; commission?: string; commission_asset?: string; filled_at?: number;
+              } | undefined;
+              if (!existingFill || existingFill.intent_id !== intentId ||
+                  existingFill.attempt !== attempt || existingFill.order_id !== exchangeOrderId ||
+                  existingFill.qty !== fill.qty || existingFill.quote_qty !== fill.quoteQty ||
+                  existingFill.commission !== fill.commission ||
+                  existingFill.commission_asset !== fill.commissionAsset ||
+                  existingFill.filled_at !== fill.filledAt) {
+                throw new Error("tradeId已存在但内容/订单归属不一致，拒绝覆盖");
+              }
+            }
+          }
+
+          const consumedBase = order.side === "SELL"
+            ? addDecimalStrings([summedQty, reservedAssetCommission])
+            : "0";
+          const consumedQuote = order.side === "BUY"
+            ? addDecimalStrings([summedQuoteQty, reservedAssetCommission])
+            : "0";
+          const consumedAmount = order.side === "BUY" ? consumedQuote : consumedBase;
+          if (consumedAmount === null || compareDecimalStrings(consumedAmount, reservation.amount ?? "") === null ||
+              compareDecimalStrings(consumedAmount, reservation.amount ?? "")! > 0) {
+            throw new Error("实际消耗（含预留资产手续费）超过预留金额，转人工核对且不释放锁");
+          }
+
+          const nextState = exchangeStatus === "FILLED"
+            ? "filled"
+            : compareDecimalStrings(executedQty, "0")! > 0
+              ? "partial_terminal"
+              : exchangeStatus === "CANCELED" ? "canceled"
+                : exchangeStatus === "EXPIRED" ? "expired" : "rejected";
+
+          const fillRows = sql.exec(
+            "SELECT COUNT(*) AS total FROM fills WHERE intent_id = ? AND attempt = ? AND order_id = ?",
+            intentId, attempt, exchangeOrderId,
+          ).toArray();
+          const fillCount = fillRows[0] && typeof fillRows[0] === "object"
+            ? Number((fillRows[0] as { total?: number }).total ?? 0) : -1;
+          if (fillCount !== normalizedFills.length) {
+            throw new Error("成交账本数量与本次终态快照不一致，拒绝释放资金");
+          }
+
+          const reservationUpdated = sql.exec(
+            "UPDATE reservations SET consumed_amount = ?, state = 'settled', updated_at = ? WHERE intent_id = ? AND attempt = ? AND state = 'reserved' RETURNING reservation_id",
+            consumedAmount, now, intentId, attempt,
+          ).toArray();
+          if (reservationUpdated.length !== 1) throw new Error("资金预留状态已变化，拒绝释放");
+          const intentUpdated = sql.exec(
+            "UPDATE order_intents SET state = ?, exchange_order_id = ?, exchange_terminal_at = ?, fills_reconciled_at = ?, updated_at = ?, last_error = NULL WHERE intent_id = ? AND attempt = ? AND state IN ('submitting', 'unknown', 'reconciling') RETURNING intent_id",
+            nextState, exchangeOrderId, exchangeTerminalAt, now, now, intentId, attempt,
+          ).toArray();
+          if (intentUpdated.length !== 1) throw new Error("订单状态已变化，拒绝终态写入");
+          const attemptUpdated = sql.exec(
+            "UPDATE order_attempts SET state = ?, exchange_order_id = ?, updated_at = ? WHERE intent_id = ? AND attempt = ? AND lease_token = ? RETURNING attempt_id",
+            nextState, exchangeOrderId, now, intentId, attempt, leaseToken,
+          ).toArray();
+          if (attemptUpdated.length !== 1) throw new Error("attempt租约已变化，拒绝终态写入");
+          const lockDeleted = sql.exec(
+            "DELETE FROM account_lock WHERE singleton = 1 AND intent_id = ? AND attempt = ? AND lease_token = ? RETURNING intent_id",
+            intentId, attempt, leaseToken,
+          ).toArray();
+          if (lockDeleted.length !== 1) throw new Error("账户锁已变化，拒绝释放");
+          sql.exec(
+            "INSERT INTO audit_events(intent_id, event_type, created_at) VALUES (?, 'intent_terminal_reconciled_and_released', ?)",
+            intentId, now,
+          );
+          return { intentId, attempt, exchangeOrderId, state: nextState, fillCount, consumedAmount, releasedReservation: true };
+        });
+        return Response.json({ ok: true, ...finalized });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "终态成交核对失败";
+        return Response.json({ ok: false, error: reason }, { status: 409 });
+      }
+    }
+
     return Response.json({ error: "内部执行协调器路径不存在" }, { status: 404 });
   }
 
