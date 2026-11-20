@@ -86,3 +86,47 @@ describe("交易所终态与本地续卖边界", () => {
     expect(isTerminalReconciledPartial(terminalPartial)).toBe(true);
   });
 });
+
+describe("升级兼容：旧 partial 与交易所仍开放", () => {
+  it("交易所仍为 PARTIALLY_FILLED 时，映射为 reconcile_required，不可 resume", () => {
+    const mapped = localSellStatusAfterReconciledSnapshot({
+      exchangeStatus: "PARTIALLY_FILLED",
+      executedQty: 0.05,
+      origQty: 0.15,
+    });
+    expect(mapped).toBe("reconcile_required");
+
+    const legacyOpen: SellEventRecord = {
+      eventKey: "sell:BTC:take_profit:2:止盈1",
+      symbol: "BTC",
+      kind: "take_profit",
+      status: "reconcile_required",
+      requestedQty: 0.15,
+      filledQty: 0.05,
+      createdAt: 1,
+      updatedAt: 1,
+      exchangeOrderId: "103",
+      fillIds: ["BTC-4"],
+      lastError: "卖出订单仍未进入终态",
+    };
+    expect(localEventEligibleForTakeProfitResume(legacyOpen)).toBe(false);
+  });
+
+  it("先映射再入队：仍开放的旧 partial 不会通过 CanResume 资格", async () => {
+    const { takeProfitTierCanResume } = await import("./sell-signal-queue");
+    const events: SellEventRecord[] = [{
+      eventKey: "sell:BTC:take_profit:2:止盈1",
+      symbol: "BTC",
+      kind: "take_profit",
+      status: "reconcile_required",
+      requestedQty: 0.15,
+      filledQty: 0.05,
+      createdAt: 1,
+      updatedAt: 1,
+      exchangeOrderId: "103",
+      fillIds: ["BTC-4"],
+      lastError: null,
+    }];
+    expect(takeProfitTierCanResume(events, ":止盈1")).toBe(false);
+  });
+});
