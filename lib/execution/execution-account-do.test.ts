@@ -28,7 +28,12 @@ class FakeSql {
   exec(query: string, ...bindings: unknown[]) {
     this.statements.push(query);
     let rows: unknown[] = [];
-    if (query.includes("INSERT INTO order_intents")) {
+    if (query.includes("SELECT task_id, attempt FROM scheduler_tasks")) {
+      rows = [
+        { task_id: "reconcile:retry", attempt: 1 },
+        { task_id: "reconcile:manual", attempt: 8 },
+      ];
+    } else if (query.includes("INSERT INTO order_intents")) {
       const intentId = String(bindings[0]);
       const eventId = String(bindings[1]);
       if (!this.intents.has(intentId)) {
