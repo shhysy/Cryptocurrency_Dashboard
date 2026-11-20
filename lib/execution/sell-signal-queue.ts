@@ -20,15 +20,30 @@ export interface SellSignalQueuePlan {
   blocked: { symbol: string; reason: string }[];
 }
 
+/**
+ * 仅统计具备终态+对账证明的底仓减仓成交；按 symbol+fillId 去重。
+ * 旧 IndexedDB 无证明的记录不减少受保护底仓。
+ */
 export function confirmedBaseReduceFilledQty(events: SellEventRecord[]): number {
-  return events
-    .filter((event) =>
-      event.kind === "base_reduce" &&
-      (event.status === "executed" || event.status === "partially_filled") &&
-      Number.isFinite(event.filledQty) &&
-      (event.filledQty as number) > 0,
-    )
-    .reduce((sum, event) => sum + (event.filledQty as number), 0);
+  const seenFillIds = new Set<string>();
+  let sum = 0;
+  for (const event of events) {
+    if (event.kind !== "base_reduce") continue;
+    if (event.status !== "executed" && event.status !== "partially_filled") continue;
+    if (!event.exchangeTerminalStatus) continue;
+    if (!Number.isFinite(event.fillReconcileCompletedAt) || (event.fillReconcileCompletedAt as number) <= 0) continue;
+    if (!Number.isFinite(event.filledQty) || (event.filledQty as number) <= 0) continue;
+    if (!Array.isArray(event.fillIds) || event.fillIds.length === 0) continue;
+    const newIds = event.fillIds.filter((id) => {
+      const key = `${event.symbol}:${id}`;
+      if (seenFillIds.has(key)) return false;
+      seenFillIds.add(key);
+      return true;
+    });
+    if (newIds.length === 0) continue;
+    sum += event.filledQty as number;
+  }
+  return sum;
 }
 
 export function protectedBaseQtyAfterReductions(
@@ -62,9 +77,8 @@ export function hasOpenBaseReduce(events: SellEventRecord[]): boolean {
   );
 }
 
-/** 终态且对账完整的部分成交才可作为 resume 依据（与 sell-order-status 一致） */
 export function isTerminalReconciledPartial(
-  event: Pick<SellEventRecord, "status" | "filledQty" | "requestedQty" | "fillIds" | "exchangeOrderId">,
+  event: Pick<SellEventRecord, "status" | "filledQty" | "requestedQty" | "fillIds" | "exchangeOrderId" | "exchangeTerminalStatus" | "fillReconcileCompletedAt" | "lotStepSize">,
 ): boolean {
   return localEventEligibleForTakeProfitResume(event);
 }
