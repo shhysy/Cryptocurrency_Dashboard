@@ -218,7 +218,8 @@ function planSell(c: Ctx): Action | null {
   }
 
   const firstBuy = Math.min(...input.buys.map((t) => t.time));
-  const peak = Math.max(...input.weekly.filter((k) => k.t + WEEK > firstBuy).map((k) => k.c), input.price);
+  // 追踪止损按买入后的周线最高价（high）计算，不用周收盘价低估峰值。
+  const peak = Math.max(...input.weekly.filter((k) => k.t + WEEK > firstBuy).map((k) => k.h), input.price);
   if (peak >= input.avgCost * profile.trailStart) {
     const line = peak * (1 - profile.trailDrawdown);
     if (input.price <= line && cycleQty > 0) {
