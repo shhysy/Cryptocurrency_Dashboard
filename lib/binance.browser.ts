@@ -70,7 +70,10 @@ async function serverNow(): Promise<number> {
 async function signedGet<T>(path: string, params: Record<string, string | number> = {}): Promise<T> {
   const response = await fetch("/api/binance/signed-read", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Binance-Client-Environment": BINANCE_SPOT_ENVIRONMENT,
+    },
     body: JSON.stringify({ path, params }),
     cache: "no-store",
     credentials: "same-origin",
