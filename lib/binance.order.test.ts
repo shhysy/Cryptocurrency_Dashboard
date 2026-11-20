@@ -54,6 +54,7 @@ describe("服务端 Spot 下单适配器环境隔离", () => {
   it("生产模式只使用生产 endpoint 和生产凭证", async () => {
     vi.stubEnv("BINANCE_SPOT_ENVIRONMENT", "production");
     vi.stubEnv("BINANCE_PRODUCTION_BUY_ENABLED", "1");
+    vi.stubEnv("BINANCE_BASE_URL", "https://attacker.example");
     const fetchMock = mockBinanceFetch();
     vi.stubGlobal("fetch", fetchMock);
 
@@ -67,6 +68,7 @@ describe("服务端 Spot 下单适配器环境隔离", () => {
     expect(String(fetchMock.mock.calls[3][0])).toContain("https://api.binance.com/api/v3/account");
     expect(String(fetchMock.mock.calls[4][0])).toContain("https://api.binance.com/api/v3/order");
     expect(fetchMock.mock.calls[4][1]?.headers).toMatchObject({ "X-MBX-APIKEY": "SIMULATED_PRODUCTION_KEY" });
+    expect(fetchMock.mock.calls.every(([url]) => !String(url).includes("attacker.example"))).toBe(true);
   });
 
   it("测试网模式只使用测试网 endpoint 和测试网凭证", async () => {
