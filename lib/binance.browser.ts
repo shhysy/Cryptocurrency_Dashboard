@@ -95,10 +95,8 @@ async function signedGet<T>(path: string, params: Record<string, string | number
 }
 
 /**
- * Real Earn redemption remains deliberately disabled until the user has
- * confirmed the TRADE-enabled key and explicitly enables this feature.
- * The key/secret are still supplied through the existing private-use browser
- * configuration; never commit credential values to the repository.
+ * Simple Earn 真实赎回目前保持关闭。
+ * 后续必须迁移到带认证、幂等和对账的服务端专用路由；浏览器永远不保存 Key/Secret。
  */
 export const LIVE_EARN_REDEMPTION_ENABLED = false as const;
 
