@@ -86,7 +86,7 @@ export function resolveServerBinanceEnvironment(env: ServerBinanceEnvironment) {
   }
   return {
     mode: "production" as const,
-    apiBase: env.BINANCE_BASE_URL || "https://api.binance.com",
+    apiBase: "https://api.binance.com",
     apiKey: env.BINANCE_API_KEY ?? "",
     apiSecret: env.BINANCE_API_SECRET ?? "",
   };
