@@ -37,6 +37,28 @@ describe("Binance 订单对账与幂等 ID", () => {
     expect(decideOrderReconciliation({ status: "CANCELED", origQty: 0.01, executedQty: 0, cummulativeQuoteQty: 0, orderId: 1 }).action).toBe("safe_to_retry");
   });
 
+
+  it("EXPIRED_IN_MATCH 是终态：有成交先对账入账，零成交才可用新 attempt 重试", () => {
+    expect(decideOrderReconciliation({
+      status: "EXPIRED_IN_MATCH",
+      origQty: 0.01,
+      executedQty: 0.004,
+      cummulativeQuoteQty: 200,
+      orderId: 7,
+    })).toMatchObject({
+      action: "apply_partial_then_wait",
+      executedQty: 0.004,
+      quoteQty: 200,
+    });
+    expect(decideOrderReconciliation({
+      status: "EXPIRED_IN_MATCH",
+      origQty: 0.01,
+      executedQty: 0,
+      cummulativeQuoteQty: 0,
+      orderId: 7,
+    }).action).toBe("safe_to_retry");
+  });
+
   it("未查到订单不能假定失败并重发", () => {
     expect(decideOrderReconciliation(null).action).toBe("manual_review");
   });
@@ -53,6 +75,7 @@ describe("exchange order terminal lock", () => {
     expect(isExchangeOrderTerminal("FILLED")).toBe(true);
     expect(isExchangeOrderTerminal("CANCELED")).toBe(true);
     expect(isExchangeOrderTerminal("EXPIRED")).toBe(true);
+    expect(isExchangeOrderTerminal("EXPIRED_IN_MATCH")).toBe(true);
     expect(isExchangeOrderTerminal("REJECTED")).toBe(true);
     expect(isExchangeOrderTerminal("UNKNOWN")).toBe(false);
   });
