@@ -138,7 +138,13 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
       } else {
         setData(nextData);
       }
-      setDirectReady(nextData.source === "binance" && !nextData.stale);
+      const snapshotAgeMs = Date.now() - nextData.updatedAt;
+      setDirectReady(
+        nextData.source === "binance" &&
+        !nextData.stale &&
+        snapshotAgeMs >= 0 &&
+        snapshotAgeMs <= 120_000
+      );
       setErr(null);
     } catch (e) {
       setDirectReady(false);
