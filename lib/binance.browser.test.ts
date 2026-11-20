@@ -6,6 +6,9 @@ import {
   redeemFlexibleEarnUsdt,
   submitSpotMarketSell,
   submitSpotMarketBuy,
+  fetchSpotTradesForOrder,
+  fetchSpotTrades,
+  fetchBuyTrades,
 } from "./binance.browser";
 
 describe("Simple Earn redeem browser adapter", () => {
@@ -48,5 +51,59 @@ describe("Binance Spot sell adapter", () => {
     })).rejects.toThrow("测试网卖出开关未启用");
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+});
+
+
+describe("Binance 成交历史分页完整性", () => {
+  const fullPage = (startId: number) => Array.from({ length: 1000 }, (_, index) => ({
+    id: startId + index,
+    orderId: 55,
+    price: "50000",
+    qty: "0.00001",
+    quoteQty: "0.5",
+    commission: "0",
+    commissionAsset: "USDT",
+    time: 1000 + index,
+    isBuyer: true,
+  }));
+
+  it("指定订单成交查询达到20页上限仍返回满页时拒绝返回截断数据", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(JSON.stringify(fullPage(1)), { status: 200 }),
+    );
+    try {
+      await expect(fetchSpotTradesForOrder("BTCUSDT", 55))
+        .rejects.toThrow("达到分页安全上限");
+      expect(fetchSpy).toHaveBeenCalledTimes(20);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("账户成交查询达到调用方页数上限仍返回满页时拒绝返回截断数据", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(JSON.stringify(fullPage(1)), { status: 200 }),
+    );
+    try {
+      await expect(fetchSpotTrades("BTCUSDT", 1))
+        .rejects.toThrow("达到分页安全上限");
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("BUY历史成交查询达到5页上限仍返回满页时拒绝返回截断数据", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(JSON.stringify(fullPage(1)), { status: 200 }),
+    );
+    try {
+      await expect(fetchBuyTrades("BTC", "USDT"))
+        .rejects.toThrow("达到分页安全上限");
+      expect(fetchSpy).toHaveBeenCalledTimes(5);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
