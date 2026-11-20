@@ -82,7 +82,7 @@ export function stableItems(
   const low4 = Math.min(price, ...closed.slice(-4).map((c) => c.l));
   const low8 = Math.min(...closed.slice(-12, -4).map((c) => c.l));
   return [
-    price > weekly[weekly.length - 2].h,
+    closed[closed.length - 1].h < price,
     currentRsi !== null && before !== null && currentRsi < cfg.rsi.stabilizeBelow && currentRsi > before,
     low4 >= low8,
   ];
