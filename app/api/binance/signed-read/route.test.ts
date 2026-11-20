@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { fetchSignedBinanceRead } = vi.hoisted(() => ({
+const { fetchSignedBinanceRead, getServerBinanceSpotMode } = vi.hoisted(() => ({
   fetchSignedBinanceRead: vi.fn(),
+  getServerBinanceSpotMode: vi.fn(() => "testnet"),
 }));
 
-vi.mock("@/lib/binance", () => ({ fetchSignedBinanceRead }));
+vi.mock("@/lib/binance", () => ({ fetchSignedBinanceRead, getServerBinanceSpotMode }));
 
 import { POST } from "./route";
 
@@ -21,6 +22,7 @@ function makeRequest(
       authorization: overrides.authorization ?? "Basic " + btoa("user:correct-password"),
       origin: overrides.origin ?? "https://dashboard.example",
       "content-type": overrides.contentType ?? "application/json",
+      "x-binance-client-environment": "testnet",
     },
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
@@ -56,6 +58,15 @@ describe("Binance signed-read API route security", () => {
     expect(crossOrigin.status).toBe(403);
     expect(missingOrigin.status).toBe(403);
     expect(fetchSignedBinanceRead).not.toHaveBeenCalled();
+  });
+
+
+  it("浏览器与服务端环境不一致时拒绝读取账户数据", async () => {
+    getServerBinanceSpotMode.mockReturnValue("production");
+    const response = await POST(makeRequest());
+    expect(response.status).toBe(409);
+    expect(fetchSignedBinanceRead).not.toHaveBeenCalled();
+    getServerBinanceSpotMode.mockReturnValue("testnet");
   });
 
   it("rejects non-JSON content types", async () => {
