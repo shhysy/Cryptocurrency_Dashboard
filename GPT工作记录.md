@@ -594,3 +594,9 @@
 - 本轮新加SELL部分成交及基础资产手续费测试提交 `b55625986a751e07a1440bd8c584350ad447d6ac` 对应CI Run `44758920412` 已成功：50个测试文件、429项测试通过；typecheck、Next.js production build、Cloudflare OpenNext build全部通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44758920412
 - SELL方面，Grok已把满单判断改为只容忍IEEE-754误差，并将底仓减仓统计改为需要唯一成交台账；但真实fill ledger尚未接入 `buildSellEventReservations/enqueueEligibleSellSignals`，已在Issue #2要求继续接线。Outbox和生产交易保持关闭。
 - 因此DO内部结算原语尚不能视为完整自动交易闭环；未部署、未使用真实Key、未向生产账户发送订单。
+
+### EXPIRED_IN_MATCH终态兼容补充（2026-11-20）
+- 审查Binance Spot状态集合时发现，`EXPIRED_IN_MATCH` 是有效的交易所终态；若finalize白名单不接受，会导致此类订单无法结算并持续占用账户锁。
+- 已将 `EXPIRED_IN_MATCH` 纳入 `/internal/finalize` 终态白名单，并映射为本地 `expired`；新增零成交终态结算测试，验证预留消耗为0且可在成交核对完整后安全释放锁。
+- 代码提交：`f5e7c25539c4d2996556515bade73fc2282af5b4`；测试提交：`0c3e62ce05d85503b904cda2bf049c065c967c75`。
+- CI Run `44759560917` 成功：50个测试文件、430项测试全部通过；TypeScript typecheck、Next.js production build、Cloudflare OpenNext build全部通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44759560917
