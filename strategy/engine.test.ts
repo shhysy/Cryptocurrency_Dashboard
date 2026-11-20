@@ -151,6 +151,16 @@ describe("头仓", () => {
     expect(s.tag).toBe("暂缓");
     expect(s.action.blocked.join()).toContain("上限");
   });
+
+  it("已有小额山寨持仓时，补足该币头仓不重复占用新币名额", () => {
+    const s = evaluateCoin(
+      held(bottoming(), [trade(60, 1, 250)], { symbol: "UNI" }),
+      ctx(withAccount({ altHeldCount: 3 })),
+    );
+    expect(s.action.side).toBe("buy");
+    expect(s.action.label).toBe("头仓");
+    expect(s.action.blocked.join()).not.toContain("上限");
+  });
 });
 
 describe("固定额度（不依赖账户规模）", () => {
