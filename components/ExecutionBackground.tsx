@@ -80,7 +80,10 @@ export default function ExecutionBackground({
         }
         // Live execution is deliberately gated by independent, compile-time
         // switches. All three switches remain false in the checked-in build.
-        if (active && executionAllowed && data.source === "binance" && !data.stale && data.market.accountKnown) {
+        const dataAgeMs = Date.now() - data.updatedAt;
+        const dataFresh = dataAgeMs >= 0 && dataAgeMs <= 120_000;
+        if (active && executionAllowed && dataFresh &&
+            data.source === "binance" && !data.stale && data.market.accountKnown) {
           if (BINANCE_SPOT_BUY_SUBMISSION_ENABLED) {
             const queuedBuys = await listBuyOrders();
             for (const order of queuedBuys) {
