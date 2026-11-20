@@ -8,7 +8,7 @@ import {
 } from "./server-execution-core";
 
 const base: ServerExecutionIntent = {
-  intentId: "strategy3.3:BTC:head:2026W47",
+  intentId: "strategy3_3:BTC:head:2026W47",
   strategyEventId: "BTC:head:2026W47",
   strategyVersion: "3.3",
   symbol: "BTCUSDT",
