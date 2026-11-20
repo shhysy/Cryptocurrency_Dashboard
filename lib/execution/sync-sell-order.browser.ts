@@ -92,6 +92,16 @@ export async function syncSellOrderFromBinance(
   });
 
   if (decision.action === "wait") {
+    if (event.status === "partially_filled") {
+      await updateSellEvent({
+        ...event,
+        status: "reconcile_required",
+        exchangeTerminalStatus: undefined,
+        fillReconcileCompletedAt: undefined,
+        lastError: decision.reason ?? "卖出订单仍未进入终态，已冻结本地 partial，禁止 resume",
+        updatedAt: Date.now(),
+      });
+    }
     return { action: "wait", newlyRecordedFills: 0, orderStatus: snapshot.status, reason: decision.reason };
   }
   if (decision.action === "manual_review" || decision.action === "safe_to_retry") {
