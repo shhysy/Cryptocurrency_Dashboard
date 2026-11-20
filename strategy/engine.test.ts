@@ -273,7 +273,7 @@ describe("卖出", () => {
   it("保守型 ETH 在均价 × 1.3 触发第一档，积极型 BTC 不提前触发", () => {
     const closes = [...flat(200, 100), ...ramp(100, 150, 20)];
     const eth = evaluateCoin(held(closes, [trade(100, 10, 200)], { symbol: "ETH", price: 130 }), ctx());
-    const btc = evaluateCoin(held(closes, [trade(100, 10, 200)], { symbol: "BTC", price: 130 }), ctx());
+    const btc = evaluateCoin(held(flat(210, 100), [trade(100, 10, 200)], { symbol: "BTC", price: 130 }), ctx());
     expect(eth.action.label).toBe("止盈1");
     expect(eth.action.qty).toBeCloseTo(4, 8);
     expect(btc.action.side).not.toBe("sell");
@@ -297,7 +297,7 @@ describe("卖出", () => {
     expect(s.action.sellPct).toBeCloseTo(0.25 * (1 - 0.4), 2);
   });
   it("追踪止损：曾达均价 × 1.3，回撤 30%", () => {
-    const closes = [...flat(190, 100), ...flat(10, 180), 180, 180, 120];
+    const closes = [...flat(190, 100), ...flat(10, 180), ...ramp(180, 120, 10)];
     const s = evaluateCoin(held(closes, [trade(100, 1, 180)], { price: 120 }), ctx());
     expect(s.tag).toBe("追踪止损");
     expect(s.action.notes.join()).toContain("追踪线");
