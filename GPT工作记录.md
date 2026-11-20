@@ -626,3 +626,19 @@
 - 明确持续推进机制：每项完成后自动进入依赖已满足的下一项；阻塞时处理阻塞或拆分并行任务，不以等待用户催促为默认状态。
 - Grok继续主责SELL/Outbox，GPT主责DO调度、BUY、服务端适配器、策略核对和总集成；不允许越权修改共享模块。
 - 本次只新增需求文档并更新工作记录，未修改交易代码，未触发任何Binance交易请求；生产BUY/SELL、Simple Earn真实赎回和Outbox仍关闭。
+
+
+## P2-C调度SQLite与Alarm租约恢复（2026-11-20）
+
+- 扩展 `scheduler_tasks` SQLite表：加入taskType白名单约束、状态约束、leaseToken、leaseUntil、nextAttemptAt、lastError等持久化字段及复合索引。
+- 加入旧表兼容迁移：通过 `PRAGMA table_info(scheduler_tasks)` 检查缺失列后再执行ALTER，避免重复迁移导致部署失败。
+- DO Alarm现在会扫描最多100条过期leased任务，使用纯函数 `expiredSchedulerLeaseDecision` 决定退避回pending或达到上限转manual_review；清除旧lease token/leaseUntil并按最早pending/leased时间安排下一次Alarm。无待处理任务时调用可选deleteAlarm。
+- Alarm没有将任务伪标记完成，也未在SQLite事务内进行网络IO；真正的enqueue/claim/ack/retry接口和只读执行器仍未完成。
+- 新增 `execution-account-do.test.ts` 对调度表持久化字段、兼容迁移入口、Alarm过期租约恢复SQL与下一次唤醒查询的测试断言。当前测试运行由GitHub Actions执行中，不能提前宣称通过。
+- 代码/测试变更提交：
+  - `6ca2e9f08cc6c3d6f2cef0240426610f48ed4549`（调度表迁移与Alarm租约恢复）
+  - `b663957a83254b9646bfd42a1982dbb52fef2a94`（补充deleteAlarm类型）
+  - `3a9aae7896881a4ca545a3052bfbab66c9672317`（新增调度迁移/Alarm测试）
+- CI Run： https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44766274501（检查中）。
+- 剩余风险：FakeSql测试只验证查询/迁移路径，不证明真实Cloudflare SQLite重启和并发语义；尚未有scheduler enqueue/claim/ack/retry和Alarm任务消费。
+- 生产BUY/SELL、Simple Earn真实赎回、Outbox投递保持关闭。
