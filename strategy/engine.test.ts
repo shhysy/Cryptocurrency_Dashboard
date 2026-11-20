@@ -25,7 +25,7 @@ const trade = (price: number, qty: number, weeks: number, id = `t${weeks}`): Tra
 function coin(closes: number[], over: Partial<CoinInput> = {}): CoinInput {
   const weekly = candles(closes);
   // 模拟 Binance 返回的最后一根当前未收盘周线，其余周线均已收盘。
-  const currentWeekOpen = 299 * WEEK;
+  const currentWeekOpen = 300 * WEEK;
   const timedWeekly = weekly.map((candle, index) => ({
     ...candle,
     t: currentWeekOpen - (weekly.length - 1 - index) * WEEK,
