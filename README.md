@@ -114,7 +114,7 @@ BINANCE_API_SECRET=你的生产只读_API_Secret
 
 测试网模式固定使用 `https://testnet.binance.vision`，只读取测试网凭证，不会回退到生产 Key；生产模式只读取生产凭证。测试网不支持 Simple Earn，因此测试网环境会拒绝 Simple Earn 路径。
 
-**当前完成边界：** Dashboard 的账户与行情请求已切换到 Next.js 服务端，浏览器不再需要读取 Binance 密钥；服务端已按环境选择 Spot endpoint 和凭证。测试网买卖提交 API、队列按钮和自动执行调度仍需后续迁移到服务端，当前不会从页面提交任何订单。生产 BUY/SELL 与 Earn 赎回保持关闭。真实测试网下单、部分成交和超时恢复演练尚未完成。
+**当前完成边界：** Dashboard 的账户与行情请求已切换到 Next.js 服务端，浏览器不持有 Binance 密钥；服务端按环境选择 Spot endpoint 和凭证。统一 `/api/binance/spot-order` 已提供 BUY/SELL MARKET 下单入口，要求 Basic Auth、同源 Origin，并由服务端分别检查 testnet/production 与 BUY/SELL 开关。生产开关默认关闭；当前代码已具备生产适配器入口，但尚未通过完整CI、交易规则过滤、自动成交对账及部署验收，不能视为可实盘运行。自动执行仍由看板客户端节拍驱动，关闭页面后不会持续执行。Simple Earn 真实赎回仍关闭。
 
 ## 安全提醒
 
@@ -158,3 +158,36 @@ BUY 和 SELL 可分别开启；首次联调建议只开启 BUY，验证流程后
 用户已选择A2/B2/C2/D2/E2/F2/G2，详见[用户确认决策](docs/策略3.3/策略3.3用户确认决策.md)。BTC/PAXG为核心积极型，ETH按保守型处理；保留五档评分与100分制展示；积极型止盈倍数2/3/5、保守型1.3/1.6/2，三档比例为50/30/80；固定单币额度不按账户净值比例压缩；自动执行架构继续开发但LIVE默认关闭；展示层软失败必须标记STALE，执行侧不得将STALE数据视为新鲜数据。H项未选择。代码核对状态以[规则实现矩阵](docs/策略3.3/策略3.3规则实现矩阵.md)为准。
 
 特别说明：E2意味着账户净值比例风控不作为当前执行层硬限制，README中不得再暗示现金比例、核心/山寨净值额度、单周新增和组合回撤阈值已全部强制执行。G2也不代表stale数据可以用于真实交易。
+
+
+## 统一 Spot 下单环境配置（开发中）
+
+统一下单路由为 `/api/binance/spot-order`。环境由服务端 `BINANCE_SPOT_ENVIRONMENT` 决定，浏览器 `NEXT_PUBLIC_BINANCE_SPOT_TESTNET` 只用于选择行情域名和界面开关；两者配置不一致时，服务端独立开关仍会阻止未授权订单。
+
+测试网模拟配置：
+
+```dotenv
+BINANCE_SPOT_ENVIRONMENT=testnet
+NEXT_PUBLIC_BINANCE_SPOT_TESTNET=1
+BINANCE_TESTNET_API_KEY=模拟测试网Key
+BINANCE_TESTNET_API_SECRET=模拟测试网Secret
+BINANCE_TESTNET_BUY_ENABLED=0
+BINANCE_TESTNET_SELL_ENABLED=0
+NEXT_PUBLIC_BINANCE_TESTNET_BUY_ENABLED=0
+NEXT_PUBLIC_BINANCE_TESTNET_SELL_ENABLED=0
+```
+
+生产配置模板（当前默认禁止提交订单，不能直接照抄启用）：
+
+```dotenv
+BINANCE_SPOT_ENVIRONMENT=production
+NEXT_PUBLIC_BINANCE_SPOT_TESTNET=0
+BINANCE_API_KEY=
+BINANCE_API_SECRET=
+BINANCE_PRODUCTION_BUY_ENABLED=0
+BINANCE_PRODUCTION_SELL_ENABLED=0
+NEXT_PUBLIC_BINANCE_PRODUCTION_BUY_ENABLED=0
+NEXT_PUBLIC_BINANCE_PRODUCTION_SELL_ENABLED=0
+```
+
+`NEXT_PUBLIC_*` 仅是浏览器界面层开关，不含密钥，也不构成服务端授权。真实 Key/Secret 只能放在服务器本地环境文件或 Cloudflare Secrets。生产开关在完成全链路测试和用户明确启用前必须保持为 `0`。
