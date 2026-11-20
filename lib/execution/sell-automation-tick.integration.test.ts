@@ -165,4 +165,38 @@ describe("集成：旧 partial + Binance NEW → 冻结 → 同 tick 不 resume"
     });
     expect(resumeCalls).toHaveLength(0);
   });
+
+  it("reconcile_required 残留终态证明 + NEW：同步后清除证明且不 resume", async () => {
+    const dirty = {
+      ...legacyPartial,
+      status: "reconcile_required" as const,
+      exchangeTerminalStatus: "CANCELED",
+      fillReconcileCompletedAt: 1_700_000_000_000,
+      lotStepSize: 0.00001,
+      lastError: "脏数据",
+    };
+    listSellEvents.mockResolvedValue([{ ...dirty }]);
+    fetchSpotOrderById.mockResolvedValue({
+      symbol: "BTCUSDT",
+      orderId: 103,
+      clientOrderId: "c1",
+      status: "NEW",
+      origQty: "0.15",
+      executedQty: "0",
+      cummulativeQuoteQty: "0",
+      transactTime: Date.now(),
+    });
+
+    const result = await syncSellOrderFromBinance("sell:BTC:take_profit:2:止盈1");
+    expect(result.action).toBe("wait");
+    expect(updateSellEvent).toHaveBeenCalled();
+    const saved = updateSellEvent.mock.calls[0][0];
+    expect(saved.status).toBe("reconcile_required");
+    expect(saved.exchangeTerminalStatus).toBeUndefined();
+    expect(saved.fillReconcileCompletedAt).toBeUndefined();
+
+    listSellEvents.mockResolvedValue([{ ...saved }]);
+    const tick = await runSellAutomationTick(data(), { attemptLiveSubmit: false });
+    expect(tick.enqueued).toBe(0);
+  });
 });
