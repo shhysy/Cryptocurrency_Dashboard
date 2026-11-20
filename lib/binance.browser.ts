@@ -496,7 +496,7 @@ function nextTradePageFromId(
   if (!Array.isArray(rows)) throw new Error(`${label}响应格式无效，成交明细不完整`);
   if (rows.length < 1000) return null;
   const lastId = rows[rows.length - 1]?.id;
-  if (!Number.isSafeInteger(lastId) || lastId < 0 ||
+  if (!Number.isSafeInteger(lastId) || lastId < 0 || lastId >= Number.MAX_SAFE_INTEGER ||
       (currentFromId !== undefined && lastId < currentFromId)) {
     throw new Error(`${label}分页成交 ID 无效或未递增，暂停自动记账`);
   }
@@ -552,13 +552,13 @@ export async function fetchSpotTradesForOrder(symbol: string, orderId: number): 
     }[]>("/api/v3/myTrades", {
       symbol, orderId, limit: 1000, ...(fromId !== undefined ? { fromId } : {}),
     });
+    const nextFromId = nextTradePageFromId(rows, page, 20, fromId, "指定订单成交查询");
     all.push(...rows.map((t) => ({
       id: t.id, orderId: t.orderId, symbol,
       price: Number(t.price), qty: Number(t.qty), quoteQty: Number(t.quoteQty),
       commission: Number(t.commission), commissionAsset: t.commissionAsset,
       time: t.time, isBuyer: t.isBuyer,
     })));
-    const nextFromId = nextTradePageFromId(rows, page, 20, fromId, "指定订单成交查询");
     if (nextFromId === null) break;
     fromId = nextFromId;
   }
@@ -587,13 +587,13 @@ export async function fetchSpotTrades(symbol: string, maxPages = 5): Promise<Bin
     }[]>("/api/v3/myTrades", {
       symbol, limit: 1000, ...(fromId !== undefined ? { fromId } : {}),
     });
+    const nextFromId = nextTradePageFromId(rows, page, maxPages, fromId, "账户成交查询");
     all.push(...rows.map((t) => ({
       id: t.id, orderId: t.orderId, symbol,
       price: Number(t.price), qty: Number(t.qty), quoteQty: Number(t.quoteQty),
       commission: Number(t.commission), commissionAsset: t.commissionAsset,
       time: t.time, isBuyer: t.isBuyer,
     })));
-    const nextFromId = nextTradePageFromId(rows, page, maxPages, fromId, "账户成交查询");
     if (nextFromId === null) break;
     fromId = nextFromId;
   }
@@ -610,8 +610,8 @@ export async function fetchBuyTrades(base: string, quote: string): Promise<Trade
       limit: 1000,
       ...(fromId !== undefined ? { fromId } : {}),
     });
-    all.push(...rows);
     const nextFromId = nextTradePageFromId(rows, page, 5, fromId, "BUY历史成交查询");
+    all.push(...rows);
     if (nextFromId === null) break;
     fromId = nextFromId;
   }
