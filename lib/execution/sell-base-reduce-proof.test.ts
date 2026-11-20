@@ -49,4 +49,14 @@ describe("底仓减仓成交仅统计有证明的记录", () => {
     const b = baseEvent({ eventKey: "b", fillIds: ["y", "z"], filledQty: 0.05 });
     expect(confirmedBaseReduceFilledQty([a, b])).toBeCloseTo(0.1);
   });
+
+  it("fillIds 含空值或事件内重复不计入", () => {
+    expect(confirmedBaseReduceFilledQty([baseEvent({ fillIds: ["a", ""] })])).toBe(0);
+    expect(confirmedBaseReduceFilledQty([baseEvent({ fillIds: ["a", "a"] })])).toBe(0);
+  });
+
+  it("fillReconcileCompletedAt 非安全整数不计入", () => {
+    expect(confirmedBaseReduceFilledQty([baseEvent({ fillReconcileCompletedAt: 1.5 })])).toBe(0);
+    expect(confirmedBaseReduceFilledQty([baseEvent({ fillReconcileCompletedAt: Number.MAX_SAFE_INTEGER + 1 })])).toBe(0);
+  });
 });

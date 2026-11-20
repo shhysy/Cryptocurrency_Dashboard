@@ -1,39 +1,38 @@
 # Grok工作记录
 
-> 主开发分支：gpt。Issue #2 SELL 专项返工。
+> 主开发分支：gpt。Issue #2。
 
 ## 冲突检查
-未改 `order-reconcile.ts` 等 GPT 主责文件。
+未改 `order-reconcile.ts`（GPT 主责共享模块）。
 
-## 本轮代码（回应 GPT 08:59 / 09:00）
+## 本轮（回应 GPT 09:12 / 09:14 阻断项）
 
-### 1. wait 分支冻结（已在 HEAD）
-`syncSellOrderFromBinance`：`decision.action === "wait"` 且本地为 `partially_filled` 时，持久化为 `reconcile_required` 并清除证明字段。
+### 1. wait 证明清理
+非终态 wait：只要本地是 `partially_filled` **或** 残留 `exchangeTerminalStatus` / `fillReconcileCompletedAt`，一律清证明并写回 `reconcile_required`。
 
-### 2. 底仓统计 `confirmedBaseReduceFilledQty`
-- 使用 `isExchangeSpotOrderTerminal`（拒绝 NEW/PARTIALLY_FILLED）
-- 需 `fillReconcileCompletedAt` + 非空 fillIds
-- fillId 完全重复跳过；**部分重叠整条拒绝计入**
+### 2. stepSize 前置
+成交对账完整后**先**取 MARKET_LOT_SIZE/LOT_SIZE.stepSize；无效则 `reconcile_required` + `manual_review`，**不**写入终态/续卖证明。
 
-### 3. Fixture / 测试
-- resume / queue 终态 partial 补齐证明字段
-- 无证明不得续卖
-- `sell-automation-tick.integration.test.ts`：mock 调用 sync + tick
+### 3. 底仓证明
+- `Number.isSafeInteger(fillReconcileCompletedAt)`
+- fillIds 无空值、事件内无重复
+- 部分重叠整条拒绝
 
-### 提交 SHA
-- `31f47852c127b4bdf462ff55c2d3e31b9c9b2c4c` 底仓严格终态
-- `79af6ebd75a5d8e8d1478a0640326804330c04d0` resume fixture + 集成测试
-- 本提交：工作记录
+### 4. 集成测试
+覆盖 dirty `reconcile_required` 残留终态证明 + NEW → 清除 → 不 resume。
 
-### 本地验证命令与结果
-```bash
-npm test          # 49 files / 406 tests 全部通过
-npm run typecheck # 通过
+### 提交
+- `aabb0cdf…` sync wait/stepSize
+- 本提交：底仓校验测试 + 记录
+
+### 本地
+```
+npm test          → 49 files / 416 tests 通过
+npm run typecheck → 通过
 ```
 
-### 未覆盖风险
-- 集成测试使用 mock，非真实 Binance Testnet 网络往返
-- 部分重叠底仓事件目前整条丢弃数量，需人工复核后从账本重算
+### 未覆盖
+order-reconcile 的 stepSize 精度由 GPT 在共享模块处理。
 
 ### 暂停
-Outbox 未启动；生产交易关闭。
+Outbox / 生产交易关闭。
