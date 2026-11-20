@@ -106,9 +106,6 @@ export function confirmedBaseReduceFilledQty(
   return sum;
 }
 
-/**
- * 存在已宣称成交的底仓减仓，但台账无法完整核验 → 应阻断该币 SELL 计划。
- */
 export function hasUnverifiedBaseReduceClaims(
   events: SellEventRecord[],
   ledgerFills?: BaseReduceLedgerFill[],
@@ -153,11 +150,26 @@ export function takeProfitTierHasOpenWork(events: SellEventRecord[], suffix: str
   );
 }
 
+/**
+ * 跨周仍生效：任意未完结底仓减仓意图（不按 sourceWeek 过滤）。
+ * pending / reconcile_required 一律占用；
+ * partially_filled 若无合法终态+对账证明，视为未知，继续占用。
+ */
 export function hasOpenBaseReduce(events: SellEventRecord[]): boolean {
-  return events.some((event) =>
-    event.kind === "base_reduce" &&
-    (event.status === "pending" || event.status === "reconcile_required"),
-  );
+  return events.some((event) => {
+    if (event.kind !== "base_reduce") return false;
+    if (event.status === "pending" || event.status === "reconcile_required") return true;
+    if (event.status === "partially_filled") {
+      if (!event.exchangeTerminalStatus || !isExchangeSpotOrderTerminal(event.exchangeTerminalStatus)) {
+        return true;
+      }
+      if (!Number.isSafeInteger(event.fillReconcileCompletedAt) || (event.fillReconcileCompletedAt as number) <= 0) {
+        return true;
+      }
+      if (!Array.isArray(event.fillIds) || event.fillIds.length === 0) return true;
+    }
+    return false;
+  });
 }
 
 export function isTerminalReconciledPartial(
@@ -242,6 +254,15 @@ export function buildSellEventReservations(
       blocked.push({
         symbol: coin.symbol,
         reason: "底仓减仓成交缺少可核验成交台账，已阻断本币卖出计划（人工复核）",
+      });
+      continue;
+    }
+
+    // 未完结底仓减仓（含跨周 pending / 未知 partial）冻结该币全部卖出
+    if (hasOpenBaseReduce(symbolEvents)) {
+      blocked.push({
+        symbol: coin.symbol,
+        reason: "该币存在未完结底仓减仓（跨周仍生效），已冻结卖出直至终态对账",
       });
       continue;
     }
