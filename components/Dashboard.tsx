@@ -120,6 +120,8 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
   const scenario = data.source === "mock" ? data.scenario : undefined;
 
   const refresh = useCallback(async (sc?: string) => {
+    // 一旦开始刷新，先撤销上一份数据的自动下单许可；成功后再重新开放。
+    setDirectReady(false);
     try {
       const res = await fetch(`/api/dashboard${sc ? `?scenario=${sc}` : ""}`, { cache: "no-store" });
       if (!res.ok) throw new Error(String(res.status));
@@ -139,6 +141,7 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
       setDirectReady(nextData.source === "binance" && !nextData.stale);
       setErr(null);
     } catch (e) {
+      setDirectReady(false);
       setErr(`刷新失败：${e instanceof Error ? e.message.slice(0, 100) : "未知错误"}`);
     }
   }, []);
@@ -295,7 +298,11 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
   if (fit) {
     return (
       <main className="mx-auto flex h-dvh w-full max-w-[1800px] flex-col gap-2 overflow-hidden px-4 py-2.5 lg:px-6">
-        <ExecutionBackground onChange={refreshQueue} data={data} />
+        <ExecutionBackground
+          onChange={refreshQueue}
+          data={data}
+          executionAllowed={directReady && !err && data.source === "binance" && !data.stale}
+        />
         {header}
         {banner}
         <ScoreToast data={data} />
