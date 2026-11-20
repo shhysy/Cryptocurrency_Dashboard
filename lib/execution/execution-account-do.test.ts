@@ -8,6 +8,7 @@ class FakeSql {
     symbol: string; side: string; amount: string; attempt: number; client_order_id?: string;
   }>();
   lock: { intent_id: string } | null = null;
+  readonly reservations = new Map<string, { intent_id: string; asset: string; amount: string; attempt: number }>();
 
   exec(query: string, ...bindings: unknown[]) {
     this.statements.push(query);
@@ -43,6 +44,13 @@ class FakeSql {
         row.client_order_id = String(bindings[1]);
         rows = [{ intent_id: row.intent_id }];
       }
+    } else if (query.includes("INSERT INTO reservations")) {
+      this.reservations.set(String(bindings[0]), {
+        intent_id: String(bindings[1]),
+        asset: String(bindings[2]),
+        amount: String(bindings[3]),
+        attempt: Number(bindings[4]),
+      });
     } else if (query.includes("INSERT INTO account_lock")) {
       this.lock = { intent_id: String(bindings[0]) };
     } else if (query.includes("SELECT COUNT(*) AS total")) {
@@ -155,6 +163,9 @@ describe("账户级Durable Object持久化基础", () => {
     expect(body.reservedAmount).toBe("100");
     expect(sql.intents.get(intent.intentId)?.state).toBe("reserved");
     expect(sql.lock?.intent_id).toBe(intent.intentId);
+    expect([...sql.reservations.values()]).toEqual([{
+      intent_id: intent.intentId, asset: "USDT", amount: "100", attempt: 1,
+    }]);
   });
 
   it("账户活动订单锁阻止另一币种并发领取", async () => {
@@ -181,13 +192,16 @@ describe("账户级Durable Object持久化基础", () => {
       }),
     );
 
-    const first = await claim(intent.intentId, "100");
-    const second = await claim(secondIntent.intentId, "100");
+    const [first, second] = await Promise.all([
+      claim(intent.intentId, "100"),
+      claim(secondIntent.intentId, "100"),
+    ]);
 
-    expect(first.status).toBe(201);
-    expect(second.status).toBe(409);
-    expect(sql.lock?.intent_id).toBe(intent.intentId);
-    expect(sql.intents.get(secondIntent.intentId)?.state).toBe("queued");
+    expect([first.status, second.status].sort()).toEqual([201, 409]);
+    expect(sql.lock?.intent_id).toBeTruthy();
+    expect(sql.intents.get(secondIntent.intentId)?.state).toBe(
+      sql.lock?.intent_id === secondIntent.intentId ? "reserved" : "queued",
+    );
   });
 
   it("余额不足或过期余额快照不得领取和预留资金", async () => {
