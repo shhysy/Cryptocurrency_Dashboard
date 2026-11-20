@@ -608,26 +608,27 @@ export async function reserveAndClaimBuyOrderSubmission(input: {
 
       const finish = () => {
         if (!orderReady || !reservationReady || result || fatal) return;
-        if (!currentOrder) {
+        const liveOrder = currentOrder;
+        if (!liveOrder) {
           fatal = new Error("待买订单不存在");
           tx.abort();
           return;
         }
-        if (currentOrder.updatedAt !== input.expectedOrderUpdatedAt ||
-            currentOrder.attemptCount !== input.expectedAttemptCount) {
+        if (liveOrder.updatedAt !== input.expectedOrderUpdatedAt ||
+            liveOrder.attemptCount !== input.expectedAttemptCount) {
           fatal = new Error("预检期间待买订单已变化，拒绝使用过期预检结果提交");
           tx.abort();
           return;
         }
         const blockReason = buyOrderReservationBlockReason(
-          currentOrder, input.orderId, input.symbol, input.requestedUsdt,
+          liveOrder, input.orderId, input.symbol, input.requestedUsdt,
         );
         if (blockReason) {
           fatal = new Error(blockReason);
           tx.abort();
           return;
         }
-        if (!Number.isInteger(currentOrder.attemptCount) || currentOrder.attemptCount < 0) {
+        if (!Number.isInteger(liveOrder.attemptCount) || liveOrder.attemptCount < 0) {
           fatal = new Error("待买订单 attemptCount 无效，必须人工核对");
           tx.abort();
           return;
@@ -681,9 +682,9 @@ export async function reserveAndClaimBuyOrderSubmission(input: {
               };
           if (currentReservation?.status !== "active") reservations.put(reservation);
 
-          const attempt = currentOrder.attemptCount;
+          const attempt = liveOrder.attemptCount;
           const order: QueuedBuyOrder = {
-            ...currentOrder,
+            ...liveOrder,
             status: "reconcile_required",
             attemptCount: attempt + 1,
             lastAttemptAt: now,
