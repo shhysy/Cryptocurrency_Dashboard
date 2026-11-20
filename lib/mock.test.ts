@@ -9,8 +9,10 @@ describe("示例数据场景", () => {
     expect(run("none").verdict.kind).toBe("none");
   });
   it("accumulate：BTC 给出买入建议并带金额", () => {
-    const v = run("accumulate").verdict;
-    expect(v.kind).toBe("accumulate");
+    const result = run("accumulate");
+    const v = result.verdict;
+    const btc = result.coins.find((coin) => coin.symbol === "BTC");
+    expect(v.kind, JSON.stringify({ btc: btc?.signal, market: result.market })).toBe("accumulate");
     expect(v.primary?.symbol).toBe("BTC");
     expect(v.primary?.action.side).toBe("buy");
     expect(v.primary?.action.usdt).toBeGreaterThan(0);
