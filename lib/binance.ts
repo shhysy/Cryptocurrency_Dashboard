@@ -1,5 +1,5 @@
 import type { Candle, Trade } from "@/strategy/types";
-import { isTestnetOrderSubmissionEnabled, resolveServerBinanceEnvironment } from "./binance-environment";
+import { isSpotOrderSubmissionEnabled, resolveServerBinanceEnvironment } from "./binance-environment";
 
 const SPOT_ENV = resolveServerBinanceEnvironment({
   BINANCE_SPOT_ENVIRONMENT: process.env.BINANCE_SPOT_ENVIRONMENT,
@@ -347,21 +347,26 @@ export interface SpotMarketOrderResponse {
 }
 
 /**
- * Testnet-only MARKET order adapter. Production is rejected regardless of
- * browser flags. The server env flag is the authoritative second gate.
+ * 统一 Spot MARKET 下单适配器。
+ * 环境、凭证和交易域名完全由服务端 BINANCE_SPOT_ENVIRONMENT 决定；
+ * 浏览器参数和 NEXT_PUBLIC 开关不能越过服务端独立授权。
  */
-export async function submitTestnetSpotMarketOrder(
+export async function submitSpotMarketOrder(
   input: SpotMarketOrderInput,
 ): Promise<SpotMarketOrderResponse> {
-  if (!SPOT_TESTNET) throw new Error("订单提交接口仅允许 Binance Spot Testnet");
-  const enabled = isTestnetOrderSubmissionEnabled(SPOT_ENV.mode, input.side, {
+  const mode = SPOT_ENV.mode;
+  const enabled = isSpotOrderSubmissionEnabled(mode, input.side, {
     BINANCE_TESTNET_BUY_ENABLED: process.env.BINANCE_TESTNET_BUY_ENABLED,
     BINANCE_TESTNET_SELL_ENABLED: process.env.BINANCE_TESTNET_SELL_ENABLED,
+    BINANCE_PRODUCTION_BUY_ENABLED: process.env.BINANCE_PRODUCTION_BUY_ENABLED,
+    BINANCE_PRODUCTION_SELL_ENABLED: process.env.BINANCE_PRODUCTION_SELL_ENABLED,
   });
-  if (!enabled) throw new Error("测试网该方向的订单提交开关未在服务端启用");
-  if (!apiKey() || !apiSecret()) throw new Error("服务端缺少 Binance Testnet API Key/Secret");
+  if (!enabled) throw new Error(`${mode === "testnet" ? "测试网" : "生产环境"}${input.side} 订单服务端开关未启用`);
+  if (!apiKey() || !apiSecret()) {
+    throw new Error(mode === "testnet" ? "服务端缺少 Binance Testnet API Key/Secret" : "服务端缺少 Binance Production API Key/Secret");
+  }
   if (!/^[A-Z0-9]{5,24}$/.test(input.symbol)) throw new Error("交易对格式无效");
-  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(input.amount) || Number(input.amount) <= 0) {
+  if (!/^(?:0|[1-9]\\d*)(?:\\.\\d{1,8})?$/.test(input.amount) || Number(input.amount) <= 0) {
     throw new Error("订单数量或金额无效");
   }
   if (!/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) throw new Error("clientOrderId 格式无效");
@@ -388,7 +393,9 @@ export async function submitTestnetSpotMarketOrder(
     signal: AbortSignal.timeout(15_000),
   });
   const body = await response.text().catch(() => "");
-  if (!response.ok) throw new Error("Binance Testnet order " + response.status + ": " + body.slice(0, 240));
+  if (!response.ok) {
+    throw new Error(`Binance ${mode} order ${response.status}: ${body.slice(0, 240)}`);
+  }
   let parsed: SpotMarketOrderResponse;
   try {
     parsed = JSON.parse(body) as SpotMarketOrderResponse;
@@ -401,4 +408,12 @@ export async function submitTestnetSpotMarketOrder(
     throw new Error("Binance 响应字段不匹配；必须按 clientOrderId 对账，禁止重发");
   }
   return parsed;
+}
+
+/** 兼容旧测试网路由；它永远拒绝生产环境。 */
+export async function submitTestnetSpotMarketOrder(
+  input: SpotMarketOrderInput,
+): Promise<SpotMarketOrderResponse> {
+  if (!SPOT_TESTNET) throw new Error("旧测试网订单接口仅允许 Binance Spot Testnet");
+  return submitSpotMarketOrder(input);
 }
