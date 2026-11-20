@@ -23,7 +23,14 @@ const withAccount = (over: Partial<typeof account>) => ({ account: { ...account,
 const trade = (price: number, qty: number, weeks: number, id = `t${weeks}`): Trade => ({ id, symbol: "X", time: weeks * WEEK, price, qty, fee: 0, source: "binance" });
 
 function coin(closes: number[], over: Partial<CoinInput> = {}): CoinInput {
-  return { symbol: "BTC", price: closes.at(-1)!, weekly: candles(closes), qty: 0, avgCost: null, invested: 0, marketValue: 0, buys: [], ...over };
+  const weekly = candles(closes);
+  // 模拟 Binance 返回的最后一根当前未收盘周线，其余周线均已收盘。
+  const currentWeekOpen = 299 * WEEK;
+  const timedWeekly = weekly.map((candle, index) => ({
+    ...candle,
+    t: currentWeekOpen - (weekly.length - 1 - index) * WEEK,
+  }));
+  return { symbol: "BTC", price: closes.at(-1)!, weekly: timedWeekly, qty: 0, avgCost: null, invested: 0, marketValue: 0, buys: [], ...over };
 }
 /** 持仓币：买入记录决定均价和数量。 */
 function held(closes: number[], buys: Trade[], over: Partial<CoinInput> = {}): CoinInput {
