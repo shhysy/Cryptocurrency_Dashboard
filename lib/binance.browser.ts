@@ -15,8 +15,6 @@ export const BINANCE_SPOT_API_BASE =
   BINANCE_SPOT_ENVIRONMENT === "testnet"
     ? "https://testnet.binance.vision"
     : "https://api.binance.com";
-const API_KEY = "";
-const API_SECRET = "";
 const BASE = BINANCE_SPOT_API_BASE;
 export const BINANCE_SPOT_BUY_SUBMISSION_ENABLED =
   BINANCE_SPOT_ENVIRONMENT === "testnet"
@@ -41,30 +39,7 @@ async function getJson<T>(url: string, headers?: Record<string, string>): Promis
 }
 
 export function hasCredentials() {
-  return Boolean(API_KEY && API_SECRET);
-}
-
-async function hmacHex(secret: string, message: string) {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));
-  return Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-// 时钟同步。浏览器时钟不准会触发 -1021。
-let clockOffset: number | null = null;
-let clockSyncedAt = 0;
-async function serverNow(): Promise<number> {
-  if (clockOffset === null || Date.now() - clockSyncedAt > 30 * 60_000) {
-    const t0 = Date.now();
-    const { serverTime } = await getJson<{ serverTime: number }>(`${BASE}/api/v3/time`);
-    const t1 = Date.now();
-    clockOffset = serverTime - (t0 + t1) / 2;
-    clockSyncedAt = t1;
-  }
-  return Date.now() + clockOffset;
+  return false;
 }
 
 async function signedGet<T>(path: string, params: Record<string, string | number> = {}): Promise<T> {
@@ -180,47 +155,12 @@ export interface FlexibleEarnRedemptionSubmitResponse {
   success?: boolean;
 }
 
-export async function redeemFlexibleEarnUsdt(input: {
+export async function redeemFlexibleEarnUsdt(_input: {
   productId: string;
   amountUsdt: number;
 }): Promise<FlexibleEarnRedemptionSubmitResponse> {
   assertSimpleEarnProductionOnly();
-  if (!LIVE_EARN_REDEMPTION_ENABLED) {
-    throw new Error("真实理财赎回尚未启用；当前不会发送 Binance POST 请求");
-  }
-  if (!API_KEY || !API_SECRET) throw new Error("缺少 Binance API Key/Secret");
-  if (!input.productId.trim() || !Number.isFinite(input.amountUsdt) || input.amountUsdt <= 0) {
-    throw new Error("理财赎回产品或金额无效");
-  }
-  const params = {
-    productId: input.productId,
-    amount: input.amountUsdt.toFixed(8).replace(/\.?0+$/, ""),
-    destAccount: "SPOT",
-    recvWindow: 10000,
-    timestamp: Math.round(await serverNow()),
-  };
-  const qs = new URLSearchParams(
-    Object.entries(params).map(([key, value]) => [key, String(value)]),
-  ).toString();
-  const signature = await hmacHex(API_SECRET, qs);
-  const res = await fetch(`${BASE}/sapi/v1/simple-earn/flexible/redeem?${qs}&signature=${signature}`, {
-    method: "POST",
-    headers: { "X-MBX-APIKEY": API_KEY },
-    cache: "no-store",
-    signal: AbortSignal.timeout(15_000),
-  });
-  const body = await res.text().catch(() => "");
-  if (!res.ok) throw new Error(`Binance Flexible redeem ${res.status}: ${body.slice(0, 300)}`);
-  let parsed: FlexibleEarnRedemptionSubmitResponse;
-  try {
-    parsed = JSON.parse(body) as FlexibleEarnRedemptionSubmitResponse;
-  } catch {
-    throw new Error("Binance 赎回响应无法解析；必须通过历史记录人工核对，禁止重发");
-  }
-  if (parsed.redeemId === undefined || parsed.redeemId === null || String(parsed.redeemId).trim() === "") {
-    throw new Error("Binance 赎回响应缺少 redeemId；必须通过历史记录人工核对，禁止重发");
-  }
-  return parsed;
+  throw new Error("Simple Earn 真实赎回尚未迁移到服务端专用路由；当前不会发送任何 Binance POST 请求");
 }
 
 // ---------- 公开行情 ----------
