@@ -81,6 +81,7 @@ describe("底仓减仓后周期仓可卖重算", () => {
       exchangeOrderId: "9", fillIds: ["br1"], lastError: null,
       exchangeTerminalStatus: "FILLED", fillReconcileCompletedAt: 1_700_000_000_000,
     }];
+    const ledger = [{ symbol: "BTCUSDT", fillId: "br1", qty: 0.1, side: "SELL", sellKind: "base_reduce" as const }];
     const plan = buildSellEventReservations(data({
       coins: [{
         symbol: "BTC", name: "Bitcoin", color: "#f7931a", price: 60000,
@@ -90,10 +91,22 @@ describe("底仓减仓后周期仓可卖重算", () => {
         buys: [{ id: "buy-1", t: 1, price: 30000, qty: 1, position: "mid" }],
         signal: sellSignal,
       }],
-    }), existing);
-    // 无台账时底仓减仓 fail-closed 不减少保护量；止盈仍可按周期仓预约
+    }), existing, { ledgerFills: ledger });
     expect(plan.records).toHaveLength(1);
     expect(plan.records[0].requestedQty).toBeCloseTo(0.15);
+  });
+
+  it("底仓减仓已宣称成交但无台账时阻断卖出计划", () => {
+    const existing: SellEventRecord[] = [{
+      eventKey: "sell:BTC:base_reduce:old",
+      symbol: "BTC", kind: "base_reduce", status: "executed",
+      requestedQty: 0.1, filledQty: 0.1, createdAt: 1, updatedAt: 1,
+      exchangeOrderId: "9", fillIds: ["br1"], lastError: null,
+      exchangeTerminalStatus: "FILLED", fillReconcileCompletedAt: 1_700_000_000_000,
+    }];
+    const plan = buildSellEventReservations(data(), existing);
+    expect(plan.records).toHaveLength(0);
+    expect(plan.blocked.some((b) => b.reason.includes("台账"))).toBe(true);
   });
 });
 
