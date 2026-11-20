@@ -15,6 +15,15 @@ export interface SellEventRecord {
   clientOrderId?: string;
   fillIds: string[];
   lastError: string | null;
+  /**
+   * 交易所终态状态快照（FILLED/CANCELED/EXPIRED/EXPIRED_IN_MATCH/REJECTED）。
+   * 仅在确认终态且成交明细对账完整后写入；旧 IndexedDB 无此字段时禁止 resume。
+   */
+  exchangeTerminalStatus?: string;
+  /** 成交对账完成时间戳；缺失表示未完成对账或旧数据 */
+  fillReconcileCompletedAt?: number;
+  /** 对账时使用的 MARKET_LOT_SIZE/LOT_SIZE stepSize */
+  lotStepSize?: number;
 }
 
 const DB_NAME = "long-term-investment-sell-events";
