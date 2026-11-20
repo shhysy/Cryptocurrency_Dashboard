@@ -925,7 +925,9 @@ export class ExecutionAccountDO {
       ? (dueRows[0] as { next_at?: unknown }).next_at
       : null;
     if (typeof nextAt === "number" && Number.isSafeInteger(nextAt) && nextAt > 0) {
-      await this.state.storage.setAlarm(Math.max(now + 1_000, nextAt));
+      // 到期pending任务目前尚未接入执行器；避免每秒唤醒形成空转。
+      // Cron每分钟提供兜底唤醒，执行器接通后再缩短到精确dueAt。
+      await this.state.storage.setAlarm(Math.max(now + 60_000, nextAt));
     } else if (this.state.storage.deleteAlarm) {
       await this.state.storage.deleteAlarm();
     }
