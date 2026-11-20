@@ -63,8 +63,8 @@ describe("服务端 Spot 下单适配器环境隔离", () => {
     });
 
     expect(result.orderId).toBe(987654);
-    expect(String(fetchMock.mock.calls[0][0])).toContain("https://api.binance.com/api/v3/exchangeInfo");
-    expect(String(fetchMock.mock.calls[2][0])).toContain("https://api.binance.com/api/v3/time");
+    // 公开行情可走 data-api.binance.vision；带签名的账户读取和下单必须固定走官方 Spot API。
+    expect(String(fetchMock.mock.calls[3][0])).toContain("https://api.binance.com/api/v3/account");
     expect(String(fetchMock.mock.calls[4][0])).toContain("https://api.binance.com/api/v3/order");
     expect(fetchMock.mock.calls[4][1]?.headers).toMatchObject({ "X-MBX-APIKEY": "SIMULATED_PRODUCTION_KEY" });
   });
