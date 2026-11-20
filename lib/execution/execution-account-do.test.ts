@@ -204,6 +204,35 @@ describe("账户级Durable Object持久化基础", () => {
     );
   });
 
+  it("使用十进制整数比较余额，不允许微小数量不足被浮点误差吞掉", async () => {
+    const { coordinator, sql } = makeCoordinator();
+    const tinyIntent = {
+      ...intent,
+      intentId: "v33:BTC:tiny:2026W47",
+      strategyEventId: "BTC:tiny:2026W47",
+      amount: "0.000000000002",
+    };
+    await coordinator.fetch(new Request("https://do.internal/internal/intents", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(tinyIntent),
+    }));
+    const response = await coordinator.fetch(new Request("https://do.internal/internal/claim", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        intentId: tinyIntent.intentId,
+        asset: "USDT",
+        availableBalance: "0.000000000001",
+        snapshotAt: Date.now(),
+      }),
+    }));
+
+    expect(response.status).toBe(409);
+    expect(sql.intents.get(tinyIntent.intentId)?.state).toBe("queued");
+    expect(sql.lock).toBeNull();
+  });
+
   it("余额不足或过期余额快照不得领取和预留资金", async () => {
     const { coordinator, sql } = makeCoordinator();
     await coordinator.fetch(new Request("https://do.internal/internal/intents", {
