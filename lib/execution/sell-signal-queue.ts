@@ -61,7 +61,6 @@ export function hasOpenBaseReduce(events: SellEventRecord[]): boolean {
   );
 }
 
-/** 终态且对账完整的部分成交才可作为 resume 依据 */
 export function isTerminalReconciledPartial(
   event: Pick<SellEventRecord, "status" | "filledQty" | "requestedQty" | "fillIds" | "exchangeOrderId">,
 ): boolean {
@@ -80,11 +79,16 @@ export function takeProfitTierFullyFilled(events: SellEventRecord[], suffix: str
   );
   if (tierEvents.length === 0) return false;
   const filled = tierEvents
-    .filter((event) =>
-      (event.status === "executed" || event.status === "partially_filled") &&
-      Number.isFinite(event.filledQty),
-    )
-    .reduce((sum, event) => sum + (event.filledQty as number), 0);
+    .filter((event) => event.status === "executed" || event.status === "partially_filled")
+    .reduce((sum, event) => {
+      if (Number.isFinite(event.filledQty) && (event.filledQty as number) > 0) {
+        return sum + (event.filledQty as number);
+      }
+      if (event.status === "executed" && Number.isFinite(event.requestedQty)) {
+        return sum + event.requestedQty;
+      }
+      return sum;
+    }, 0);
   const target = Math.max(
     0,
     ...tierEvents.map((event) => (Number.isFinite(event.requestedQty) ? event.requestedQty : 0)),
