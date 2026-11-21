@@ -193,9 +193,20 @@ async function ensurePartialSellContinuation(
 
   const events = await deps.store.sellEvents.listSellEvents();
   const childPrefix = `${event.eventKey}:续卖`;
-  if (events.some((item) => item.eventKey.startsWith(childPrefix))) return;
-
   const childEventKey = `${event.eventKey}:续卖1`;
+  const existingChild = events.find((item) => item.eventKey === childEventKey);
+  if (existingChild) {
+    const tolerance = Math.max(epsilon, remainingQty * 1e-10);
+    if (existingChild.symbol !== event.symbol || existingChild.kind !== event.kind ||
+        Math.abs(existingChild.requestedQty - remainingQty) > tolerance) {
+      throw new Error("SELL续卖子事件与父事件剩余数量/类型不一致，转人工复核");
+    }
+    return;
+  }
+  if (events.some((item) => item.eventKey.startsWith(childPrefix))) {
+    throw new Error("SELL续卖链缺少直接子事件，转人工复核");
+  }
+
   const child = await deps.store.sellEvents.reserveSellEvent({
     eventKey: childEventKey,
     symbol: event.symbol,
