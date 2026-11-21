@@ -12,7 +12,10 @@ type ReconcileAdapter = ReturnType<typeof createBinanceReconcileAdapter>;
 export type BinanceReconcilePlan =
   | { kind: "not_found"; reason: string }
   | { kind: "wait"; reason: string }
-  | { kind: "open_fills"; exchangeOrderId: string; status: "NEW" | "PARTIALLY_FILLED"; fills: ExecutionFill[] }
+  | { kind: "open_fills"; exchangeOrderId: string; status: "NEW" | "PARTIALLY_FILLED"; fills: Array<{
+      tradeId: string; orderId: string; symbol: string; price: string; qty: string; quoteQty: string;
+      commission: string; commissionUsdt: string; commissionAsset: string; filledAt: number;
+    }> }
   | { kind: "manual_review"; reason: string }
   | {
       kind: "finalize";
@@ -184,22 +187,18 @@ export async function buildBinanceReconcilePlan(
   }
 
   if (!TERMINAL.has(order.status)) {
-    const fills: ExecutionFill[] = trades.map((trade) => ({
-      fillId: String(trade.id),
+    const fills = trades.map((trade) => ({
+      tradeId: String(trade.id),
       orderId: String(trade.orderId),
       symbol: trade.symbol,
-      side: "BUY",
-      time: trade.time,
-      price: Number(trade.price),
-      qty: Number(trade.qty),
-      quoteQty: Number(trade.quoteQty),
-      commission: Number(trade.commission),
+      price: trade.price,
+      qty: trade.qty,
+      quoteQty: trade.quoteQty,
+      commission: trade.commission,
+      commissionUsdt: trade.commissionAsset === rules.quoteAsset ? trade.commission : "0",
       commissionAsset: trade.commissionAsset,
-      commissionUsdt: trade.commissionAsset === rules.quoteAsset ? Number(trade.commission) : 0,
+      filledAt: trade.time,
     }));
-    if (fills.some((fill) => ![fill.price, fill.qty, fill.quoteQty, fill.commission, fill.commissionUsdt].every(Number.isFinite))) {
-      return { kind: "manual_review", reason: "开放订单逐笔成交数值超出本地台账可表示范围" };
-    }
     return {
       kind: "open_fills",
       exchangeOrderId: String(order.orderId),
