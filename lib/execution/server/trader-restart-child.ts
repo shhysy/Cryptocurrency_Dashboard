@@ -13,6 +13,7 @@ try {
       intentId: "v33:BTC:head:1800000000000",
       strategyEventId: "BTC:head:1800000000000",
       strategyVersion: "3.3" as const,
+      strategyTier: "head" as const,
       symbol: "BTCUSDT",
       side: "BUY" as const,
       quoteAsset: "USDT" as const,
