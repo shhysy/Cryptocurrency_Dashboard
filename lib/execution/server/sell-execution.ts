@@ -36,10 +36,9 @@ export interface ServerSellCycleResult {
   skipped: number;
 }
 
-/** Convert the server exchangeInfo response to the same market-rule contract used by the tested sell guard. */
+/** LIMIT卖单必须使用LOT_SIZE；MARKET_LOT_SIZE只适用于市价单，不能用于本Trader的GTC限价卖单。 */
 function toMarketRules(raw: Awaited<ReturnType<Adapter["getSymbolRules"]>>): MarketRules {
-  const lot = raw.filters.find((item) => item.filterType === "MARKET_LOT_SIZE")
-    ?? raw.filters.find((item) => item.filterType === "LOT_SIZE");
+  const lot = raw.filters.find((item) => item.filterType === "LOT_SIZE");
   const notional = raw.filters.find((item) => item.filterType === "NOTIONAL")
     ?? raw.filters.find((item) => item.filterType === "MIN_NOTIONAL");
   const stepSize = Number(lot?.stepSize);
