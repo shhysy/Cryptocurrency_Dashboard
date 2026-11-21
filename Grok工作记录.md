@@ -141,3 +141,11 @@
 - 仓库递归文件树仅发现两个旧Cloudflare Access验证文件，GitHub代码搜索未发现引用；已删除模块及对应测试。
 - 删除后重新检查完整Git tree：无Cloudflare、Workers、Access、Wrangler、Durable Object、Cron相关文件路径。
 - GitHub历史检查仍出现外部`Workers Builds: cryptocurrency-dashboard`，它不是当前仓库代码树文件；M0-01仍保留[~]，需仓库管理员在集成设置核对是否解绑。
+
+
+### M0-01 Cloudflare清理复核纠正（2026-11-21）
+
+- 尝试删除旧Cloudflare Access验证模块后，CI明确报错：`app/api/trade-fill-notifications/route.ts`仍依赖该模块（TS2307），证明旧通知中转路由仍在代码中引用。
+- 已恢复Access验证模块及测试，防止构建失败。
+- 本地Trader成交通知已走SMTP Outbox；旧API路由的可选Worker/Access分支仍需确认是否有旧客户端调用，不能贸然删除。
+- M0-01保持进行中，后续先追踪调用链，再做完整移除。
