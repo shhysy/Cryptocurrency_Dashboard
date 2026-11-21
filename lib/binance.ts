@@ -379,6 +379,9 @@ export interface SpotMarketOrderResponse {
 interface SpotExchangeFilter {
   filterType: string;
   minQty?: string;
+  minPrice?: string;
+  maxPrice?: string;
+  tickSize?: string;
   maxQty?: string;
   stepSize?: string;
   minNotional?: string;
