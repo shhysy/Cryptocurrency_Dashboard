@@ -295,3 +295,10 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - 按策略3.3 G2，BUY intent生成不再单纯因Dashboard STALE标记被拒绝；Mock、未知账户、策略blocked、关键字段缺失仍拒绝。信号邮件保持真实Binance非STALE限制；SELL因卖出数量依赖有效持仓快照，继续要求数据新鲜。
 - 最新HEAD `524b360cf86d198ca4b1325fda9a40e77a51cb45`，Run `44917968577`成功：81文件、578测试通过，typecheck/Next build通过。
 - 发现尚未闭环：Excel资产池的逐币白名单和六项基本面状态没有在当前BUY策略链完整建模。已交Grok独立核查，不把未审核资产默认为通过；H项未确认内容不擅自启用。
+
+## 周线买卖触发专项回归测试（2026-11-21）
+
+- 新增测试证明：即使周内spot price与周线close不同，买入补仓触发与卖出止盈触发仍以最近已收盘周线为准。
+- 最新代码HEAD：`9c484af66fd34fa432891dedba974e4075ce1448`。
+- CI Run：`44918408437`成功，81个测试文件、580项测试通过；TypeScript typecheck与Next.js production build通过。
+- [查看CI](https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44918408437)
