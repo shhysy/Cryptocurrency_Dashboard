@@ -104,8 +104,11 @@ async function main(): Promise<void> {
   } finally {
     process.removeListener("SIGINT", onStop);
     process.removeListener("SIGTERM", onStop);
-    store?.close();
-    await lock.release();
+    try {
+      store?.close();
+    } finally {
+      await lock.release();
+    }
     console.log("[Trader] 已停止，SQLite连接和单实例锁已释放");
   }
 }
