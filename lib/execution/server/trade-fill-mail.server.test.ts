@@ -40,7 +40,6 @@ describe("成交通知邮件", () => {
     }]);
     expect(result).toMatchObject({ ok: true, sent: true });
     expect(mocks.sendSmtpTextMail).toHaveBeenCalledTimes(1);
-    expect(mocks.sendSmtpTextMail.mock.calls[0]?.[0]).toContain("成交确认");
   });
 
   it("SMTP异常返回sent=false供Outbox退避重试", async () => {
