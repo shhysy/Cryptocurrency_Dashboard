@@ -49,3 +49,51 @@ export async function dispatchTradeFillMail(events: TradeFillMailPayload[]): Pro
     return { ok: false, sent: false, reason };
   }
 }
+
+
+export function isTraderAlertMailEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return env.TRADER_ALERT_MAIL_ENABLED === "1";
+}
+
+/** 只发送Trader自身的关键安全告警；独立开关，不受成交邮件开关影响。 */
+export async function dispatchTraderAlertMail(event: {
+  id: string;
+  severity: "critical";
+  title: string;
+  message: string;
+  occurredAt: number;
+}): Promise<{ ok: boolean; sent: boolean; reason?: string }> {
+  if (!isTraderAlertMailEnabled()) {
+    return { ok: true, sent: false, reason: "TRADER_ALERT_MAIL_ENABLED未启用" };
+  }
+  if (!event.id.startsWith("trader-alert:") || !event.title.trim() ||
+      !event.message.trim() || !Number.isSafeInteger(event.occurredAt)) {
+    return { ok: false, sent: false, reason: "Trader告警邮件载荷无效" };
+  }
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS ||
+      !(process.env.MAIL_TO || process.env.SMTP_USER)) {
+    return { ok: false, sent: false, reason: "SMTP_HOST/SMTP_USER/SMTP_PASS/MAIL_TO未完整配置" };
+  }
+  try {
+    const body = [
+      "自动交易Trader关键故障告警",
+      "",
+      `事件：${event.title}`,
+      `级别：${event.severity}`,
+      `时间：${new Date(event.occurredAt).toISOString()}`,
+      `事件ID：${event.id}`,
+      "",
+      event.message,
+      "",
+      "系统已写入 data/STOP；请先检查本地Trader日志和订单对账状态，确认安全后再人工恢复。",
+    ].join("\n");
+    await sendSmtpTextMail(`【自动交易紧急告警】${event.title}`, redactSecrets(body));
+    return { ok: true, sent: true };
+  } catch (error) {
+    return {
+      ok: false,
+      sent: false,
+      reason: redactSecrets(error instanceof Error ? error.message : "Trader告警邮件发送失败"),
+    };
+  }
+}
