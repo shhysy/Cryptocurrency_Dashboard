@@ -669,3 +669,12 @@
   - `87b32e74b0c73bcefe406fc8ad2a3cea160f53ad`
 - CI尚待核实；当前测试为Fake SQL行为测试，不代表真实Cloudflare SQLite重启/并发验收。下一步：检查并修复CI、补真实运行时测试、Cron/Alarm恢复测试，再接入只读对账执行器。
 - 生产BUY/SELL、Simple Earn真实赎回、Outbox投递保持关闭。
+
+
+## Grok止盈台账修复第一轮独立复核（2026-11-21）
+
+- 重新读取Grok当前 `sell-signal-queue.ts`、`sell-take-profit-ledger.test.ts`、`store.browser.ts`。
+- 正向确认：止盈resume现在逐笔匹配唯一SELL台账，要求 `sellKind=take_profit`、币种匹配、fillId不重复、qty合计与事件filledQty一致；缺失台账返回null并阻断本档续卖。
+- 正向确认：`enqueueEligibleSellSignals` 确实读取 `listTradeLedger()` 并映射side/sellKind/qty；`recordConfirmedSellFill` 持久化sellKind并校验重复成交字段一致性。
+- 尚需Grok补充：错误symbol；有效记录与混合冲突记录；真实commission/commissionAsset字段不参与qty合计；实际enqueue/tick集成路径（不只手工传数组测试）；最新CI与中文commit SHA。
+- 已在Issue #2评论ID `7056908010` 请求补测和CI证据。当前只认定为核心代码阶段性交付，不认定SELL通过；Outbox与生产交易继续关闭。
