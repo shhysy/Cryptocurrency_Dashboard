@@ -217,10 +217,17 @@ describe("补仓与备用金", () => {
   });
   it("4 档补仓用完后进入备用金 $200", () => {
     const buys = [110, 100, 100, 100, 100].map((p, i) => trade(p, 1, 200 + i * 10));
-    const s = evaluateCoin(held(bottoming(), buys), ctx());
+    const s = evaluateCoin(held(bottoming(), buys), ctx({ fearGreed: 10 }));
     expect(s.tag).toBe("备用金");
     expect(s.action.usdt).toBe(200);
   });
+  it("备用金极度恐惧线按策略3.3参数中心阈值10：恐惧贪婪11 -> 暂缓", () => {
+    const buys = [110, 100, 100, 100, 100].map((p, i) => trade(p, 1, 200 + i * 10));
+    const s = evaluateCoin(held(bottoming(), buys), ctx({ fearGreed: 11 }));
+    expect(s.tag).toBe("暂缓");
+    expect(s.action.blocked.join()).toContain("极度恐惧");
+  });
+
   it("备用金需极度恐惧：恐惧贪婪 30 -> 暂缓", () => {
     const buys = [110, 100, 100, 100, 100].map((p, i) => trade(p, 1, 200 + i * 10));
     const s = evaluateCoin(held(bottoming(), buys), ctx({ fearGreed: 30 }));
