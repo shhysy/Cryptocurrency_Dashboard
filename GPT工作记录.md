@@ -188,3 +188,4 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - 已将 reservations.state='manual_review' 纳入停机计数；纯通知Outbox的manual_review不纳入交易停机计数，避免邮件投递失败被误判成订单风险。
 - 新增 system-alert-outbox.test.ts 回归用例：intent保持queued而资金预留为manual_review时，必须返回非零人工复核计数。
 - 提交：686abb159ade4c3e47540fd55d865ffeafc921b8、8d1ba294b3b93dbc2c73578d436ff0db05317010。等待最新GitHub Actions验证；未声称测试已通过。
+- 后续补充反向回归测试：纯 notification_outbox.state='manual_review' 不增加交易人工复核计数，避免SMTP失败或通知载荷损坏误触发交易停机。提交：15c9ea0d0c17e50a575178651854299d4013cf8f；等待最新CI。
