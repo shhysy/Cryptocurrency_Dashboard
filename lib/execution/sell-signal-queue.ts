@@ -37,12 +37,6 @@ function baseAssetSymbol(symbol: string): string {
   return s.endsWith("USDT") ? s.slice(0, -4) : s;
 }
 
-/**
- * 从唯一成交台账按 fillId 重算底仓减仓数量。
- * - 必须 side===SELL 且 sellKind===base_reduce（字段缺失不可用）
- * - 同一 symbol+fillId 出现多行 → 冲突键，引用该键的事件整条不计
- * - 无台账 / 核验失败 → 返回 0（fail-closed）
- */
 export function confirmedBaseReduceFilledQty(
   events: SellEventRecord[],
   ledgerFills?: BaseReduceLedgerFill[],
@@ -126,6 +120,77 @@ export function hasUnverifiedBaseReduceClaims(
   return false;
 }
 
+/**
+ * 止盈 partial/executed：逐笔匹配唯一 SELL 台账（sellKind=take_profit）。
+ * 无法核验返回 null（禁止 resume）。手续费不进入数量合计。
+ */
+export function verifiedTakeProfitEventFilledQty(
+  event: Pick<SellEventRecord, "symbol" | "kind" | "status" | "filledQty" | "fillIds" | "exchangeTerminalStatus" | "fillReconcileCompletedAt">,
+  ledgerFills?: BaseReduceLedgerFill[],
+): number | null {
+  if (event.kind !== "take_profit") return null;
+  if (event.status !== "executed" && event.status !== "partially_filled") return null;
+  if (!Number.isFinite(event.filledQty) || (event.filledQty as number) < 0) return null;
+  if ((event.filledQty as number) === 0) return 0;
+  if (!Array.isArray(ledgerFills) || ledgerFills.length === 0) return null;
+  if (!event.exchangeTerminalStatus || !isExchangeSpotOrderTerminal(event.exchangeTerminalStatus)) return null;
+  if (!Number.isSafeInteger(event.fillReconcileCompletedAt) || (event.fillReconcileCompletedAt as number) <= 0) return null;
+  if (!Array.isArray(event.fillIds) || event.fillIds.length === 0) return null;
+
+  const normalized = event.fillIds.map((id) => String(id ?? "").trim()).filter(Boolean);
+  if (normalized.length !== event.fillIds.length) return null;
+  if (new Set(normalized).size !== normalized.length) return null;
+
+  const ledgerByKey = new Map<string, number>();
+  const conflictKeys = new Set<string>();
+  for (const fill of ledgerFills) {
+    if (!fill?.symbol || !fill.fillId) continue;
+    if (!Number.isFinite(fill.qty) || fill.qty <= 0) continue;
+    if (fill.side !== "SELL") continue;
+    if (fill.sellKind !== "take_profit") continue;
+    const key = `${baseAssetSymbol(fill.symbol)}:${String(fill.fillId).trim()}`;
+    if (conflictKeys.has(key)) continue;
+    if (ledgerByKey.has(key)) {
+      ledgerByKey.delete(key);
+      conflictKeys.add(key);
+      continue;
+    }
+    ledgerByKey.set(key, fill.qty);
+  }
+
+  const sym = baseAssetSymbol(event.symbol);
+  let sum = 0;
+  for (const id of normalized) {
+    const key = `${sym}:${id}`;
+    if (conflictKeys.has(key)) return null;
+    const q = ledgerByKey.get(key);
+    if (q === undefined) return null;
+    sum += q;
+  }
+  const tol = Math.max(Number.EPSILON * 16, Math.abs(event.filledQty as number) * 1e-12);
+  if (Math.abs(sum - (event.filledQty as number)) > tol) return null;
+  return sum;
+}
+
+export function hasUnverifiedTakeProfitClaims(
+  events: SellEventRecord[],
+  suffix: string,
+  ledgerFills?: BaseReduceLedgerFill[],
+): boolean {
+  const claimed = events.filter((event) =>
+    event.kind === "take_profit" &&
+    event.eventKey.includes(suffix) &&
+    (event.status === "executed" || event.status === "partially_filled") &&
+    Number.isFinite(event.filledQty) &&
+    (event.filledQty as number) > 0,
+  );
+  if (claimed.length === 0) return false;
+  for (const event of claimed) {
+    if (verifiedTakeProfitEventFilledQty(event, ledgerFills) === null) return true;
+  }
+  return false;
+}
+
 export function protectedBaseQtyAfterReductions(
   boughtQty: number,
   baseRatio: number,
@@ -150,11 +215,6 @@ export function takeProfitTierHasOpenWork(events: SellEventRecord[], suffix: str
   );
 }
 
-/**
- * 跨周仍生效：任意未完结底仓减仓意图（不按 sourceWeek 过滤）。
- * pending / reconcile_required 一律占用；
- * partially_filled 若无合法终态+对账证明，视为未知，继续占用。
- */
 export function hasOpenBaseReduce(events: SellEventRecord[]): boolean {
   return events.some((event) => {
     if (event.kind !== "base_reduce") return false;
@@ -202,24 +262,40 @@ export function takeProfitTierFullyFilled(events: SellEventRecord[], suffix: str
   return filled + 1e-12 >= target;
 }
 
-export function takeProfitTierFilledQty(events: SellEventRecord[], suffix: string): number {
-  return events
-    .filter((event) =>
-      event.kind === "take_profit" &&
-      event.eventKey.includes(suffix) &&
-      (event.status === "executed" || event.status === "partially_filled") &&
-      Number.isFinite(event.filledQty),
-    )
-    .reduce((sum, event) => sum + (event.filledQty as number), 0);
+export function takeProfitTierFilledQty(
+  events: SellEventRecord[],
+  suffix: string,
+  ledgerFills?: BaseReduceLedgerFill[],
+): number {
+  let sum = 0;
+  for (const event of events) {
+    if (event.kind !== "take_profit" || !event.eventKey.includes(suffix)) continue;
+    if (event.status !== "executed" && event.status !== "partially_filled") continue;
+    if (!Number.isFinite(event.filledQty) || (event.filledQty as number) <= 0) continue;
+    if (ledgerFills !== undefined) {
+      const verified = verifiedTakeProfitEventFilledQty(event, ledgerFills);
+      if (verified === null) continue;
+      sum += verified;
+    } else {
+      sum += event.filledQty as number;
+    }
+  }
+  return sum;
 }
 
-export function takeProfitTierCanResume(events: SellEventRecord[], suffix: string): boolean {
+export function takeProfitTierCanResume(
+  events: SellEventRecord[],
+  suffix: string,
+  ledgerFills?: BaseReduceLedgerFill[],
+): boolean {
   if (takeProfitTierHasOpenWork(events, suffix)) return false;
   if (takeProfitTierFullyFilled(events, suffix)) return false;
+  if (hasUnverifiedTakeProfitClaims(events, suffix, ledgerFills)) return false;
   return events.some((event) =>
     event.kind === "take_profit" &&
     event.eventKey.includes(suffix) &&
-    isTerminalReconciledPartial(event),
+    isTerminalReconciledPartial(event) &&
+    verifiedTakeProfitEventFilledQty(event, ledgerFills) !== null,
   );
 }
 
@@ -258,7 +334,6 @@ export function buildSellEventReservations(
       continue;
     }
 
-    // 未完结底仓减仓（含跨周 pending / 未知 partial）冻结该币全部卖出
     if (hasOpenBaseReduce(symbolEvents)) {
       blocked.push({
         symbol: coin.symbol,
@@ -284,12 +359,20 @@ export function buildSellEventReservations(
       }
       if (takeProfitTierFullyFilled(symbolEvents, suffix)) continue;
 
-      const alreadyFilled = takeProfitTierFilledQty(symbolEvents, suffix);
+      if (hasUnverifiedTakeProfitClaims(symbolEvents, suffix, ledgerFills)) {
+        blocked.push({
+          symbol: coin.symbol,
+          reason: "止盈部分成交缺少可核验成交台账，已阻断本档续卖（人工复核）",
+        });
+        continue;
+      }
+
+      const alreadyFilled = takeProfitTierFilledQty(symbolEvents, suffix, ledgerFills);
       if (alreadyFilled > 0) {
-        if (!takeProfitTierCanResume(symbolEvents, suffix)) {
+        if (!takeProfitTierCanResume(symbolEvents, suffix, ledgerFills)) {
           blocked.push({
             symbol: coin.symbol,
-            reason: "止盈档已有成交记录但未满足终态对账条件，禁止续卖",
+            reason: "止盈档已有成交记录但未满足终态对账/台账条件，禁止续卖",
           });
           continue;
         }
@@ -343,7 +426,7 @@ export function buildSellEventReservations(
 
     let desiredQty = action.qty as number;
     if (kind === "take_profit") {
-      const alreadyFilled = takeProfitTierFilledQty(symbolEvents, suffix);
+      const alreadyFilled = takeProfitTierFilledQty(symbolEvents, suffix, ledgerFills);
       if (alreadyFilled > 0) desiredQty = Math.max(0, desiredQty - alreadyFilled);
     }
     if (desiredQty <= 0) continue;
