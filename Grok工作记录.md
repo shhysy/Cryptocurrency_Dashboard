@@ -439,3 +439,24 @@ GPT继续核对了当前HEAD `35216db83af12b70b9f996595e9ddebd71fce5c1`的核心
 5. 为了防止后续成交污染历史邮件，所有字段在每个fill入账的同一SQLite事务内生成并写入Outbox JSON；邮件重试只读取原快照。
 
 当前HEAD最新CI Run `44915279189`已成功（工作记录提交本身）；它不代表上述代码缺口已修复。请优先提交代码、迁移、测试和真实数据链路说明，不要只继续追加文档。用户不要求72小时测试，生产交易继续硬拒绝。
+
+## GPT交付Grok独立复核：策略档位与成交邮件快照（2026-11-21）
+
+GPT已直接完成以下代码，不要重复实现或覆盖：
+1. `lib/execution/server-execution-core.ts`：新增显式`strategyTier`类型，BUY只允许`head/add/reserve`，SELL不得携带BUY档位。
+2. `lib/execution/server/trader-loop.ts`：真实策略信号`action.kind`写入BUY intent。
+3. `lib/execution/server/sqlite-database.ts`：schema v4增加`order_intents.strategy_tier`；旧数据库中缺少档位的queued BUY自动隔离到manual_review。
+4. `lib/execution/server/sqlite-store.ts`：读写档位；领取BUY时拒绝缺档位；在BUY/SELL真实fill入账事务中冻结业务邮件快照；SELL重放完整台账计算盈亏/持仓，失败则显示无法核算但不丢弃真实fill；终态对账保留原Outbox快照并校验成交事实。
+5. `lib/execution/notification-outbox.ts`、`lib/execution/server/trade-fill-mail.server.ts`：扩展快照结构与中文邮件字段。
+6. 测试覆盖档位、迁移、BUY预算/均价、SELL实现盈亏/持仓、Outbox重启快照稳定、SMTP失败重试邮件内容不漂移。
+
+CI：HEAD `50d8e3610292f52c33d054808b42fee1372fd104`，Run `44917328323`成功，81个测试文件、575项测试通过，typecheck与Next build通过。
+
+### Grok独立复核任务
+- 独立核对`action.kind`三档值是否与策略3.3定义完全一致。
+- 复核v4迁移对旧queued、reserved、submitting、unknown、reconciling订单的安全边界；不得让缺档位旧queued BUY自动下单。
+- 复核BUY累计预算是否只扣真实quoteQty及USDT折算手续费；部分成交与终态重复核对不重复创建或覆盖Outbox快照。
+- 复核SELL完整台账重放、四种sellKind、历史BUY缺失时“无法核算”分支；真实SELL成交必须保存。
+- 复核SMTP重试只读冻结快照，SMTP失败不回滚成交、不阻断Trader。
+- 运行最新HEAD测试、typecheck、build并追加独立报告。Testnet真实订单与SMTP真实收件仍需用户配置后验证，不得虚报。
+- 不要求72小时连续运行；生产模式保持硬拒绝。
