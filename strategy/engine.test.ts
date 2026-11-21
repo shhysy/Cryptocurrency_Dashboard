@@ -86,6 +86,25 @@ describe("打分", () => {
   it("RSI 与 MA 同为 30 分时不会加到 60，而是 30 + 30×0.5 = 45", () => {
     expect(evaluateCoin(coin(falling()), ctx()).breakdown.pricePosition).toBe(45);
   });
+  it("MA200五档分值与策略3.3工作簿一致", () => {
+    const closes = [...flat(199, 100), 95];
+    const signal = evaluateCoin(coin(closes), ctx({ fearGreed: null }));
+    expect(signal.breakdown.ma).toBe(15); // 价格/MA200约0.95，命中≤1.00档
+  });
+  it("恐惧贪婪五档分值与策略3.3工作簿一致", () => {
+    const atForty = evaluateCoin(coin(flat(200, 100)), ctx({ fearGreed: 40 }));
+    const aboveForty = evaluateCoin(coin(flat(200, 100)), ctx({ fearGreed: 41 }));
+    expect(atForty.breakdown.sentiment).toBe(15);
+    expect(aboveForty.breakdown.sentiment).toBe(0);
+  });
+  it("策略评分不受周内实时现价影响，只使用最后已收盘周线", () => {
+    const closes = bottoming();
+    const baseline = evaluateCoin(coin(closes, { price: 43 }), ctx({ fearGreed: 10 }));
+    const intradaySpike = evaluateCoin(coin(closes, { price: 100 }), ctx({ fearGreed: 10 }));
+    expect(intradaySpike.score).toBe(baseline.score);
+    expect(intradaySpike.breakdown).toEqual(baseline.breakdown);
+  });
+
   it("取不到恐惧贪婪：情绪项为 0，不崩溃", () => {
     const s = evaluateCoin(coin(bottoming()), ctx({ fearGreed: null }));
     expect(s.breakdown.sentiment).toBe(0);
