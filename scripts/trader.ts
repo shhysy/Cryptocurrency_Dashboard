@@ -6,6 +6,7 @@ import { binanceReconcileAdapter } from "@/lib/execution/binance-reconcile.serve
 import { openLocalExecutionStore } from "@/lib/execution/server/sqlite-store";
 import { acquireTraderLock } from "@/lib/execution/server/trader-lock";
 import { runTraderCycle, type TraderMode } from "@/lib/execution/server/trader-loop";
+import { enqueueServerSellSignals } from "@/lib/execution/server/sell-enqueue";
 import { parseAutoTradeMode, assertProductionAuthorized } from "@/lib/execution/server/auto-trade-mode";
 import { runStartupSelfCheck } from "@/lib/execution/server/startup-self-check";
 import { ConsecutiveFailureBreaker } from "@/lib/execution/server/circuit-breaker";
@@ -109,6 +110,15 @@ async function main(): Promise<void> {
           submitOrder: submitSpotMarketOrder,
           log: (message) => safeLog(`[Trader] ${message}`),
         });
+        if (effectiveMode !== "off") {
+          try {
+            const dash = await getDashboard();
+            const sell = await enqueueServerSellSignals(dash, store);
+            safeLog("[Trader] SELL入队", sell);
+          } catch (sellError) {
+            safeError("[Trader] SELL入队失败（不中断BUY对账）", sellError);
+          }
+        }
         breaker.recordSuccess();
         safeLog("[Trader] 本轮结果", result);
       } catch (error) {
