@@ -222,8 +222,9 @@ function planSell(c: Ctx): Action | null {
   const firstBuy = Math.min(...input.buys.map((t) => t.time));
   // 追踪止损严格按Excel口径：持仓后的最高周收盘价作为峰值，并以最近已收盘周线收盘价判断是否跌破追踪线。
   const weeklyClose = input.weekly.at(-1)?.c ?? input.price;
-  const peak = Math.max(...input.weekly.filter((k) => k.t + WEEK > firstBuy).map((k) => k.c), weeklyClose);
-  if (peak >= input.avgCost * profile.trailStart) {
+  const postBuyCloses = input.weekly.filter((k) => k.t + WEEK > firstBuy).map((k) => k.c);
+  const peak = postBuyCloses.length ? Math.max(...postBuyCloses) : null;
+  if (peak !== null && peak >= input.avgCost * profile.trailStart) {
     const line = peak * (1 - profile.trailDrawdown);
     if (weeklyClose <= line && cycleQty > 0) {
       return { kind: "trailStop", label: "追踪止损", side: "sell", plannedUsdt: null, usdt: cycleQty * input.price, qty: cycleQty, sellPct: cycleQty / input.qty, limits: [], blocked: [], notes: [`价格 ${usd(input.price)} ≤ 追踪线 ${usd(line)}（峰值 ${usd(peak)} 回撤 ${pct(cfg.profiles[c.group].trailDrawdown)}）`, ...notes] };
