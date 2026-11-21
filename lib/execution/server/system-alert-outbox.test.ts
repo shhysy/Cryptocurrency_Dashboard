@@ -86,4 +86,22 @@ describe("Trader系统告警SQLite Outbox", () => {
       store.close();
     }
   });
+  it("统计BUY人工复核与SELL阻断事件，供Trader自动停机", async () => {
+    const store = await openStore();
+    try {
+      const db = (store as unknown as { database: { exec(sql: string): void } }).database;
+      db.exec(`INSERT INTO order_intents(
+        intent_id, strategy_event_id, strategy_version, symbol, side, quote_asset,
+        amount, state, attempt, created_at, updated_at
+      ) VALUES ('intent-review-1', 'event-review-1', '3.3', 'BTCUSDT', 'BUY', 'USDT',
+        '10', 'manual_review', 1, ${NOW}, ${NOW})`);
+      db.exec(`INSERT INTO sell_events(
+        event_key, symbol, kind, status, requested_qty, created_at, updated_at
+      ) VALUES ('sell-review-1', 'ETH', 'take_profit', 'blocked', 0.1, ${NOW}, ${NOW})`);
+      expect(await store.notificationOutbox.countExecutionManualReview()).toBe(2);
+    } finally {
+      store.close();
+    }
+  });
+
 });
