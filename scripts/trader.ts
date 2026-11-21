@@ -1,4 +1,4 @@
-import { writeFile, mkdir } from "node:fs/promises";
+import { chmod, mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getServerBinanceSpotMode, hasCredentials, submitTraderSpotMarketOrder } from "@/lib/binance";
 import { getDashboard } from "@/lib/service";
@@ -15,6 +15,7 @@ import { ConsecutiveFailureBreaker } from "@/lib/execution/server/circuit-breake
 import { redactSecrets, safeError, safeLog } from "@/lib/execution/server/safe-log";
 import { buildSystemAlertNotificationEvent } from "@/lib/execution/notification-outbox";
 import { isStopFilePresent } from "@/lib/execution/server/stop-file";
+import { tradeLedgerToCsv } from "@/lib/execution/csv";
 
 function readPollInterval(): number {
   const value = Number(process.env.TRADER_POLL_INTERVAL_MS ?? "15000");
@@ -31,6 +32,18 @@ async function stopFileExists(): Promise<boolean> {
 async function writeStopFile(reason: string): Promise<void> {
   await mkdir(join(process.cwd(), "data"), { recursive: true });
   await writeFile(join(process.cwd(), "data", "STOP"), `${new Date().toISOString()} ${reason}\n`, "utf8");
+}
+
+async function syncRealTradeLedgerCsv(store: Awaited<ReturnType<typeof openLocalExecutionStore>>): Promise<void> {
+  const path = process.env.TRADER_TRADE_LEDGER_CSV ?? "data/trades.csv";
+  await mkdir("data", { recursive: true, mode: 0o700 });
+  const entries = await store.tradeLedger.listTradeLedger();
+  const temporary = path + ".tmp";
+  await writeFile(temporary, "\\uFEFF" + tradeLedgerToCsv(entries), { encoding: "utf8", mode: 0o600 });
+  await chmod(temporary, 0o600);
+  await rename(temporary, path);
+  await chmod(path, 0o600);
+  safeLog(`[Trader] 真实成交CSV已从SQLite同步：${entries.length}笔`);
 }
 
 async function enqueueCriticalTraderAlert(
@@ -189,6 +202,7 @@ async function main(): Promise<void> {
           safeError("[Trader] SELL执行链路失败，计入连续故障熔断", sellError);
           throw sellError;
         }
+        await syncRealTradeLedgerCsv(store);
         const outbox = await runNotificationOutboxCycle(store);
         safeLog("[Trader] 成交通知Outbox", outbox);
         if (outbox.failed > 0) safeError(`[Trader] 通知Outbox有${outbox.failed}项投递失败，已进入持久化退避重试；不因此中断交易循环`);
