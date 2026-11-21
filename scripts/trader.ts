@@ -129,7 +129,8 @@ async function main(): Promise<void> {
             });
             safeLog("[Trader] SELL执行/对账", execution);
           } catch (sellError) {
-            safeError("[Trader] SELL入队失败（不中断BUY对账）", sellError);
+            safeError("[Trader] SELL执行链路失败，计入连续故障熔断", sellError);
+            throw sellError;
           }
         }
         breaker.recordSuccess();
