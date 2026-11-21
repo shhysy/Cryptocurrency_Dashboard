@@ -723,3 +723,40 @@
 - 新增 `lib/execution/binance-reconcile-plan.server.test.ts`，覆盖终态成功、活动/未找到/429、未知状态、方向冲突、成交数量不匹配、第三资产手续费、零成交终态。
 - 新增提交：`9fb5c1a5377501ae7381facd9e32876f891cb18e`（终态对账计划构建器）、`36b78267051640f4e08034dd1ffe462dc7d04286`（终态计划安全测试）；对应CI仍在运行，未提前宣称通过。
 - 当前仍未把计划构建器接入DO scheduler消费者；没有自动ack/finalize执行链路，没有发送订单POST。生产BUY/SELL保持关闭。
+
+
+## DO后台只读对账任务第一阶段接线（2026-11-21）
+
+### 代码实现
+- `ExecutionAccountDO` 在订单进入`submitting`前即以intentId为稳定taskId写入`reconcile_intent`任务；标记`unknown`时幂等补入队，避免提交前后进程崩溃后没有恢复任务。
+- 新增内部`GET /internal/reconcile-context`，只返回DO内订单身份、原clientOrderId、attempt和账户租约；终态intent只返回terminal标记。
+- 新增`POST /internal/scheduler/renew`，只允许当前未过期的taskId+attempt+leaseToken续租；过期或旧token不能复活。
+- Worker Cron每分钟执行watchdog后领取最多5个`reconcile_intent`任务，调用`dispatchReconcileIntentTask`；页面关闭后仍可处理已经持久化的订单恢复任务。
+- dispatcher先读取DO上下文；账户租约过期时走reconcile-only takeover，未过期时续租；之后只调用Binance GET查单/成交/交易规则。
+- 只有交易所终态、完整成交分页、订单身份/方向/时间匹配、qty与quoteQty精确相加一致、手续费资产可解释时才调用DO finalize；活动单/not_found/429/网络错误/不完整分页均只安排重试，不触发订单POST。
+- finalize支持附带scheduler task fencing证明，并在SQLite事务中再次校验scheduler taskId/attempt/leaseToken/leaseUntil以及账户锁leaseToken；调度租约过期的迟到执行者不能结算或释放资金。
+- Alarm已纳入pending reconcile_intent任务的下一次唤醒/租约恢复；实际外部网络执行由Worker Cron负责，不在SQLite事务中执行网络IO。
+
+### 新增/更新文件
+- `lib/execution/reconcile-intent-dispatcher.server.ts` / `.test.ts`
+- `lib/execution/execution-account-do.ts` / `.test.ts`
+- `lib/execution/scheduler-task-do.test.ts`
+- `worker.ts`
+- `lib/execution/README.md`
+- `自动交易系统总需求清单.md`
+
+### 中文提交
+- `60a75139d804ccbee68a6a6eb966420790667176`：新增只读对账任务分发器。
+- `371bd8c750caabb1ea40989615c19206d6867318`：新增只读对账任务分发器测试。
+- `cf39f1f4a25c9f08f226009ce846e0fb197857fd`：接入只读对账任务入队与双重租约fencing。
+- `db18c55179999d9cb8794ed76318dc1a898a0257`：补充调度租约续期与过期拒绝测试。
+- `f7fcbb544ca430728c1919c235e22a1ea2ce9cca`：接入Cron后台只读订单对账任务消费。
+- `72e38c62f46283839b804457596a70574f4ef9bb`：补充提交前对账入队与上下文测试。
+- `4417c6ea55fd1a941fb887fe93ddcec12b1c4e5d`：验证终态结算必须持有有效调度租约。
+- 文档同步：`0a4c51700fbdc5eab076386d998aec3b571baa71`、`28ac2ae29b988bd8b86af3de8bc87a4be8fcb6ed`、`e5f3c2a6883b21e0250ab4d2dc1b31171cba3f6b`。
+
+### CI与验收边界
+- 最新Run `44865899742` 成功：60个测试文件、488项测试全部通过；TypeScript typecheck、Next.js production build、Cloudflare OpenNext build全部通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44865899742
+- dispatcher、scheduler renew、context读取、终态scheduler fencing已通过Fake SQL单元/集成测试；这不等同真实Cloudflare SQLite并发/重启测试。
+- 仍未完成：真实Cloudflare Durable Object SQLite重启/并发验证、部署后的Testnet只读恢复演练、策略事件自动生成intent、后台自动新单提交。当前Cron只恢复已持久化的submitting/unknown/reconciling订单。
+- 安全边界：该dispatcher没有Binance POST能力；not_found绝不自动重发；达到8次调度重试上限进入manual_review并保留账户锁。生产BUY/SELL、Simple Earn真实赎回、Outbox生产投递继续关闭。
