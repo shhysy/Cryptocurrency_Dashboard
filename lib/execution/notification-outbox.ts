@@ -18,7 +18,7 @@ interface NotificationOutboxBase {
 export type TradeFillBusinessSnapshot =
   | {
       side: "BUY";
-      strategyTier: "head" | "add" | "reserve";
+      strategyTier: "head" | "add" | "reserve" | null;
       plannedUsdt: string;
       cumulativeFilledQty: string;
       cumulativeQuoteQty: string;
