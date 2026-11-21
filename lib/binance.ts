@@ -1,6 +1,7 @@
 import type { Candle, Trade } from "@/strategy/types";
 import { isSpotOrderSubmissionEnabled, resolveServerBinanceEnvironment } from "./binance-environment";
 import { isTraderOrderSubmissionAuthorized } from "./execution/server/auto-trade-mode";
+import { calculateLimitNotional, calculateLimitOrderPrice, floorQuantityToStep, quoteBudgetToBaseQuantity } from "./execution/server/limit-order";
 
 const AUTO_TRADE_SPOT_ENVIRONMENT = process.env.AUTO_TRADE_MODE === "testnet" || process.env.AUTO_TRADE_MODE === "production"
   ? process.env.AUTO_TRADE_MODE
@@ -480,11 +481,126 @@ export async function submitSpotMarketOrder(
   return submitSpotMarketOrderInternal(input, false);
 }
 
-/** 本地Trader专用入口：订单开关由AUTO_TRADE_MODE派生；浏览器路由仍走显式服务端开关。 */
+/** 本地Trader专用入口。为兼容既有调用方保留旧名称，但自动交易只提交LIMIT GTC。 */
 export async function submitTraderSpotMarketOrder(
   input: SpotMarketOrderInput,
 ): Promise<SpotMarketOrderResponse> {
-  return submitSpotMarketOrderInternal(input, true);
+  return submitTraderSpotLimitOrder(input);
+}
+
+/** 自动Trader唯一订单入口：BUY/SELL均使用LIMIT GTC，不会提交MARKET订单。 */
+export async function submitTraderSpotLimitOrder(
+  input: SpotMarketOrderInput,
+): Promise<SpotMarketOrderResponse> {
+  const mode = SPOT_ENV.mode;
+  if (!isTraderOrderSubmissionAuthorized(mode, process.env)) {
+    throw new Error("AUTO_TRADE_MODE未授权当前订单，已阻止提交");
+  }
+  if (!apiKey() || !apiSecret()) {
+    throw new Error(mode === "testnet" ? "服务端缺少 Binance Testnet API Key/Secret" : "服务端缺少 Binance Production API Key/Secret");
+  }
+  if (!/^[A-Z0-9]{5,24}$/.test(input.symbol)) throw new Error("交易对格式无效");
+  if (!/^(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$/.test(input.amount) || Number(input.amount) <= 0) {
+    throw new Error("订单数量或金额无效");
+  }
+  if (!/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) throw new Error("clientOrderId格式无效");
+  if (!accountEnabled()) throw new Error("ENABLE_ACCOUNT未开启，禁止自动交易");
+
+  const info = await publicGet<{ symbols?: {
+    symbol: string; status: string; baseAsset: string; quoteAsset: string; filters: SpotExchangeFilter[];
+  }[] }>(`/api/v3/exchangeInfo?symbol=${encodeURIComponent(input.symbol)}`);
+  const symbol = info.symbols?.find((item) => item.symbol === input.symbol);
+  if (!symbol || symbol.status !== "TRADING" || symbol.quoteAsset !== "USDT") {
+    throw new Error("交易对不存在、未开放交易或不是USDT报价；已阻止下单");
+  }
+  const priceFilter = symbol.filters.find((item) => item.filterType === "PRICE_FILTER");
+  const lotFilter = symbol.filters.find((item) => item.filterType === "LOT_SIZE");
+  if (!priceFilter?.tickSize || !lotFilter?.stepSize) {
+    throw new Error("Binance缺少PRICE_FILTER或LOT_SIZE规则，已阻止下单");
+  }
+  const ticker = await fetchTickers([input.symbol]);
+  const referencePrice = ticker[input.symbol]?.price;
+  if (!Number.isFinite(referencePrice) || (referencePrice ?? 0) <= 0) {
+    throw new Error("无法取得有效现货参考价格，已阻止下单");
+  }
+  const referencePriceText = String(referencePrice);
+  const price = calculateLimitOrderPrice({
+    side: input.side, referencePrice: referencePriceText, tickSize: priceFilter.tickSize,
+  });
+  const account = await signedGet<{ balances: { asset: string; free: string; locked: string }[] }>(
+    "/api/v3/account", { omitZeroBalances: "true" },
+  );
+  const quoteBalance = account.balances.find((item) => item.asset === symbol.quoteAsset);
+  const baseBalance = account.balances.find((item) => item.asset === symbol.baseAsset);
+  let quantity: string;
+  if (input.side === "BUY") {
+    const freeQuote = quoteBalance?.free ?? "0";
+    if (Number(input.amount) > Number(freeQuote)) throw new Error("USDT可用余额不足，已阻止BUY订单");
+    quantity = quoteBudgetToBaseQuantity(input.amount, price, lotFilter.stepSize);
+  } else {
+    const freeBase = baseBalance?.free ?? "0";
+    if (Number(input.amount) > Number(freeBase)) throw new Error(`${symbol.baseAsset}可用余额不足，已阻止SELL订单`);
+    quantity = floorQuantityToStep(input.amount, lotFilter.stepSize);
+    if (quantity !== input.amount) throw new Error("SELL数量不符合LOT_SIZE步长，已阻止下单");
+  }
+  if (Number(quantity) <= 0) throw new Error("按LOT_SIZE取整后订单数量为0，已阻止下单");
+  const minQty = Number(lotFilter.minQty ?? "0");
+  const maxQty = Number(lotFilter.maxQty ?? "0");
+  if (Number(quantity) < minQty || (maxQty > 0 && Number(quantity) > maxQty)) {
+    throw new Error("订单数量超出Binance LOT_SIZE范围");
+  }
+  const notional = calculateLimitNotional(price, quantity);
+  const notionalFilter = symbol.filters.find((item) => item.filterType === "NOTIONAL")
+    ?? symbol.filters.find((item) => item.filterType === "MIN_NOTIONAL");
+  if (notionalFilter) {
+    const minNotional = Number(notionalFilter.minNotional ?? "0");
+    const maxNotional = Number(notionalFilter.maxNotional ?? "0");
+    if (minNotional > 0 && Number(notional) < minNotional) {
+      throw new Error("LIMIT订单名义金额低于Binance最小要求");
+    }
+    if (maxNotional > 0 && Number(notional) > maxNotional) {
+      throw new Error("LIMIT订单名义金额超过Binance最大要求");
+    }
+  }
+  const minPrice = Number(priceFilter.minPrice ?? "0");
+  const maxPrice = Number(priceFilter.maxPrice ?? "0");
+  if (Number(price) < minPrice || (maxPrice > 0 && Number(price) > maxPrice)) {
+    throw new Error("限价超出Binance PRICE_FILTER范围");
+  }
+
+  const params: Record<string, string | number> = {
+    symbol: input.symbol,
+    side: input.side,
+    type: "LIMIT",
+    timeInForce: "GTC",
+    quantity,
+    price,
+    newClientOrderId: input.clientOrderId,
+    newOrderRespType: "FULL",
+    recvWindow: 10000,
+    timestamp: Math.round(await serverNow()),
+  };
+  const qs = new URLSearchParams(Object.entries(params).map(([key, value]) => [key, String(value)])).toString();
+  const signature = await hmacHex(apiSecret(), qs);
+  const response = await doFetch(SIGNED_BASE + "/api/v3/order?" + qs + "&signature=" + signature, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey() },
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  });
+  const body = await response.text().catch(() => "");
+  if (!response.ok) {
+    throw new Error(`Binance ${mode} LIMIT order ${response.status}: ${body.slice(0, 240)}`);
+  }
+  let parsed: SpotMarketOrderResponse;
+  try { parsed = JSON.parse(body) as SpotMarketOrderResponse; }
+  catch { throw new Error("Binance LIMIT响应无法解析；必须按原clientOrderId只读对账，禁止重发"); }
+  if (parsed.symbol !== input.symbol || parsed.clientOrderId !== input.clientOrderId ||
+      !Number.isSafeInteger(parsed.orderId) || parsed.orderId <= 0 ||
+      !["NEW", "PARTIALLY_FILLED", "FILLED", "CANCELED", "REJECTED", "EXPIRED"].includes(parsed.status)) {
+    throw new Error("Binance LIMIT响应字段不匹配；必须按原clientOrderId只读对账，禁止重发");
+  }
+  return parsed;
 }
 
 async function submitSpotMarketOrderInternal(
