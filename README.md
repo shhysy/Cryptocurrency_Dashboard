@@ -35,7 +35,7 @@ npm run typecheck
 
 ## 环境变量
 
-见 `.env.example`。真实 Key/Secret 只放本机 `.env.local`，不要提交到 Git。
+见 `.env.example`。Trader只需在`.env.local`填写对应环境的Key/Secret并设置`AUTO_TRADE_MODE`；Testnet BUY/SELL授权由统一模式派生。真实Key/Secret只放本机`.env.local`，不要提交到Git。
 
 - `APP_ORIGIN=http://localhost:3000`（本地同源校验）
 - 生产 BUY/SELL 相关开关默认 `0`

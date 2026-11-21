@@ -4,7 +4,7 @@
 
 ## 当前实现状态（2026-11-21）
 
-1. **本地 Trader：** `npm run trader` 启动独立 Node 进程，不依赖浏览器；SQLite 持久化、单实例锁、BUY intent/提交/对账恢复已有代码。
+1. **本地 Trader：** `npm run trader` 启动独立 Node 进程，不依赖浏览器；SQLite持久化、单实例锁、BUY intent/提交/对账恢复已有代码。Trader Testnet BUY/SELL授权和Binance环境由`AUTO_TRADE_MODE=testnet`派生，不要求手动维护两组订单开关。
 2. **SELL：** `enqueueServerSellSignals` 将信号写入SQLite；`server/sell-execution.ts` 由Trader调用，完成账户成交台账/余额核验、交易规则预检、底仓保护、提交前持久化clientOrderId、SELL POST、原ID只读查单、逐笔成交核验、台账/Outbox写入和终态/部分成交状态。浏览器版仍保留旧实现，但常驻Trader不依赖IndexedDB。当前仅有Mock测试，尚未完成Testnet真实订单验收。
 3. **订单未知态：** BUY POST 前持久化 clientOrderId；异常进入 unknown 并排队只读对账。禁止未知订单盲目重发。仍需进程级崩溃/重启验收。
 4. **生产模式：** `AUTO_TRADE_MODE=production` 当前明确拒绝启动真实交易；M0–M3 独立验收通过前不得解除。

@@ -116,3 +116,11 @@
 - 日志目录0700、日志文件0600；默认目录已加入.gitignore，支持`TRADER_LOG_DIR`配置。
 - 测试覆盖文件落盘和API Key/签名脱敏；CI Run `44880508488` 74 files / 522 tests、typecheck/build通过。
 - 尚未验证用户机器磁盘空间和日志保留策略；未做自动清理旧日志，避免擅自删除审计记录。
+
+
+### M3-01统一Trader模式继续开发（2026-11-21）
+
+- Testnet BUY/SELL授权由`AUTO_TRADE_MODE=testnet`派生，Binance Testnet环境自动选择，不再要求用户额外设置两组Testnet订单开关或`BINANCE_SPOT_ENVIRONMENT`。
+- 新增Trader专用下单函数；浏览器API仍保留显式服务端开关，不会因为Trader模式而自动放开浏览器下单入口。
+- production仍由`scripts/trader.ts`硬拒绝；即使设置`AUTO_TRADE_MODE=production`和确认变量，也不会执行实盘订单。
+- 新增5项模式授权单测；待最新CI确认。
