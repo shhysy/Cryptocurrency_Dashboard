@@ -133,6 +133,19 @@ describe("Trader系统告警SQLite Outbox", () => {
     }
   });
 
+  it("纯通知Outbox人工复核不应被误算成交易订单人工复核", async () => {
+    const store = await openStore();
+    try {
+      const db = (store as unknown as { database: { exec(sql: string): void } }).database;
+      db.exec(`INSERT INTO notification_outbox(
+        id, payload_json, state, attempt, next_attempt_at, created_at, updated_at
+      ) VALUES ('trader-alert:mail-review-only', '{}', 'manual_review', 10, 0, ${NOW}, ${NOW})`);
+      expect(await store.countExecutionManualReview()).toBe(0);
+    } finally {
+      store.close();
+    }
+  });
+
   it("统计BUY人工复核与SELL阻断事件，供Trader自动停机", async () => {
     const store = await openStore();
     try {
