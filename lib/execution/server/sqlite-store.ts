@@ -1255,24 +1255,57 @@ export class SqliteExecutionStore implements LocalExecutionStore {
   }
 
   private async recordConfirmedBuyFill(input: {
-    fill: ExecutionFill;
+    fill: {
+      tradeId: string;
+      orderId: string;
+      symbol: string;
+      price: string;
+      qty: string;
+      quoteQty: string;
+      commission: string;
+      commissionUsdt: string;
+      commissionAsset: string;
+      filledAt: number;
+    };
     intentId: string;
     attempt: number;
     leaseToken: string;
     schedulerLease: SchedulerTaskLease;
     now: number;
   }): Promise<{ recorded: boolean; ledger: TradeLedgerEntry }> {
-    const fill = input.fill;
-    if (fill.side !== "BUY" || !/^[0-9]{1,32}$/.test(fill.fillId) ||
-        !/^[0-9]{1,32}$/.test(fill.orderId) || !/^[A-Z0-9]{5,24}$/.test(fill.symbol) ||
-        !/^[A-Z0-9]{2,12}$/.test(fill.commissionAsset) ||
-        ![fill.time, fill.price, fill.qty, fill.quoteQty, fill.commission, fill.commissionUsdt].every(Number.isFinite) ||
-        fill.time <= 0 || fill.price <= 0 || fill.qty <= 0 || fill.quoteQty <= 0 ||
-        fill.commission < 0 || fill.commissionUsdt < 0 || !validTime(input.now) ||
-        !input.intentId || !Number.isSafeInteger(input.attempt) || input.attempt <= 0 ||
-        !input.leaseToken) {
-      throw new Error("开放BUY订单真实成交字段无效");
+    const raw = input.fill;
+    if (!/^[0-9]{1,32}$/.test(raw.tradeId) || !/^[0-9]{1,32}$/.test(raw.orderId) ||
+        !/^[A-Z0-9]{5,24}$/.test(raw.symbol) || !/^[A-Z0-9]{2,12}$/.test(raw.commissionAsset) ||
+        !validTime(raw.filledAt) || !validTime(input.now) ||
+        !input.intentId || !Number.isSafeInteger(input.attempt) || input.attempt <= 0 || !input.leaseToken) {
+      throw new Error("开放BUY订单真实成交身份字段无效");
     }
+    for (const [name, value] of Object.entries({
+      price: raw.price, qty: raw.qty, quoteQty: raw.quoteQty,
+      commission: raw.commission, commissionUsdt: raw.commissionUsdt,
+    })) decimal(value);
+    if (compareDecimal(raw.price, "0") <= 0 || compareDecimal(raw.qty, "0") <= 0 ||
+        compareDecimal(raw.quoteQty, "0") <= 0 || compareDecimal(raw.commission, "0") < 0 ||
+        compareDecimal(raw.commissionUsdt, "0") < 0) {
+      throw new Error("开放BUY订单成交价格/数量/金额/手续费无效");
+    }
+    const fill: ExecutionFill = {
+      fillId: raw.tradeId,
+      orderId: raw.orderId,
+      symbol: raw.symbol,
+      side: "BUY",
+      time: raw.filledAt,
+      price: Number(raw.price),
+      qty: Number(raw.qty),
+      quoteQty: Number(raw.quoteQty),
+      commission: Number(raw.commission),
+      commissionAsset: raw.commissionAsset,
+      commissionUsdt: Number(raw.commissionUsdt),
+    };
+    if (![fill.price, fill.qty, fill.quoteQty, fill.commission, fill.commissionUsdt].every(Number.isFinite)) {
+      throw new Error("开放BUY成交超出本地台账数值范围");
+    }
+
     return this.transaction(() => {
       const lock = this.get(
         "SELECT * FROM account_lock WHERE singleton = 1 AND intent_id = ? AND attempt = ? AND lease_token = ?",
@@ -1293,11 +1326,11 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       );
       if (!intentRow || intentRow.side !== "BUY" ||
           !["submitting", "unknown", "reconciling"].includes(String(intentRow.state)) ||
-          !intentRow.client_order_id || intentRow.symbol !== fill.symbol) {
+          !intentRow.client_order_id || intentRow.symbol !== raw.symbol) {
         throw new Error("BUY成交与本地订单意图不匹配");
       }
       const intent = parseIntent(intentRow);
-      if (intent.exchangeOrderId && intent.exchangeOrderId !== fill.orderId) {
+      if (intent.exchangeOrderId && intent.exchangeOrderId !== raw.orderId) {
         throw new Error("同一BUY clientOrderId关联了不同Binance订单ID");
       }
       if (!Number.isFinite(intent.baseRatioAtSignal) ||
@@ -1314,13 +1347,14 @@ export class SqliteExecutionStore implements LocalExecutionStore {
           compareDecimal(String(lock.reserved_amount), String(reservation.amount)) !== 0) {
         throw new Error("BUY资金预留与订单意图不一致，拒绝成交入账");
       }
+
       const existingFill = this.get(
         "SELECT * FROM fills WHERE symbol = ? AND trade_id = ?",
-        fill.symbol, fill.fillId,
+        raw.symbol, raw.tradeId,
       );
       const existingLedgerRow = this.get(
         "SELECT * FROM trade_ledger WHERE symbol = ? AND fill_id = ?",
-        fill.symbol, fill.fillId,
+        raw.symbol, raw.tradeId,
       );
       if (existingFill || existingLedgerRow) {
         if (!existingFill || !existingLedgerRow) throw new Error("BUY成交fill与台账存在不一致孤儿记录");
@@ -1328,44 +1362,52 @@ export class SqliteExecutionStore implements LocalExecutionStore {
         if (!sameFill(existingLedger, fill, null) ||
             existingFill.intent_id !== input.intentId ||
             Number(existingFill.attempt) !== input.attempt ||
-            existingFill.order_id !== fill.orderId || existingFill.side !== "BUY" ||
-            existingFill.commission_usdt !== String(fill.commissionUsdt) ||
+            existingFill.order_id !== raw.orderId || existingFill.side !== "BUY" ||
+            existingFill.price !== raw.price || existingFill.qty !== raw.qty ||
+            existingFill.quote_qty !== raw.quoteQty || existingFill.commission !== raw.commission ||
+            existingFill.commission_asset !== raw.commissionAsset ||
+            existingFill.commission_usdt !== raw.commissionUsdt ||
             existingLedger.baseRatioAtBuy !== intent.baseRatioAtSignal) {
           throw new Error("重复BUY tradeId返回冲突数据，拒绝覆盖");
         }
         return { recorded: false, ledger: existingLedger };
       }
 
+      const previousFills = this.all(
+        "SELECT quote_qty, commission_usdt FROM fills WHERE intent_id = ? AND attempt = ? AND order_id = ?",
+        input.intentId, input.attempt, raw.orderId,
+      );
+      const consumed = sumDecimals([
+        ...previousFills.map((row) => String(row.quote_qty)),
+        raw.quoteQty,
+        ...previousFills.map((row) => String(row.commission_usdt)),
+        raw.commissionUsdt,
+      ]);
+      if (compareDecimal(consumed, String(reservation.amount)) > 0) {
+        throw new Error("BUY GTC累计成交金额及USDT手续费超过资金预留");
+      }
+
       this.run(
         "UPDATE order_intents SET exchange_order_id = ?, updated_at = ? WHERE intent_id = ? AND attempt = ?",
-        fill.orderId, input.now, input.intentId, input.attempt,
+        raw.orderId, input.now, input.intentId, input.attempt,
       );
       this.run(
-        `INSERT INTO fills(
-          symbol, trade_id, intent_id, attempt, order_id, side, price, qty, quote_qty,
-          commission, commission_asset, commission_usdt, filled_at, sell_kind
-        ) VALUES (?, ?, ?, ?, ?, 'BUY', ?, ?, ?, ?, ?, ?, ?, NULL)`,
-        fill.symbol, fill.fillId, input.intentId, input.attempt, fill.orderId,
-        String(fill.price), String(fill.qty), String(fill.quoteQty), String(fill.commission),
-        fill.commissionAsset, String(fill.commissionUsdt), fill.time,
+        "INSERT INTO fills(symbol, trade_id, intent_id, attempt, order_id, side, price, qty, quote_qty, commission, commission_asset, commission_usdt, filled_at, sell_kind) VALUES (?, ?, ?, ?, ?, 'BUY', ?, ?, ?, ?, ?, ?, ?, NULL)",
+        raw.symbol, raw.tradeId, input.intentId, input.attempt, raw.orderId,
+        raw.price, raw.qty, raw.quoteQty, raw.commission, raw.commissionAsset,
+        raw.commissionUsdt, raw.filledAt,
       );
-      const id = fill.symbol + ":" + fill.fillId;
+      const id = raw.symbol + ":" + raw.tradeId;
       this.run(
-        `INSERT INTO trade_ledger(
-          id, symbol, fill_id, order_id, side, time, price, qty, quote_qty,
-          commission, commission_asset, commission_usdt, realized_pnl_usdt,
-          sell_kind, base_ratio_at_buy
-        ) VALUES (?, ?, ?, ?, 'BUY', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
-        id, fill.symbol, fill.fillId, fill.orderId, fill.time, fill.price, fill.qty,
+        "INSERT INTO trade_ledger(id, symbol, fill_id, order_id, side, time, price, qty, quote_qty, commission, commission_asset, commission_usdt, realized_pnl_usdt, sell_kind, base_ratio_at_buy) VALUES (?, ?, ?, ?, 'BUY', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)",
+        id, raw.symbol, raw.tradeId, raw.orderId, raw.filledAt, fill.price, fill.qty,
         fill.quoteQty, fill.commission, fill.commissionAsset, fill.commissionUsdt,
         intent.baseRatioAtSignal as number,
       );
       const notification = buildTradeFillNotificationEvent(fill, input.now);
       const payload = JSON.stringify(notification);
       this.run(
-        `INSERT INTO notification_outbox(
-          id, payload_json, state, attempt, next_attempt_at, created_at, updated_at
-        ) VALUES (?, ?, 'pending', 0, 0, ?, ?)`,
+        "INSERT INTO notification_outbox(id, payload_json, state, attempt, next_attempt_at, created_at, updated_at) VALUES (?, ?, 'pending', 0, 0, ?, ?)",
         notification.id, payload, input.now, input.now,
       );
       const stored = this.get("SELECT * FROM trade_ledger WHERE id = ?", id);
