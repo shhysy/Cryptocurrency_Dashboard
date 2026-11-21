@@ -85,9 +85,9 @@ export function buildDashboard(
       ctx,
       cfg,
     );
-    // 白名单/六项基本面审核只限制新增买入，不影响任何卖出动作。
+    // 新增买入许可只按用户确认的资产池开关判断；五种授权资产不再受旧审核状态拦截，卖出动作始终不受影响。
     if (signal.action.side === "buy" && !isBuyAssetEligible(w.symbol)) {
-      const reason = "资产未通过策略3.3白名单与六项基本面审核，禁止新增买入";
+      const reason = "该资产未在自动买入许可清单中，禁止新增买入";
       signal = {
         ...signal,
         action: {
