@@ -5,18 +5,18 @@
 ## 当前实现状态（2026-11-21）
 
 1. **本地 Trader：** `npm run trader` 启动独立 Node 进程，不依赖浏览器；SQLite 持久化、单实例锁、BUY intent/提交/对账恢复已有代码。
-2. **SELL：** 已实现服务端 SQLite 信号入队（`enqueueServerSellSignals`）；但 Trader 尚未调用服务端 SELL 提交与只读对账处理器。浏览器版 `runSellAutomationTick` 仍依赖 IndexedDB，不能算作本地常驻 SELL 闭环。
+2. **SELL：** `enqueueServerSellSignals` 将信号写入SQLite；`server/sell-execution.ts` 由Trader调用，完成账户成交台账/余额核验、交易规则预检、底仓保护、提交前持久化clientOrderId、SELL POST、原ID只读查单、逐笔成交核验、台账/Outbox写入和终态/部分成交状态。浏览器版仍保留旧实现，但常驻Trader不依赖IndexedDB。当前仅有Mock测试，尚未完成Testnet真实订单验收。
 3. **订单未知态：** BUY POST 前持久化 clientOrderId；异常进入 unknown 并排队只读对账。禁止未知订单盲目重发。仍需进程级崩溃/重启验收。
 4. **生产模式：** `AUTO_TRADE_MODE=production` 当前明确拒绝启动真实交易；M0–M3 独立验收通过前不得解除。
 5. **通知/Earn：** 成交通知邮件模块目前是门控/正文占位实现，未真正发送 SMTP；Simple Earn 服务端入口仍明确拒绝提交。二者均未完成。
-6. **自检/日志：** 已有基础目录可写、Key存在性和熔断/脱敏；真实账户权限、服务器时间偏差、余额/连通性等完整自检及按日文件轮转尚未完成。
+6. **自检/日志：** Testnet/production启动自检现在会实际读取Binance账户权限（canTrade必须true、canWithdraw必须false）、USDT余额、Binance服务器时间偏差及数据/SQLite目录可写；仍需Testnet实测并补数据库实际写入/锁联动验收。Trader连续异常熔断已接入；日志目前仅脱敏控制台输出，按日文件轮转未完成。
 
 ## 主要模块
 
 | 模块 | 职责 |
 |------|------|
 | `sell-signal-queue.ts` / `sell-guard.ts` | 卖出信号计算、台账核验、底仓/周期仓保护 |
-| `server/sell-enqueue.ts` | 将策略 SELL 信号写入本地 SQLite |
+| `server/sell-enqueue.ts` | 将策略 SELL 信号写入本地 SQLite；台账读取失败时fail-closed |\n| `server/sell-execution.ts` | 本地Trader SELL预检、提交、unknown只读恢复、成交核验与入账 |
 | `server/sqlite-store.ts` | intent、reservation、scheduler、SELL event、ledger、Outbox 持久化 |
 | `server/trader-loop.ts` | BUY intent、提交与订单只读恢复 |
 | `binance-reconcile.server.ts` | Binance 只读查单/成交/余额/规则适配 |
@@ -33,5 +33,5 @@
 
 ## 当前验收证据
 
-- 最新分支 CI：`d0fb1c879f0a8b429db06ef41ceace614adfc83c`，GitHub Actions Run `44874836137` 成功；测试、TypeScript typecheck、Next.js production build 步骤均成功。
+- SELL服务端执行与启动自检本轮CI：GitHub Actions Run `44879348229`，73 files / 515 tests通过，TypeScript typecheck与Next.js production build通过。随后仅有Trader熔断传播和文档更新，仍需最新HEAD CI确认。
 - 该 CI 只证明代码质量检查通过，不代表 Testnet 实盘订单、SMTP 真发或生产交易验收通过。

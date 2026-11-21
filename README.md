@@ -23,7 +23,7 @@ npm run typecheck
 
 ## 当前完成边界（本地优先）
 
-看板信号、持仓与成本在本机 Next.js 可用；浏览器不持有 Binance Secret。当前 `npm run trader` 已有本地常驻进程、SQLite 存储与 BUY 执行/对账骨架，但 SELL 目前只接入 SQLite 信号入队，尚未接通无人值守提交与对账闭环。生产模式仍由代码硬拒绝。成交通知 SMTP 适配、Simple Earn 服务端赎回、自检完整性、日志轮转和 Testnet 全链路仍未完成。**当前版本不是可实盘版本，不能仅填真实 Key 就启动交易。**
+看板信号、持仓与成本在本机 Next.js 可用；浏览器不持有 Binance Secret。当前 `npm run trader` 已有本地常驻进程、SQLite 存储、BUY执行/对账和SELL服务端提交/只读对账代码；SELL已接入服务端预检、底仓保护、成交核验和台账入账，并有Mock集成测试。尚未完成专用Testnet真实订单演练、进程级崩溃恢复验收、SMTP真发、Simple Earn服务端赎回、完整日志轮转及生产验收。生产模式仍由代码硬拒绝。**当前版本不是可实盘版本，不能仅填真实 Key 就启动交易。**
 
 ## 策略逻辑
 

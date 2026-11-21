@@ -69,3 +69,34 @@
 - 提交：`a9726b05a30f73aae70962aeda4942be23644f83`。
 - GitHub Actions Run：`44876002637`，结论 success；Run中 Run tests、TypeScript typecheck、Next.js production build 均成功。
 - 该测试验证BTC同一fillId存在有效qty与qty=0冲突行时，BTC止盈续卖被阻断，而ETH在同一tick仍可正常入队。M0-02待Claude确认后才能标记[x]。
+
+
+## GPT继续开发与独立验收（2026-11-21）
+
+### 本轮新增实现
+
+1. `lib/execution/server/sell-execution.ts`：SELL服务端执行与只读对账；由本地Trader调用，不依赖IndexedDB。
+2. SELL预检：以SQLite成交台账重放持仓，并与Binance free/locked余额核对；使用交易所MARKET_LOT_SIZE/NOTIONAL规则；普通止盈只能使用周期仓，底仓减仓最多按剩余底仓50%核验。
+3. SELL提交：提交前在SQLite持久化唯一clientOrderId；响应不明后只读查询原ID，不允许再次POST。
+4. SELL对账：验证订单身份、订单数量不超过策略事件授权数量、成交分页完整、逐笔成交与累计数量/金额一致；只有交易所确认的成交写入SQLite成交台账和Outbox。0成交终态不会被误判成可续卖。
+5. SELL台账读取异常fail-closed：不创建新SELL事件。
+6. Trader Testnet启动要求BUY和SELL服务端开关都开启；SELL链路异常计入连续故障熔断。
+7. 启动自检：实际读取账户权限、要求canTrade=true/canWithdraw=false；读取USDT余额；读取Binance服务器时间并检查本机偏差；检查数据目录与SQLite父目录可写。
+
+### 代码验收证据
+
+- GitHub Actions Run `44879348229`：73 files / 515 tests通过；TypeScript typecheck通过；Next.js production build通过。
+- Run覆盖SELL执行与对账Mock测试、启动自检测试。**Mock不是Testnet实盘订单证据。**
+- 随后追加的Trader熔断传播提交：`2625db3f0bec5640f7f7231f762601a25534cae5`；其后的最新HEAD CI待完成。
+- 最新分支在本次工作结束时需要再核对，不能用旧CI替代最新提交的CI。
+
+### 未完成及安全边界
+
+- M1-04：服务端SELL代码已接入，但真实Testnet SELL、部分成交续卖、订单超时/重启演练尚未通过。
+- M1-03：BUY/SELL进程级kill/restart验收仍缺。
+- M1-05：只读执行看板未完成。
+- M2：专用Testnet BUY/SELL、异常演练与72小时报告未完成。
+- M3-04：Simple Earn服务端赎回未实现，继续关闭。
+- M3-05：SMTP未真正发送，Outbox不得假报sent。
+- M3-06：日志按日轮转未实现。
+- production仍硬拒绝；真实Key不应粘贴到聊天或提交仓库。
