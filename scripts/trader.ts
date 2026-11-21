@@ -112,7 +112,7 @@ async function main(): Promise<void> {
 
     while (!controller.signal.aborted) {
       const stopFilePresent = await stopFileExists();
-      const manualReviewCount = await store.notificationOutbox.countExecutionManualReview();
+      const manualReviewCount = await store.countExecutionManualReview();
       if (manualReviewCount > 0 && !stopFilePresent) {
         const reason = `检测到${manualReviewCount}项BUY/SELL订单需要人工复核，自动暂停新交易`;
         await writeStopFile(reason);
