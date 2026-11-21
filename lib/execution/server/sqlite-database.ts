@@ -273,6 +273,9 @@ export class LocalExecutionDatabase {
       this.transaction(() => {
         this.database.exec("ALTER TABLE order_intents ADD COLUMN strategy_tier TEXT");
         this.database.prepare(
+          "UPDATE order_intents SET state = 'manual_review', last_error = '旧版BUY意图缺少显式策略档位，禁止自动领取', updated_at = ? WHERE side = 'BUY' AND strategy_tier IS NULL AND state = 'queued'",
+        ).run(Date.now());
+        this.database.prepare(
           "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
         ).run(4, Date.now());
       });
