@@ -713,3 +713,13 @@
 - 当前状态：代码已写入gpt分支，**CI结果待核验**；不得标记为完成。尚未连接DO reconcile_intent任务，也未将逐笔结果接入fill-reconcile终态结算；第三资产手续费USDT折算仍由既有fill-reconcile逻辑fail-closed处理。
 - 安全边界：只读GET；没有调用Binance交易/赎回接口，没有开启生产BUY/SELL。
 
+
+
+### CI修复结果与终态计划构建器（2026-11-21）
+- 首轮Run `44865239710` 失败原因已定位为测试断言文本不一致及测试mock参数隐式any，不是适配器实现逻辑错误；修正提交 `2c1c6ea510c46633f726755221f300d0c0d939ad`。
+- 修正后Run `44865305092` 成功：npm test、TypeScript typecheck、Next.js production build、Cloudflare OpenNext build全部通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44865305092
+- 新增 `lib/execution/binance-reconcile-plan.server.ts`：将只读订单查询、订单状态、逐笔成交分页和交易对资产规则组合为严格的终态核对计划；使用BigInt十进制精确累计qty/quoteQty，只有终态且完整逐笔数据完全匹配时才生成DO finalize payload。
+- 活动订单返回wait；明确not_found不代表可重发；未知状态、订单身份/方向冲突、FILLED数量不匹配、成交累计不一致、分页不完整、第三资产非零手续费均阻断自动finalize。
+- 新增 `lib/execution/binance-reconcile-plan.server.test.ts`，覆盖终态成功、活动/未找到/429、未知状态、方向冲突、成交数量不匹配、第三资产手续费、零成交终态。
+- 新增提交：`9fb5c1a5377501ae7381facd9e32876f891cb18e`（终态对账计划构建器）、`36b78267051640f4e08034dd1ffe462dc7d04286`（终态计划安全测试）；对应CI仍在运行，未提前宣称通过。
+- 当前仍未把计划构建器接入DO scheduler消费者；没有自动ack/finalize执行链路，没有发送订单POST。生产BUY/SELL保持关闭。
