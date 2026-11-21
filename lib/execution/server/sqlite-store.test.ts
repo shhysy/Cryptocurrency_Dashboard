@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { serverExecutionIntentId, type ServerExecutionIntent } from "../server-execution-core";
 import { schedulerTaskRetryAt } from "../scheduler-task-core";
 import type { SellEventRecord } from "../sell-store.browser";
@@ -9,7 +9,6 @@ import type { ExecutionFill } from "../types";
 import { openLocalExecutionDatabase } from "./sqlite-database";
 import { openLocalExecutionStore } from "./sqlite-store";
 import { runTraderCycle } from "./trader-loop";
-import { vi } from "vitest";
 
 const NOW = 1_800_000_000_000;
 const directories: string[] = [];
@@ -563,6 +562,8 @@ describe("本地SQLite执行存储", () => {
     // 模拟Trader重新启动：重新打开同一个真实SQLite文件，再运行正式循环。
     const restarted = await openLocalExecutionStore({ path });
     const findOrderByClientOrderId = vi.fn(async (symbol: string, clientOrderId: string) => {
+      expect(symbol).toBe("BTCUSDT");
+      expect(clientOrderId).toBe(originalClientOrderId);
       return { kind: "not_found" as const };
     });
     const submitOrder = vi.fn(async () => {
