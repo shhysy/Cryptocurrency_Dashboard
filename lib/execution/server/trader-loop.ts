@@ -263,6 +263,11 @@ export async function runTraderCycle(
     ...reconciled,
   };
   if (deps.mode === "off") return result;
+  if (result.manualReview > 0) {
+    result.skippedReason = `存在${result.manualReview}项订单需要人工复核，禁止创建或提交新BUY订单`;
+    log(result.skippedReason);
+    return result;
+  }
 
   const dashboard = await deps.getDashboard();
   if (dashboard.source !== "binance" || dashboard.stale || !dashboard.market.accountKnown) {
