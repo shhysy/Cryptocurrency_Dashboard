@@ -115,6 +115,7 @@ function fixture() {
     getEvent: () => event,
     getEvents: () => [{ ...event }, ...(continuation ? [{ ...continuation }] : [])],
     setEvent: (next: Partial<SellEventRecord>) => { event = { ...event, ...next }; },
+    setContinuation: (next: SellEventRecord) => { continuation = { ...next }; },
   };
 }
 
@@ -172,10 +173,22 @@ describe("本地Trader服务端SELL执行", () => {
     expect(first.unknown).toBe(1);
     expect(submitOrder).toHaveBeenCalledTimes(1);
     const originalClientOrderId = f.getEvent().clientOrderId;
+    f.setContinuation({
+      ...f.getEvent(),
+      eventKey: "sell:ETH:take_profit:1800000000000:止盈1",
+      symbol: "ETH",
+      status: "pending",
+      requestedQty: 0.1,
+      filledQty: 0,
+      exchangeOrderId: null,
+      clientOrderId: undefined,
+      fillIds: [],
+    });
 
     const second = await runServerSellCycle(deps);
     expect(second.skipped).toBe(1);
     expect(f.findOrderByClientOrderId).toHaveBeenCalledWith("BTCUSDT", originalClientOrderId);
+    expect(f.store.sellEvents.claimSellEventForSubmission).toHaveBeenCalledTimes(1);
     expect(submitOrder).toHaveBeenCalledTimes(1);
     expect(f.getEvent().clientOrderId).toBe(originalClientOrderId);
   });
