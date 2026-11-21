@@ -2,15 +2,15 @@
  * 分数达标邮件通知（QQ 邮箱 SMTP）。
  *
  * 用法：
- *   1. 在项目根目录编辑唯一的 .env（填写 SMTP_*、币安 Key、两个门槛分）
+ *   1. 在项目根目录编辑 .env.local（优先）或 .env（填写 SMTP_* 和邮件门槛）
  *   2. 本机先 npm run dev
  *   3. npm run notify          常驻运行，每 60 秒检查一次（Ctrl+C 退出）
  *      npm run notify -- --once  只检查一次就退出
  *
  * 冷却：MAIL_COOLDOWN_HOURS（小时，0 = 无冷却，每次检查达标都发）。
- * 每轮都会重新读取 .env，改门槛或冷却不用重启。
+ * 每轮都会重新读取 .env.local / .env，改门槛或冷却不用重启。
  *
- * 门槛（写在 .env）：
+ * 门槛（写在 .env.local 或 .env）：
  *   MAIL_MIN_SCORE_CORE=55   # 核心：BTC、PAXG
  *   MAIL_MIN_SCORE_ALT=75    # 山寨：ETH、BNB、UNI、CL 等
  */
