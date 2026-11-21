@@ -171,3 +171,12 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - GitHub Actions Run `44895391448`：79 files / 564 tests passed，typecheck与production build passed。
 - 真实SMTP仍需用户本机填入SMTP配置并设置`TRADER_ALERT_MAIL_ENABLED=1`后实测；当前默认0，不会发信。此项代码通过不代表SMTP已真实投递。
 - production仍硬拒绝；M2 Testnet、Earn、Excel全表核验和Claude验收仍未完成。
+
+
+### GPT补充：Outbox事件类型隔离修复（2026-11-21）
+
+- 修复系统告警与成交Outbox混合时的队列饥饿：SQLite在LIMIT前按事件类型过滤，成交邮件与故障告警开关互不抢占未启用类型。
+- 损坏JSON通过`json_valid`安全识别并转人工复核，避免`json_extract`异常中断整个Outbox领取。
+- 新增15条旧成交积压场景测试，确保单独启用告警时仍能及时领取告警。
+- CI Run `44895636959`：79 files / 565 tests通过；typecheck/build通过。
+- 最新HEAD：`f672ffdf1a3b72dd63bb10872b3107f5da3cd145`。
