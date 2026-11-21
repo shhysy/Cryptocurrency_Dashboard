@@ -137,12 +137,12 @@ describe("GROK-SELL-01A 止盈 resume 台账核验", () => {
     ])).toBeNull();
   });
 
-  it("同键混合冲突：错误 side/kind 与有效行并存时不得误认", () => {
+  it("同键混合冲突：错误 side/kind 与有效行并存时必须阻断", () => {
     const e = [partial()];
     expect(verifiedTakeProfitEventFilledQty(e[0], [
       { symbol: "BTC", fillId: "f1", qty: 0.05, side: "BUY", sellKind: "take_profit" },
       { symbol: "BTC", fillId: "f1", qty: 0.05, side: "SELL", sellKind: "take_profit" },
-    ])).toBeCloseTo(0.05);
+    ])).toBeNull();
     expect(verifiedTakeProfitEventFilledQty(e[0], [
       { symbol: "BTC", fillId: "f1", qty: 0.05, side: "SELL", sellKind: "take_profit" },
       { symbol: "BTC", fillId: "f1", qty: 0.05, side: "SELL", sellKind: "take_profit" },
@@ -150,7 +150,7 @@ describe("GROK-SELL-01A 止盈 resume 台账核验", () => {
     expect(verifiedTakeProfitEventFilledQty(e[0], [
       { symbol: "BTC", fillId: "f1", qty: 0.05, side: "SELL", sellKind: "base_reduce" },
       { symbol: "BTC", fillId: "f1", qty: 0.05, side: "SELL", sellKind: "take_profit" },
-    ])).toBeCloseTo(0.05);
+    ])).toBeNull();
   });
 
   it("数量与 filledQty 不一致禁止 resume", () => {
