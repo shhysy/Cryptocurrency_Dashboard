@@ -57,6 +57,7 @@ async function request(path, body, method = "POST") {
     method,
     headers: body === undefined ? {} : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
   });
   const payload = await response.json().catch(() => ({}));
   return { status: response.status, payload };
@@ -67,8 +68,10 @@ function assert(condition, message) {
 }
 
 try {
+  console.log("[DO SQLite] 启动本地Cloudflare Worker");
   startWorker();
   await waitForWorker();
+  console.log("[DO SQLite] Worker已启动，开始创建订单意图");
 
   const now = Date.now();
   const intentId = "v33:sqlite-restart-intent";
@@ -98,6 +101,7 @@ try {
   assert(submitting.status === 200, `提交前状态持久化失败：${JSON.stringify(submitting)}`);
 
   const dueAt = Date.now();
+  console.log("[DO SQLite] 订单submitting与reconcile任务已持久化，开始测试scheduler队列");
   const enqueue = await request("/internal/scheduler/enqueue", {
     taskId: "health:sqlite-restart",
     taskType: "health_check",
@@ -130,9 +134,11 @@ try {
     "Durable Object未使用SQLite存储");
   assert(typeof healthBefore.payload.alarmAt === "number", "调度任务未持久化DO Alarm");
 
+  console.log("[DO SQLite] 首次运行完成，停止并重启Worker验证持久化");
   await stopWorker();
   startWorker();
   await waitForWorker();
+  console.log("[DO SQLite] Worker已重启，验证订单与租约恢复");
 
   const context = await request(
     `/internal/reconcile-context?intentId=${encodeURIComponent(intentId)}`,
@@ -152,6 +158,7 @@ try {
   });
   assert(schedulerRenew.status === 200, `DO重启后调度租约未恢复：${JSON.stringify(schedulerRenew)}`);
 
+  console.log("[DO SQLite] 持久化恢复通过，开始并发领取竞争测试");
   const raceEnqueue = await request("/internal/scheduler/enqueue", {
     taskId: "health:claim-race",
     taskType: "health_check",
