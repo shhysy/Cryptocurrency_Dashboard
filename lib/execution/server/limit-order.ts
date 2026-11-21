@@ -7,7 +7,7 @@ const SCALE = 18n;
 const UNIT = 10n ** SCALE;
 
 function toUnits(value: string, label: string): bigint {
-  if (typeof value !== "string" || !/^(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$/.test(value)) {
+  if (typeof value !== "string" || !/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/.test(value)) {
     throw new Error(`${label}必须是最多18位小数的非负十进制字符串`);
   }
   const [whole, fraction = ""] = value.split(".");
