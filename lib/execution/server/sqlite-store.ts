@@ -12,7 +12,8 @@ import {
   SCHEDULER_TASK_MAX_ATTEMPTS,
   validateSchedulerTaskInput,
 } from "../scheduler-task-core";
-import { buildTradeFillNotificationEvent, tradeNotificationRetryDelayMs, type SystemAlertNotificationEvent, type TradeNotificationOutboxEvent } from "../notification-outbox";
+import { buildTradeFillNotificationEvent, tradeNotificationRetryDelayMs, type SystemAlertNotificationEvent, type TradeFillBusinessSnapshot, type TradeNotificationOutboxEvent } from "../notification-outbox";
+import { replayPositionLedger } from "../position-accounting";
 import type {
   CreateIntentResult,
   ExecutionLeaseInput,
@@ -161,6 +162,33 @@ function sumDecimals(values: string[]): string {
   const fraction = scale
     ? (total % factor).toString().padStart(scale, "0").replace(/0+$/, "")
     : "";
+  return fraction ? `${whole}.${fraction}` : String(whole);
+}
+
+function subtractDecimals(left: string, right: string): string {
+  const a = decimal(left);
+  const b = decimal(right);
+  const scale = Math.max(a.scale, b.scale);
+  const units = a.units * 10n ** BigInt(scale - a.scale) - b.units * 10n ** BigInt(scale - b.scale);
+  if (units < 0n) throw new Error("成交累计金额超过原始计划预算");
+  const factor = 10n ** BigInt(scale);
+  const whole = units / factor;
+  const fraction = scale ? (units % factor).toString().padStart(scale, "0").replace(/0+$/, "") : "";
+  return fraction ? `${whole}.${fraction}` : String(whole);
+}
+
+function divideDecimals(numerator: string, denominator: string, precision = 12): string {
+  const a = decimal(numerator);
+  const b = decimal(denominator);
+  if (b.units <= 0n || !Number.isSafeInteger(precision) || precision < 0 || precision > 18) {
+    throw new Error("累计成交均价计算参数无效");
+  }
+  const scaled = a.units * 10n ** BigInt(b.scale + precision);
+  const divisor = b.units * 10n ** BigInt(a.scale);
+  const quotient = scaled / divisor;
+  const factor = 10n ** BigInt(precision);
+  const whole = quotient / factor;
+  const fraction = precision ? (quotient % factor).toString().padStart(precision, "0").replace(/0+$/, "") : "";
   return fraction ? `${whole}.${fraction}` : String(whole);
 }
 
@@ -1242,7 +1270,29 @@ export class SqliteExecutionStore implements LocalExecutionStore {
         id, fill.symbol, fill.fillId, fill.orderId, fill.time, fill.price, fill.qty,
         fill.quoteQty, fill.commission, fill.commissionAsset, fill.commissionUsdt, sellKind,
       );
-      const notification = buildTradeFillNotificationEvent(fill, fill.time);
+      const orderFills = this.all(
+        "SELECT qty, quote_qty, commission_usdt FROM fills WHERE symbol = ? AND order_id = ? AND side = 'SELL'",
+        fill.symbol, fill.orderId,
+      );
+      const cumulativeQty = sumDecimals(orderFills.map((row) => String(row.qty)));
+      const cumulativeQuote = sumDecimals(orderFills.map((row) => String(row.quote_qty)));
+      const cumulativeFees = sumDecimals(orderFills.map((row) => String(row.commission_usdt)));
+      const ledgerRows = this.all(
+        "SELECT * FROM trade_ledger WHERE symbol = ? ORDER BY time ASC, order_id ASC, fill_id ASC",
+        fill.symbol,
+      ).map(parseTradeLedger);
+      const position = replayPositionLedger(ledgerRows, "USDT");
+      const businessSnapshot: TradeFillBusinessSnapshot = {
+        side: "SELL",
+        sellKind,
+        cumulativeFilledQty: cumulativeQty,
+        cumulativeQuoteQty: cumulativeQuote,
+        cumulativeCommissionUsdt: cumulativeFees,
+        averageFillPrice: divideDecimals(cumulativeQuote, cumulativeQty),
+        realizedPnlUsdt: position.realizedPnlUsdt,
+        remainingPositionQty: position.totalQty,
+      };
+      const notification = buildTradeFillNotificationEvent(fill, fill.time, businessSnapshot);
       this.run(
         `INSERT INTO notification_outbox(
           id, payload_json, state, attempt, next_attempt_at, created_at, updated_at
@@ -1405,7 +1455,26 @@ export class SqliteExecutionStore implements LocalExecutionStore {
         fill.quoteQty, fill.commission, fill.commissionAsset, fill.commissionUsdt,
         intent.baseRatioAtSignal as number,
       );
-      const notification = buildTradeFillNotificationEvent(fill, fill.time);
+      const orderFills = this.all(
+        "SELECT qty, quote_qty, commission_usdt FROM fills WHERE intent_id = ? AND attempt = ? AND order_id = ? AND side = 'BUY'",
+        input.intentId, input.attempt, raw.orderId,
+      );
+      const cumulativeQty = sumDecimals(orderFills.map((row) => String(row.qty)));
+      const cumulativeQuote = sumDecimals(orderFills.map((row) => String(row.quote_qty)));
+      const cumulativeFees = sumDecimals(orderFills.map((row) => String(row.commission_usdt)));
+      if (!intent.strategyTier) throw new Error("BUY成交缺少已冻结的策略档位，拒绝生成错误邮件");
+      const consumedBudget = sumDecimals([cumulativeQuote, cumulativeFees]);
+      const businessSnapshot: TradeFillBusinessSnapshot = {
+        side: "BUY",
+        strategyTier: intent.strategyTier,
+        plannedUsdt: intent.amount,
+        cumulativeFilledQty: cumulativeQty,
+        cumulativeQuoteQty: cumulativeQuote,
+        cumulativeCommissionUsdt: cumulativeFees,
+        averageFillPrice: divideDecimals(cumulativeQuote, cumulativeQty),
+        remainingBudgetUsdt: subtractDecimals(intent.amount, consumedBudget),
+      };
+      const notification = buildTradeFillNotificationEvent(fill, fill.time, businessSnapshot);
       const payload = JSON.stringify(notification);
       this.run(
         "INSERT INTO notification_outbox(id, payload_json, state, attempt, next_attempt_at, created_at, updated_at) VALUES (?, ?, 'pending', 0, 0, ?, ?)",
