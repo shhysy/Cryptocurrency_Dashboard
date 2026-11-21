@@ -114,6 +114,29 @@ describe("Trader系统告警SQLite Outbox", () => {
       store.close();
     }
   });
+  it("正常reserved预留与匹配账户锁不会误触发停机", async () => {
+    const store = await openStore();
+    try {
+      const db = (store as unknown as { database: { exec(sql: string): void } }).database;
+      db.exec(`INSERT INTO order_intents(
+        intent_id, strategy_event_id, strategy_version, symbol, side, quote_asset,
+        amount, state, attempt, created_at, updated_at
+      ) VALUES ('intent-valid-reservation', 'event-valid-reservation', '3.3', 'BTCUSDT',
+        'BUY', 'USDT', '10', 'reserved', 1, ${NOW}, ${NOW})`);
+      db.exec(`INSERT INTO reservations(
+        reservation_id, intent_id, asset, amount, consumed_amount, attempt, state, created_at, updated_at
+      ) VALUES ('reservation-valid', 'intent-valid-reservation', 'USDT', '10', '0',
+        1, 'reserved', ${NOW}, ${NOW})`);
+      db.exec(`INSERT INTO account_lock(
+        singleton, intent_id, attempt, lease_token, lease_until, asset, reserved_amount, created_at, updated_at
+      ) VALUES (1, 'intent-valid-reservation', 1, 'valid-lease-token', ${NOW + 30_000},
+        'USDT', '10', ${NOW}, ${NOW})`);
+      expect(await store.countExecutionManualReview()).toBe(0);
+    } finally {
+      store.close();
+    }
+  });
+
   it("reserved资金预留缺少匹配账户锁时必须触发停机计数", async () => {
     const store = await openStore();
     try {
