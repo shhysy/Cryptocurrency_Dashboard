@@ -1,4 +1,4 @@
-import type { QueuedBuyOrder } from "./types";
+import type { QueuedBuyOrder, TradeLedgerEntry } from "./types";
 
 const columns: (keyof QueuedBuyOrder)[] = [
   "id", "eventKey", "symbol", "quoteAsset", "strategyLabel", "plannedUsdt", "filledUsdt",
@@ -29,4 +29,18 @@ export function downloadQueuedOrdersCsv(orders: QueuedBuyOrder[], filename = "�
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+
+const tradeLedgerColumns: (keyof TradeLedgerEntry)[] = [
+  "fillId", "orderId", "symbol", "side", "time", "price", "qty", "quoteQty",
+  "commission", "commissionAsset", "commissionUsdt", "realizedPnlUsdt", "sellKind", "baseRatioAtBuy",
+];
+
+/** 只导出Binance已确认的逐笔成交，不包含挂单、限价估算或未成交数量。 */
+export function tradeLedgerToCsv(entries: TradeLedgerEntry[]): string {
+  return [
+    tradeLedgerColumns.join(","),
+    ...entries.map((entry) => tradeLedgerColumns.map((key) => csvCell(entry[key])).join(",")),
+  ].join("\\r\\n") + "\\r\\n";
 }
