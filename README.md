@@ -8,7 +8,7 @@
 
 ## 本地运行
 
-需要 Node.js 20.9 以上（推荐 22 LTS）。
+需要 Node.js 22 LTS（项目使用内置 `node:sqlite`）。
 
 ```bash
 npm install
@@ -23,7 +23,7 @@ npm run typecheck
 
 ## 当前完成边界（本地优先）
 
-看板信号、持仓与成本在本机 Next.js 可用；浏览器不持有 Binance Secret。统一 `/api/binance/spot-order` 提供 BUY/SELL MARKET 入口，方向开关默认关闭。SELL 状态机（含 01A 台账混合冲突 fail-closed）已代码交付，待 GPT 独立复核。执行层正迁向**本地常驻进程 + 本机持久化**（GPT 主责），不再以 Cloudflare DO/Worker 为部署目标。Simple Earn 真实赎回关闭。未完成 Testnet 全链路与用户授权前，不得开启生产交易。
+看板信号、持仓与成本在本机 Next.js 可用；浏览器不持有 Binance Secret。当前 `npm run trader` 已有本地常驻进程、SQLite 存储与 BUY 执行/对账骨架，但 SELL 目前只接入 SQLite 信号入队，尚未接通无人值守提交与对账闭环。生产模式仍由代码硬拒绝。成交通知 SMTP 适配、Simple Earn 服务端赎回、自检完整性、日志轮转和 Testnet 全链路仍未完成。**当前版本不是可实盘版本，不能仅填真实 Key 就启动交易。**
 
 ## 策略逻辑
 
