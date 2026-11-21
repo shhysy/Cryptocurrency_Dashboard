@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/mail-notify", () => mocks);
 
-import { buildTradeFillMailBody, dispatchTradeFillMail } from "./trade-fill-mail.server";
+import { buildTradeFillMailBody, dispatchTradeFillMail, dispatchTraderAlertMail } from "./trade-fill-mail.server";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -52,6 +52,60 @@ describe("成交通知邮件", () => {
     const result = await dispatchTradeFillMail([{ id: "1", symbol: "ETH", side: "BUY" }]);
     expect(result.ok).toBe(false);
     expect(result.sent).toBe(false);
+    expect(result.reason).toContain("SMTP暂时不可用");
+  });
+});
+
+
+describe("Trader熔断告警邮件", () => {
+  it("默认关闭且不发送", async () => {
+    vi.stubEnv("TRADER_ALERT_MAIL_ENABLED", "0");
+    const result = await dispatchTraderAlertMail({
+      id: "trader-alert:circuit-breaker:1800000000000",
+      severity: "critical",
+      title: "Trader连续故障熔断",
+      message: "连续失败达到阈值",
+      occurredAt: 1_800_000_000_000,
+    });
+    expect(result).toMatchObject({ ok: true, sent: false });
+    expect(mocks.sendSmtpTextMail).not.toHaveBeenCalled();
+  });
+
+  it("独立启用后通过SMTP发送熔断告警且正文包含STOP指引", async () => {
+    vi.stubEnv("TRADER_ALERT_MAIL_ENABLED", "1");
+    vi.stubEnv("SMTP_HOST", "smtp.example.com");
+    vi.stubEnv("SMTP_USER", "bot@example.com");
+    vi.stubEnv("SMTP_PASS", "test-password");
+    vi.stubEnv("MAIL_TO", "owner@example.com");
+    const result = await dispatchTraderAlertMail({
+      id: "trader-alert:circuit-breaker:1800000000000",
+      severity: "critical",
+      title: "Trader连续故障熔断",
+      message: "连续失败达到阈值",
+      occurredAt: 1_800_000_000_000,
+    });
+    expect(result).toMatchObject({ ok: true, sent: true });
+    expect(mocks.sendSmtpTextMail).toHaveBeenCalledWith(
+      expect.stringContaining("Trader连续故障熔断"),
+      expect.stringContaining("data/STOP"),
+    );
+  });
+
+  it("SMTP异常返回失败状态供Outbox重试", async () => {
+    vi.stubEnv("TRADER_ALERT_MAIL_ENABLED", "1");
+    vi.stubEnv("SMTP_HOST", "smtp.example.com");
+    vi.stubEnv("SMTP_USER", "bot@example.com");
+    vi.stubEnv("SMTP_PASS", "test-password");
+    vi.stubEnv("MAIL_TO", "owner@example.com");
+    mocks.sendSmtpTextMail.mockRejectedValue(new Error("SMTP暂时不可用"));
+    const result = await dispatchTraderAlertMail({
+      id: "trader-alert:circuit-breaker:1800000000000",
+      severity: "critical",
+      title: "Trader连续故障熔断",
+      message: "连续失败达到阈值",
+      occurredAt: 1_800_000_000_000,
+    });
+    expect(result).toMatchObject({ ok: false, sent: false });
     expect(result.reason).toContain("SMTP暂时不可用");
   });
 });
