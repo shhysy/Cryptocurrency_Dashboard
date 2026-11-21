@@ -17,7 +17,7 @@ export interface ServerSellCycleDependencies {
   mode: "off" | "dry-run" | "testnet" | "production";
   store: LocalExecutionStore;
   adapter: Adapter;
-  dashboard: DashboardData;
+  dashboard: DashboardData | null;
   submitOrder: (input: {
     side: "BUY" | "SELL";
     symbol: string;
