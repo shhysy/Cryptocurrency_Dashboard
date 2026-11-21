@@ -24,11 +24,24 @@ class FakeSql {
     symbol: string; trade_id: string; intent_id: string; attempt: number; order_id: string;
     qty: string; quote_qty: string; commission: string; commission_asset: string; filled_at: number;
   }>();
+  readonly schedulerTasks = new Map<string, {
+    state: string; attempt: number; lease_token: string; lease_until: number;
+  }>();
 
   exec(query: string, ...bindings: unknown[]) {
     this.statements.push(query);
     let rows: unknown[] = [];
-    if (query.includes("SELECT task_id, attempt FROM scheduler_tasks")) {
+    if (query.includes("SELECT state, attempt, lease_token, lease_until FROM scheduler_tasks WHERE task_id = ?")) {
+      const row = this.schedulerTasks.get(String(bindings[0]));
+      rows = row ? [{ ...row }] : [];
+    } else if (query.includes("INSERT INTO scheduler_tasks")) {
+      const taskId = String(bindings[0]);
+      if (!this.schedulerTasks.has(taskId)) {
+        this.schedulerTasks.set(taskId, {
+          state: "pending", attempt: 0, lease_token: "", lease_until: 0,
+        });
+      }
+    } else if (query.includes("SELECT task_id, attempt FROM scheduler_tasks")) {
       rows = [
         { task_id: "reconcile:retry", attempt: 1 },
         { task_id: "reconcile:manual", attempt: 8 },
@@ -619,11 +632,16 @@ describe("账户级Durable Object持久化基础", () => {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ intentId: intent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken }),
     }));
+    const schedulerLeaseToken = "scheduler-lease-token-123456";
+    sql.schedulerTasks.set(intent.intentId, {
+      state: "leased", attempt: 1, lease_token: schedulerLeaseToken, lease_until: Date.now() + 30_000,
+    });
     const terminalAt = Date.now();
     const response = await coordinator.fetch(new Request("https://do.internal/internal/finalize", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({
         intentId: intent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken,
+        schedulerTaskId: intent.intentId, schedulerAttempt: 1, schedulerLeaseToken,
         exchangeOrderId: "90001", exchangeStatus: "FILLED", executedQty: "0.001",
         cumulativeQuoteQty: "50", exchangeTerminalAt: terminalAt,
         fills: [{
@@ -642,6 +660,44 @@ describe("账户级Durable Object持久化基础", () => {
     });
     expect(sql.intents.get(intent.intentId)?.state).toBe("filled");
     expect(sql.lock).toBeNull();
+  });
+
+  it("调度租约过期时拒绝终态结算，即使账户租约仍有效", async () => {
+    const { coordinator, sql } = makeCoordinator();
+    await coordinator.fetch(new Request("https://do.internal/internal/intents", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(intent),
+    }));
+    const claimedResponse = await coordinator.fetch(new Request("https://do.internal/internal/claim", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, asset: "USDT", availableBalance: "100", snapshotAt: Date.now() }),
+    }));
+    const claimed = await claimedResponse.json() as { attempt: number; leaseToken: string };
+    await coordinator.fetch(new Request("https://do.internal/internal/mark-submitting", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken }),
+    }));
+    sql.schedulerTasks.set(intent.intentId, {
+      state: "leased", attempt: 1, lease_token: "expired-scheduler-token-123456", lease_until: Date.now() - 1,
+    });
+    const terminalAt = Date.now();
+    const response = await coordinator.fetch(new Request("https://do.internal/internal/finalize", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        intentId: intent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken,
+        schedulerTaskId: intent.intentId, schedulerAttempt: 1,
+        schedulerLeaseToken: "expired-scheduler-token-123456",
+        exchangeOrderId: "90006", exchangeStatus: "FILLED", executedQty: "0.001",
+        cumulativeQuoteQty: "50", exchangeTerminalAt: terminalAt,
+        fills: [{
+          tradeId: "70006", orderId: "90006", qty: "0.001", quoteQty: "50",
+          commission: "0", commissionAsset: "BTC", filledAt: terminalAt,
+        }],
+      }),
+    }));
+    expect(response.status).toBe(409);
+    expect(sql.fills.size).toBe(0);
+    expect(sql.lock?.intent_id).toBe(intent.intentId);
+    expect(sql.reservations.get(`${intent.intentId}:1:USDT`)?.state).toBe("reserved");
   });
 
   it("SELL部分成交将基础资产手续费计入消耗后再释放剩余预留", async () => {
