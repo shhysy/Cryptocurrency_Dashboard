@@ -79,6 +79,19 @@ describe("本地Trader策略信号与执行循环", () => {
     });
   });
 
+  it("未通过白名单或未登记的资产，即使伪造无blocked的BUY信号也不能生成intent", () => {
+    const make = (symbol: string) => dashboard({
+      coins: [{
+        symbol, price: 100, series: [{ t: 1_700_000_000_000 }, { t: 1_800_000_000_000 }],
+        signal: { action: { side: "buy", kind: "head", usdt: 100, blocked: [] } },
+      }],
+    });
+    expect(buildServerBuyIntents(make("ETH"))).toHaveLength(0); // 工作簿：待审核
+    expect(buildServerBuyIntents(make("BNB"))).toHaveLength(0); // 未登记审核结果
+    expect(buildServerBuyIntents(make("UNKNOWN"))).toHaveLength(0); // 未知资产默认拒绝
+    expect(buildServerBuyIntents(make("CL"))).toHaveLength(0); // signal-only
+  });
+
   it("STALE仅作软提示；Mock、未知账户或策略阻断时不生成intent", () => {
     expect(buildServerBuyIntents(dashboard({ stale: true }))).toHaveLength(1);
     expect(buildServerBuyIntents(dashboard({ source: "mock" }))).toHaveLength(0);
