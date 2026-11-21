@@ -170,6 +170,62 @@ describe("本地Trader策略信号与执行循环", () => {
     }));
   });
 
+  it("对账进入人工复核时立即禁止生成新BUY信号", async () => {
+    const getDashboard = vi.fn(async () => dashboard());
+    const store = mockStore({
+      getReconcileContext: vi.fn(async () => ({
+        intent: {
+          intentId: "review-intent",
+          strategyEventId: "BTC:head:review",
+          strategyVersion: "3.3",
+          symbol: "BTCUSDT",
+          side: "BUY",
+          quoteAsset: "USDT",
+          amount: "100",
+          state: "unknown",
+          attempt: 1,
+          createdAt: 1_800_000_000_000,
+          updatedAt: 1_800_000_000_000,
+          exchangeOrderId: null,
+          clientOrderId: null,
+          exchangeTerminalAt: null,
+          fillsReconciledAt: null,
+          lastError: null,
+        } as ServerExecutionIntent,
+        lease: null,
+        reservedAsset: null,
+        reservedAmount: null,
+      })),
+      scheduler: {
+        enqueue: vi.fn(async () => ({ created: true })),
+        claimDue: vi.fn(async () => [{
+          taskId: "reconcile:review-intent",
+          taskType: "reconcile_intent" as const,
+          dueAt: 1_800_000_000_000,
+          attempt: 1,
+          leaseToken: "scheduler-lease",
+          leaseUntil: 1_800_000_030_000,
+        }]),
+        renew: vi.fn(async () => true),
+        ack: vi.fn(async () => true),
+        retry: vi.fn(async () => "manual_review" as const),
+        recoverExpired: vi.fn(async () => 0),
+      },
+    });
+    const result = await runTraderCycle({
+      mode: "testnet",
+      store,
+      getDashboard,
+      adapter: {} as never,
+      submitOrder: vi.fn(),
+      now: () => 1_800_000_000_100,
+    });
+    expect(result.manualReview).toBe(1);
+    expect(result.skippedReason).toContain("人工复核");
+    expect(getDashboard).not.toHaveBeenCalled();
+    expect(store.createIntent).not.toHaveBeenCalled();
+  });
+
   it("拒绝生产模式，直到独立生产预检与授权任务完成", async () => {
     const deps: TraderCycleDependencies = {
       mode: "production",
