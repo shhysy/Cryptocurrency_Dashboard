@@ -504,6 +504,13 @@ describe("本地SQLite执行存储", () => {
         .rejects.toThrow("禁止重复提交");
       const bound = await store.sellEvents.bindSellEventToExchangeOrder(event.eventKey, "12348", NOW + 3);
       expect(bound.exchangeOrderId).toBe("12348");
+      await store.sellEvents.updateSellEvent({
+        ...bound, status: "partially_filled", filledQty: 0.01,
+        fillIds: ["sell-fill-1"], updatedAt: NOW + 4,
+      });
+      const rebound = await store.sellEvents.bindSellEventToExchangeOrder(event.eventKey, "12348", NOW + 5);
+      expect(rebound.status).toBe("partially_filled");
+      expect(rebound.exchangeOrderId).toBe("12348");
     } finally {
       store.close();
     }
