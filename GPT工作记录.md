@@ -308,3 +308,13 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 复查完整SMTP投递路径时发现：Outbox事件已经冻结`businessSnapshot`，但`notification-outbox-dispatcher.ts`调用`dispatchTradeFillMail`时漏传该字段，导致真实邮件正文无法显示BUY计划/累计预算及SELL实现盈亏/持仓。已补传，并新增`notification-outbox-dispatcher.test.ts`断言；同时修正旧订单策略档位为null时的邮件类型兼容。
 
 最新HEAD `ae827e29f5496db4e001e72d0e6629ea8300a86d`，CI Run `44918697059`成功：81文件、580项测试通过，typecheck/Next build通过。
+
+## 策略3.3资产白名单与六项基本面BUY gate（2026-11-21）
+
+- 读取Library中的《策略3.3.xlsx》资产池：BTC/PAXG白名单“通过”，六项基本面风险均“否”；ETH“待审核”；ALT-2/ALT-3是占位符；BNB/UNI没有已审核记录。
+- 新增watchlist配置字段：白名单状态 + 六项风险（项目停更、下架/流动性枯竭、未解决重大安全事件、30天内大额解锁、重大监管/法律风险、竞争力/需求持续恶化）。
+- BTC/PAXG显式审核通过；ETH pending；BNB/UNI及未登记symbol默认拒绝；CL signal-only。
+- Dashboard仅对新增BUY动作添加blocked，不干扰SELL；Trader服务端再次调用isBuyAssetEligible独立拦截，防止伪造无blocked信号绕过。
+- 新增资产配置测试与Trader伪造BUY绕过测试。
+- HEAD `c1be2e818a52a88a3b6a26bc18e1932f71aa84e7`，CI Run `44919199265`成功：81文件、581测试通过，typecheck/build通过。
+- 后续如用户要启用ETH/BNB/UNI，需先在配置里明确白名单通过并填写六项风险结果；不能默认放行。
