@@ -8,6 +8,7 @@ type Adapter = ReturnType<typeof createBinanceReconcileAdapter>;
 import { runServerSellCycle } from "./sell-execution";
 
 function fixture() {
+  let continuation: SellEventRecord | null = null;
   let event: SellEventRecord = {
     eventKey: "sell:BTC:take_profit:1800000000000:止盈1",
     symbol: "BTC",
@@ -22,7 +23,10 @@ function fixture() {
   };
   const store = {
     sellEvents: {
-      listSellEvents: vi.fn(async () => [{ ...event }]),
+      listSellEvents: vi.fn(async () => [
+        { ...event },
+        ...(continuation ? [{ ...continuation }] : []),
+      ]),
       claimSellEventForSubmission: vi.fn(async (_key: string, clientOrderId: string) => {
         event = { ...event, status: "reconcile_required", clientOrderId, lastError: "待只读对账" };
         return { ...event };
@@ -32,7 +36,12 @@ function fixture() {
         return { ...event };
       }),
       updateSellEvent: vi.fn(async (next: SellEventRecord) => { event = { ...next }; }),
-      reserveSellEvent: vi.fn(),
+      reserveSellEvent: vi.fn(async (record: SellEventRecord) => {
+        if (record.eventKey === event.eventKey) return { record: { ...event }, created: false };
+        if (continuation?.eventKey === record.eventKey) return { record: { ...continuation }, created: false };
+        continuation = { ...record };
+        return { record: { ...continuation }, created: true };
+      }),
     },
     tradeLedger: {
       listTradeLedger: vi.fn(async () => [{
@@ -83,7 +92,12 @@ function fixture() {
     coins: [{ symbol: "BTC", price: 100 }],
   } as unknown as DashboardData;
 
-  return { store, adapter, dashboard, findOrderByClientOrderId, listOrderTrades, getEvent: () => event, setEvent: (next: Partial<SellEventRecord>) => { event = { ...event, ...next }; } };
+  return {
+    store, adapter, dashboard, findOrderByClientOrderId, listOrderTrades,
+    getEvent: () => event,
+    getEvents: () => [{ ...event }, ...(continuation ? [{ ...continuation }] : [])],
+    setEvent: (next: Partial<SellEventRecord>) => { event = { ...event, ...next }; },
+  };
 }
 
 describe("本地Trader服务端SELL执行", () => {
@@ -146,6 +160,65 @@ describe("本地Trader服务端SELL执行", () => {
     expect(f.findOrderByClientOrderId).toHaveBeenCalledWith("BTCUSDT", originalClientOrderId);
     expect(submitOrder).toHaveBeenCalledTimes(1);
     expect(f.getEvent().clientOrderId).toBe(originalClientOrderId);
+  });
+
+  it("SELL终态部分成交后为剩余数量创建唯一续卖事件，不重发原订单", async () => {
+    const f = fixture();
+    f.setEvent({ status: "reconcile_required", clientOrderId: "gpt-partial-sell-1" });
+    f.findOrderByClientOrderId.mockResolvedValue({
+      kind: "found",
+      order: {
+        symbol: "BTCUSDT",
+        orderId: 124,
+        clientOrderId: "gpt-partial-sell-1",
+        side: "SELL",
+        status: "CANCELED",
+        origQty: "0.2",
+        executedQty: "0.1",
+        cummulativeQuoteQty: "10",
+        time: 1_800_000_000_000,
+        updateTime: 1_800_000_000_001,
+      },
+    });
+    f.listOrderTrades.mockResolvedValue({
+      complete: true,
+      pagesRead: 1,
+      trades: [{
+        id: 457,
+        orderId: 124,
+        symbol: "BTCUSDT",
+        side: "SELL",
+        price: "100",
+        qty: "0.1",
+        quoteQty: "10",
+        commission: "0",
+        commissionAsset: "USDT",
+        time: 1_800_000_000_001,
+      }],
+    });
+    const submitOrder = vi.fn();
+    const result = await runServerSellCycle({
+      mode: "off",
+      store: f.store,
+      adapter: f.adapter,
+      dashboard: null,
+      submitOrder,
+      now: () => 1_800_000_000_002,
+    });
+
+    expect(result.reconciled).toBe(1);
+    expect(f.getEvent()).toMatchObject({ status: "partially_filled", filledQty: 0.1 });
+    const children = f.getEvents().filter((item) => item.eventKey.includes(":续卖"));
+    expect(children).toHaveLength(1);
+    expect(children[0]).toMatchObject({
+      symbol: "BTC",
+      kind: "take_profit",
+      status: "pending",
+      requestedQty: 0.1,
+      filledQty: 0,
+    });
+    expect(submitOrder).not.toHaveBeenCalled();
+    expect(f.findOrderByClientOrderId).toHaveBeenCalledTimes(1);
   });
 
   it("dry-run只读，不领取SELL事件也不发送订单", async () => {
