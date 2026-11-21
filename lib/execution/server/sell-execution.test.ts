@@ -245,6 +245,11 @@ describe("本地Trader服务端SELL执行", () => {
     });
 
     expect(result.reconciled).toBe(1);
+    expect(f.store.sellEvents.bindSellEventToExchangeOrder).toHaveBeenCalledWith(
+      f.getEvent().eventKey,
+      "123",
+      1_800_000_000_002,
+    );
     expect(f.store.tradeLedger.recordConfirmedSellFill).toHaveBeenCalledTimes(1);
     expect(f.getEvent()).toMatchObject({
       status: "executed",
