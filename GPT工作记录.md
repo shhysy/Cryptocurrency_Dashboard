@@ -189,3 +189,11 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - 新增 system-alert-outbox.test.ts 回归用例：intent保持queued而资金预留为manual_review时，必须返回非零人工复核计数。
 - 提交：686abb159ade4c3e47540fd55d865ffeafc921b8、8d1ba294b3b93dbc2c73578d436ff0db05317010。等待最新GitHub Actions验证；未声称测试已通过。
 - 后续补充反向回归测试：纯 notification_outbox.state='manual_review' 不增加交易人工复核计数，避免SMTP失败或通知载荷损坏误触发交易停机。提交：15c9ea0d0c17e50a575178651854299d4013cf8f；等待最新CI。
+
+## 2026-11-21｜资金预留与账户锁一致性审查修复
+
+- 审查scripts/trader.ts确认主循环每轮先调用countExecutionManualReview()；计数非零时先写data/STOP，再以off模式运行只读恢复，禁止新BUY/SELL。
+- 进一步发现reserved资金预留与账户锁不一致时，原计数逻辑可能漏检；claimIntent会拒绝新领取，但系统可能持续空转而不报警。
+- 已补充一致性检查：reserved reservation必须对应有效的执行中intent和匹配account_lock(singleton=1,intent_id,attempt)；account_lock反向也必须对应同attempt且处于执行中的intent。任何不一致都会触发安全停机计数。
+- 新增SQLite测试：queued intent + reserved reservation + 缺失account_lock必须返回非零计数。
+- 提交：6c0fc91797685f64317d61f5ec29bb1bacc0bd95、399907566bffd8617d072798b93c405692a71436。等待CI；尚未宣布通过。
