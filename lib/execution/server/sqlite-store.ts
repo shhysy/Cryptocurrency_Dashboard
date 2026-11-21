@@ -1280,12 +1280,16 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       throw new Error("Outbox领取参数无效");
     }
     return this.transaction(() => {
+      const typeFilter = input.eventTypes?.length
+        ? `AND json_extract(payload_json, '$.type') IN (${input.eventTypes.map(() => "?").join(", ")})`
+        : "";
       const rows = this.all(
         `SELECT * FROM notification_outbox
          WHERE next_attempt_at <= ?
            AND (state = 'pending' OR (state = 'leased' AND lease_until <= ?))
+           ${typeFilter}
          ORDER BY created_at ASC LIMIT ?`,
-        input.now, input.now, input.limit,
+        input.now, input.now, ...(input.eventTypes ?? []), input.limit,
       );
       const leases: NotificationOutboxLease[] = [];
       for (const row of rows) {
