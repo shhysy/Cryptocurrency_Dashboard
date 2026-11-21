@@ -116,7 +116,7 @@ const BUY_AMOUNT: Record<string, number> = { BTC: 220, ETH: 180, BNB: 100, UNI: 
 
 export function buildMock(scenarioInput?: string, now = Date.now()): { raw: RawData; scenario: Scenario } {
   const scenario = (SCENARIOS as string[]).includes(scenarioInput ?? "") ? (scenarioInput as Scenario) : DEFAULT_SCENARIO;
-  const end = Math.floor(now / WEEK) * WEEK; // 本周周一 00:00 UTC（周线开盘）
+  const end = Math.floor(now / WEEK) * WEEK - WEEK; // 最近一根完整周线的周一 00:00 UTC；避免示例场景把未收盘周线当成确认信号
   const raw: RawData = { tickers: {}, weekly: {}, trades: [], extraAssets: [{ asset: "USDT", qty: 1200, usdt: 1200 }], fearGreed: FEAR_GREED[scenario], accountKnown: true };
   const r = rng(99);
 
