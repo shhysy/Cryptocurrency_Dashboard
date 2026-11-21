@@ -230,3 +230,11 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - `lib/execution/csv.ts`新增真实TradeLedgerEntry CSV导出；`scripts/trader.ts`每轮从SQLite成交台账原子同步 `data/trades.csv`，SQLite仍为事实来源。
 - 开发过程中GitHub Actions先后发现正则转义和CSV源码转义问题，已修复；最终验收以最新HEAD的CI为准。
 - **未完成边界**：BUY GTC订单处于NEW/PARTIALLY_FILLED时的增量fill入账仍需开发/验证；Testnet真实挂单/成交/部分成交/重启恢复尚未做；SMTP真实投递未验证；生产模式继续硬拒绝。
+
+
+### GPT补充：Trader内置信号邮件（2026-11-21）
+- 检查发现项目已有`runScoreMailNotify`，默认分数门槛核心55/山寨75，支持冷却去重和SMTP发送；此前主要由看板API调用，不在Trader主循环里。
+- 已将该函数接入`scripts/trader.ts`，仅对Binance真实且非STALE看板执行；发送失败捕获并记录日志，不影响自动交易。
+- 信号邮件正文评分满分由旧90修正为当前策略3.3的100分制。
+- `.env.example`核心门槛改为55、山寨75，`MAIL_REQUIRE_STABLE=0`，`TRADE_FILL_MAIL_ENABLED=1`；已有`.env.local`需手动对照配置。
+- 真实SMTP投递未验证；BUY GTC未终态部分成交的增量入账仍是待开发项。
