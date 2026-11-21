@@ -59,7 +59,7 @@ const TRANSITIONS: Record<ServerExecutionState, readonly ServerExecutionState[]>
 };
 
 export function validateServerExecutionIntent(
-  input: Pick<ServerExecutionIntent, "intentId" | "strategyEventId" | "strategyVersion" | "symbol" | "side" | "quoteAsset" | "amount" | "createdAt" | "baseRatioAtSignal">,
+  input: Pick<ServerExecutionIntent, "intentId" | "strategyEventId" | "strategyVersion" | "symbol" | "side" | "quoteAsset" | "amount" | "createdAt" | "baseRatioAtSignal" | "strategyTier">,
 ): string | null {
   if (!/^[A-Za-z0-9:_-]{1,156}$/.test(input.strategyEventId)) return "策略事件 ID 格式无效";
   if (input.intentId !== serverExecutionIntentId(input.strategyEventId)) return "订单意图 ID 与策略事件幂等键不匹配";
