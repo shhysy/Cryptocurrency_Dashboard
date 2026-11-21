@@ -1,6 +1,7 @@
 import type { ExecutionFill, TradeLedgerEntry } from "../types";
 import type { SellEventRecord } from "../sell-store.browser";
 import type { ExecutionLease, ServerExecutionIntent } from "../server-execution-core";
+import type { TradeNotificationOutboxEvent } from "../notification-outbox";
 
 /**
  * 本地常驻执行器持久化接口。实现使用Node.js node:sqlite。
@@ -113,10 +114,22 @@ export interface TradeLedgerRepository {
   ): Promise<{ recorded: boolean; ledger: TradeLedgerEntry }>;
 }
 
+export interface NotificationOutboxLease {
+  event: TradeNotificationOutboxEvent;
+  leaseToken: string;
+}
+
+export interface NotificationOutboxRepository {
+  claimDue(input: { now: number; leaseMs: number; limit: number }): Promise<NotificationOutboxLease[]>;
+  markSent(input: { id: string; leaseToken: string; now: number }): Promise<boolean>;
+  markFailed(input: { id: string; leaseToken: string; now: number; reason: string }): Promise<"pending" | "manual_review" | "lease_lost">;
+}
+
 export interface LocalExecutionStore {
   readonly scheduler: SchedulerTaskRepository;
   readonly sellEvents: SellEventRepository;
   readonly tradeLedger: TradeLedgerRepository;
+  readonly notificationOutbox: NotificationOutboxRepository;
 
   createIntent(intent: ServerExecutionIntent): Promise<CreateIntentResult>;
   getIntent(intentId: string): Promise<ServerExecutionIntent | null>;
