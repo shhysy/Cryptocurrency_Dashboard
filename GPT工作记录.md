@@ -652,3 +652,20 @@
 - 新发现阻断项：普通 take_profit partial resume的 localEventEligibleForTakeProfitResume / takeProfitTierCanResume 仍主要信任事件本地fillIds/filledQty/终态证明；当前看到的ledger逐笔核验只应用于base_reduce。要求Grok将止盈partial resume也绑定唯一SELL成交台账，逐笔核对symbol、fillId、side和数量合计。
 - 已将该项加入《自动交易系统总需求清单》GROK-SELL-01A，并在Issue #2留言要求Grok补实现和缺失/重复/冲突/数量不匹配测试。SELL 01-05只视为代码侧阶段性交付，尚未通过GPT独立验收。
 - 最新已观察到的CI：GPT DO测试修正提交 1b7ad8d3e4d62223f2e8cefef2b345510fcbfae1 对应Run 44766500560 成功；DO Alarm避免空转提交 96ac2444f957a6f0fb63742e15933e46851f0bdd 对应Run 44766640327 成功。Grok需求清单更新提交对应Run 44766552735 成功。以上CI通过不替代真实Cloudflare运行时测试和SELL业务逻辑独立验收。
+
+
+## DO调度队列接口与只读健康任务第一阶段（2026-11-21）
+
+- 在 `lib/execution/execution-account-do.ts` 中实现持久化调度队列接口：
+  - enqueue：校验任务类型白名单、taskId/dueAt、请求体大小；重复相同任务幂等，不同内容冲突拒绝。
+  - claim：最多批量领取10项，transactionSync内读取到期任务、递增attempt、生成新leaseToken并设置30秒租约。
+  - ack：以taskId+attempt+leaseToken+leaseUntil进行fencing；成功ack保留token用于幂等重放，过期/旧token拒绝。
+  - retry：校验有效租约后执行5秒起步、上限15分钟、最多8次的指数退避；达到上限转manual_review。
+- DO Alarm和Cron watchdog可在SQLite本地消费health_check任务，读取订单意图数量并完成任务；没有网络IO，也没有将reconcile_intent伪装完成。
+- `reconcile_intent` 已可入队、领取、ack/retry，但Binance只读查单adapter尚未接入；需后续接线后才可由后台执行器消费。
+- 新增 `lib/execution/scheduler-task-do.test.ts`：覆盖重复enqueue、taskId冲突、claim lease、旧token拒绝、ack幂等、retry退避及Alarm只执行health_check。
+- 中文提交：
+  - `fad8d4d25ce78be58f448d1b7658654c204b0d70`
+  - `87b32e74b0c73bcefe406fc8ad2a3cea160f53ad`
+- CI尚待核实；当前测试为Fake SQL行为测试，不代表真实Cloudflare SQLite重启/并发验收。下一步：检查并修复CI、补真实运行时测试、Cron/Alarm恢复测试，再接入只读对账执行器。
+- 生产BUY/SELL、Simple Earn真实赎回、Outbox投递保持关闭。
