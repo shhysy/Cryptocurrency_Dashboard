@@ -27,15 +27,33 @@ function fixture() {
         { ...event },
         ...(continuation ? [{ ...continuation }] : []),
       ]),
-      claimSellEventForSubmission: vi.fn(async (_key: string, clientOrderId: string) => {
-        event = { ...event, status: "reconcile_required", clientOrderId, lastError: "待只读对账" };
-        return { ...event };
+      claimSellEventForSubmission: vi.fn(async (key: string, clientOrderId: string) => {
+        if (key === event.eventKey) {
+          event = { ...event, status: "reconcile_required", clientOrderId, lastError: "待只读对账" };
+          return { ...event };
+        }
+        if (continuation?.eventKey === key) {
+          continuation = { ...continuation, status: "reconcile_required", clientOrderId, lastError: "待只读对账" };
+          return { ...continuation };
+        }
+        throw new Error("测试夹具找不到SELL事件");
       }),
-      bindSellEventToExchangeOrder: vi.fn(async (_key: string, orderId: string) => {
-        event = { ...event, exchangeOrderId: orderId };
-        return { ...event };
+      bindSellEventToExchangeOrder: vi.fn(async (key: string, orderId: string) => {
+        if (key === event.eventKey) {
+          event = { ...event, exchangeOrderId: orderId };
+          return { ...event };
+        }
+        if (continuation?.eventKey === key) {
+          continuation = { ...continuation, exchangeOrderId: orderId };
+          return { ...continuation };
+        }
+        throw new Error("测试夹具找不到SELL事件");
       }),
-      updateSellEvent: vi.fn(async (next: SellEventRecord) => { event = { ...next }; }),
+      updateSellEvent: vi.fn(async (next: SellEventRecord) => {
+        if (next.eventKey === event.eventKey) event = { ...next };
+        else if (continuation?.eventKey === next.eventKey) continuation = { ...next };
+        else throw new Error("测试夹具找不到SELL事件");
+      }),
       reserveSellEvent: vi.fn(async (record: SellEventRecord) => {
         if (record.eventKey === event.eventKey) return { record: { ...event }, created: false };
         if (continuation?.eventKey === record.eventKey) return { record: { ...continuation }, created: false };
@@ -220,18 +238,38 @@ describe("本地Trader服务端SELL执行", () => {
     expect(submitOrder).not.toHaveBeenCalled();
     expect(f.store.sellEvents.reserveSellEvent).toHaveBeenCalledTimes(1);
 
-    // 同一终态父事件再次对账时，不得重复创建第二个续卖事件。
-    await runServerSellCycle({
-      mode: "off",
+    // 同一终态父事件再次对账时，不得重复创建第二个续卖事件；新子事件使用独立clientOrderId提交。
+    const originalClientOrderId = f.getEvent().clientOrderId;
+    const continuationSubmit = vi.fn(async (input: SpotMarketOrderInput) => ({
+      symbol: input.symbol,
+      orderId: 125,
+      clientOrderId: input.clientOrderId,
+      status: "NEW" as const,
+      origQty: input.amount,
+      executedQty: "0",
+      cummulativeQuoteQty: "0",
+      transactTime: 1_800_000_000_004,
+    }));
+    const resumed = await runServerSellCycle({
+      mode: "testnet",
       store: f.store,
       adapter: f.adapter,
-      dashboard: null,
-      submitOrder,
-      now: () => 1_800_000_000_003,
+      dashboard: f.dashboard,
+      submitOrder: continuationSubmit,
+      now: () => 1_800_000_000_004,
     });
+    expect(resumed.submitted).toBe(1);
     expect(f.getEvents().filter((item) => item.eventKey.includes(":续卖"))).toHaveLength(1);
     expect(f.store.sellEvents.reserveSellEvent).toHaveBeenCalledTimes(1);
-    expect(submitOrder).not.toHaveBeenCalled();
+    expect(continuationSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      side: "SELL",
+      symbol: "BTCUSDT",
+      amount: "0.1",
+    }));
+    const child = f.getEvents().find((item) => item.eventKey.includes(":续卖"));
+    expect(child?.clientOrderId).toBeTruthy();
+    expect(child?.clientOrderId).not.toBe(originalClientOrderId);
+    expect(child?.exchangeOrderId).toBe("125");
   });
 
   it("dry-run只读，不领取SELL事件也不发送订单", async () => {
