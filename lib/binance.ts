@@ -298,7 +298,7 @@ export async function fetchBuyTrades(base: string, quote: string): Promise<Trade
 
 const SIGNED_READ_PARAMS: Record<string, ReadonlySet<string>> = {
   "/api/v3/account": new Set(["omitZeroBalances"]),
-  "/api/v3/myTrades": new Set(["symbol", "limit", "fromId"]),
+  "/api/v3/myTrades": new Set(["symbol", "orderId", "limit", "fromId"]),
   "/api/v3/order": new Set(["symbol", "orderId", "origClientOrderId"]),
   "/api/v3/exchangeInfo": new Set(["symbol", "symbols"]),
   "/sapi/v1/simple-earn/flexible/position": new Set(["asset", "current", "size"]),
