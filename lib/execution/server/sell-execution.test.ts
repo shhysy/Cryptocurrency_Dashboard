@@ -218,7 +218,20 @@ describe("本地Trader服务端SELL执行", () => {
       filledQty: 0,
     });
     expect(submitOrder).not.toHaveBeenCalled();
-    expect(f.findOrderByClientOrderId).toHaveBeenCalledTimes(1);
+    expect(f.store.sellEvents.reserveSellEvent).toHaveBeenCalledTimes(1);
+
+    // 同一终态父事件再次对账时，不得重复创建第二个续卖事件。
+    await runServerSellCycle({
+      mode: "off",
+      store: f.store,
+      adapter: f.adapter,
+      dashboard: null,
+      submitOrder,
+      now: () => 1_800_000_000_003,
+    });
+    expect(f.getEvents().filter((item) => item.eventKey.includes(":续卖"))).toHaveLength(1);
+    expect(f.store.sellEvents.reserveSellEvent).toHaveBeenCalledTimes(1);
+    expect(submitOrder).not.toHaveBeenCalled();
   });
 
   it("dry-run只读，不领取SELL事件也不发送订单", async () => {
