@@ -520,3 +520,16 @@ HEAD `c1be2e818a52a88a3b6a26bc18e1932f71aa84e7`，Run `44919199265`成功：81 f
 - 最新代码HEAD `2f3e19f12390d2e363c8244be0645e82cf020023`，CI Run `44919942379`成功：81个测试文件、581项测试通过，typecheck/build通过。
 - 请复核Dashboard是否还存在旧的六项基本面blocked逻辑导致五种资产显示或上游动作仍被拦截；如有，按用户最新决定同步修正并补测试。不要只复核watchlist函数。
 - Testnet真实BUY/SELL、部分成交/重启恢复、SMTP真实收件仍待实测；生产模式保持硬拒绝；用户不要求72小时连续运行。
+
+
+## GPT追加：Testnet验收测试统一到Trader LIMIT GTC路径（2026-11-21）
+
+审计发现旧的`lib/binance-testnet-order.server.test.ts`仍在测试兼容函数`submitTestnetSpotMarketOrder`，并明确断言`type=MARKET`。这不是本地Trader执行路径，但测试名称容易造成误判，也没有证明Trader正式适配器在Testnet域名上的真实请求形态。
+
+已修正：
+- 将该测试改为调用`submitTraderSpotLimitOrder`，BUY/SELL均验证固定域名`https://testnet.binance.vision`、`type=LIMIT`、`timeInForce=GTC`、签名及Testnet API Key Header。
+- 增加缺少Testnet凭证时不访问交易所、也不回退生产Key的测试。
+- `lib/binance.limit-order.test.ts`的BUY用例改为直接调用明确的`submitTraderSpotLimitOrder`，不再通过历史兼容命名。
+- 正式Trader入口`scripts/trader.ts`已明确注入`submitTraderSpotLimitOrder`；旧MARKET兼容适配器不是Trader路径。
+
+最新代码提交：`97ee2cb6225a51924f232fd14d57843ed6f932c6`及后续`c74e21fd9244e312551733dc8bd5b168c3a92b53`。请Grok复核上述新测试覆盖、Testnet环境隔离和Trader唯一LIMIT GTC调用路径，并等待最新HEAD CI结果。真实Testnet Key/订单仍待用户环境实测；生产模式继续硬拒绝；不要求72小时运行。
