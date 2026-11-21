@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { DashboardData } from "@/lib/types";
 import type { SellEventRecord } from "../sell-store.browser";
 import type { LocalExecutionStore } from "./store";
-import type { createBinanceReconcileAdapter, BinanceOrderLookup } from "../binance-reconcile.server";
+import type { createBinanceReconcileAdapter, BinanceOrderLookup, BinanceTradePageResult } from "../binance-reconcile.server";
 import type { SpotMarketOrderInput } from "@/lib/binance";
 type Adapter = ReturnType<typeof createBinanceReconcileAdapter>;
 import { runServerSellCycle } from "./sell-execution";
@@ -56,9 +56,10 @@ function fixture() {
   } as unknown as LocalExecutionStore;
 
   const findOrderByClientOrderId = vi.fn<(...args: [string, string]) => Promise<BinanceOrderLookup>>(async () => ({ kind: "not_found" }));
+  const listOrderTrades = vi.fn<(...args: [string, number]) => Promise<BinanceTradePageResult>>(async () => ({ trades: [], complete: true, pagesRead: 1 }));
   const adapter = {
     findOrderByClientOrderId,
-    listOrderTrades: vi.fn(async () => ({ trades: [], complete: true, pagesRead: 1 })),
+    listOrderTrades,
     getAccountBalances: vi.fn(async () => [
       { asset: "BTC", free: "1", locked: "0" },
     ]),
@@ -82,7 +83,7 @@ function fixture() {
     coins: [{ symbol: "BTC", price: 100 }],
   } as unknown as DashboardData;
 
-  return { store, adapter, dashboard, findOrderByClientOrderId, getEvent: () => event, setEvent: (next: Partial<SellEventRecord>) => { event = { ...event, ...next }; } };
+  return { store, adapter, dashboard, findOrderByClientOrderId, listOrderTrades, getEvent: () => event, setEvent: (next: Partial<SellEventRecord>) => { event = { ...event, ...next }; } };
 }
 
 describe("本地Trader服务端SELL执行", () => {
@@ -180,7 +181,7 @@ describe("本地Trader服务端SELL执行", () => {
         updateTime: 1_800_000_000_001,
       },
     });
-    (f.adapter.listOrderTrades as ReturnType<typeof vi.fn>).mockResolvedValue({
+    f.listOrderTrades.mockResolvedValue({
       complete: true,
       pagesRead: 1,
       trades: [{
