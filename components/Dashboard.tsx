@@ -124,18 +124,8 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
       const res = await fetch(`/api/dashboard${sc ? `?scenario=${sc}` : ""}`, { cache: "no-store" });
       if (!res.ok) throw new Error(String(res.status));
       const nextData = (await res.json()) as DashboardData;
-      if (nextData.source === "binance") {
-        const sellStore = await import("@/lib/execution/sell-store.browser");
-        const executionStore = await import("@/lib/execution/store.browser");
-        const rebuy = await import("@/strategy/post-take-profit-rebuy");
-        const [sellEvents, ledger] = await Promise.all([
-          sellStore.listSellEvents(),
-          executionStore.listTradeLedger(),
-        ]);
-        setData(rebuy.applyPostTakeProfitRebuy(nextData, sellEvents, ledger));
-      } else {
-        setData(nextData);
-      }
+      // 策略后处理已由服务端使用Trader SQLite成交台账完成；浏览器不再叠加IndexedDB状态。
+      setData(nextData);
       const snapshotAgeMs = Date.now() - nextData.updatedAt;
       setDirectReady(
         nextData.source === "binance" &&
