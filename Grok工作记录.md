@@ -229,3 +229,19 @@
 6. 继续推进尚未完成的Testnet订单演练、SMTP异常/熔断通知联动、Simple Earn服务端赎回设计及M0-01旧通知路由调用链审查。任何涉及真实资金的开关保持关闭，Testnet和实盘证据分开记录。
 
 Grok复核完成后，请在本文件追加逐项结论和证据；不要自行将M2/M3标记完成，真实订单与SMTP投递需要实际运行证据。
+
+
+## Grok独立复核任务：Trader故障告警与人工复核停机（2026-11-21）
+
+请基于当前gpt分支HEAD独立检查以下改动，不要只根据GPT工作记录给结论：
+
+1. 检查`lib/execution/notification-outbox.ts`联合事件类型和系统告警构造器；确认成交事件必需字段仍保持严格类型。
+2. 检查`sqlite-store.ts`：系统告警幂等入队、按事件类型领取、损坏JSON转manual_review、旧租约token不能写回、重试10次后人工复核。
+3. 检查`notification-outbox-dispatcher.ts`与`trade-fill-mail.server.ts`：两个邮件开关独立，禁用的事件类型不会被claim；SMTP失败不谎报sent。
+4. 检查`scripts/trader.ts`：熔断先写STOP再入队；SMTP失败不增加交易循环熔断计数；人工复核/SELL blocked触发STOP和告警；STOP时只读恢复旧订单。
+5. 检查`trader-loop.ts`：本轮对账产生manual_review时，在任何新BUY意图创建前立即返回。
+6. 检查`countExecutionManualReview`是否覆盖BUY manual_review与SELL blocked，是否会把纯邮件manual_review误算成交易人工复核。
+7. 复核CI Run `44895391448`（79 files / 564 tests、typecheck、build通过）；如发现缺陷请直接修复并在本文件写证据。
+8. 不要把SMTP Mock测试写成真实SMTP投递；M3-05必须保留“待用户SMTP实测”。production继续硬拒绝。
+
+复核结论请写明代码位置、风险边界、测试证据与未解决项。
