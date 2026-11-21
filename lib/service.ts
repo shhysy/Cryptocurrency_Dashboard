@@ -2,6 +2,8 @@ import manualJson from "@/data/manual-trades.json";
 import { mergeTrades } from "@/strategy/cost";
 import { applyTrackingStart } from "@/strategy/tracking";
 import { trackingStart } from "@/tracking.config";
+import { applyPostTakeProfitRebuy } from "@/strategy/post-take-profit-rebuy";
+import { readTraderStrategyHistory } from "@/lib/execution/server/trader-status.server";
 import type { Candle, Trade } from "@/strategy/types";
 import { quote, watchlist } from "@/watchlist.config";
 import {
@@ -158,11 +160,18 @@ async function buildReal(): Promise<DashboardData> {
       (synthetic.length ? `${synthetic.join("、")} 起算日前已持有，成本按起算日周线开盘价计，想用真实成本请在 data/manual-trades.json 手动填写。` : ""),
   ];
 
-  return buildDashboard(raw, {
+  const dashboard = buildDashboard(raw, {
     source: "binance",
     updatedAt: Math.min(...stamps),
     stale: errors.length > 0,
     staleReasons: [...new Set(errors)],
     notes,
   });
+  // 服务端看板与本地Trader统一使用SQLite确认成交；绝不读取浏览器IndexedDB作为执行依据。
+  const history = await readTraderStrategyHistory();
+  return applyPostTakeProfitRebuy(
+    dashboard,
+    history?.sellEvents ?? [],
+    history?.tradeLedger ?? [],
+  );
 }
