@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { DashboardData } from "@/lib/types";
 import type { SellEventRecord } from "../sell-store.browser";
 import type { LocalExecutionStore } from "./store";
-import type { createBinanceReconcileAdapter } from "../binance-reconcile.server";
+import type { createBinanceReconcileAdapter, BinanceOrderLookup } from "../binance-reconcile.server";
 import type { SpotMarketOrderInput } from "@/lib/binance";
 type Adapter = ReturnType<typeof createBinanceReconcileAdapter>;
 import { runServerSellCycle } from "./sell-execution";
@@ -55,7 +55,7 @@ function fixture() {
     },
   } as unknown as LocalExecutionStore;
 
-  const findOrderByClientOrderId = vi.fn(async () => ({ kind: "not_found" as const }));
+  const findOrderByClientOrderId = vi.fn<(...args: [string, string]) => Promise<BinanceOrderLookup>>(async () => ({ kind: "not_found" }));
   const adapter = {
     findOrderByClientOrderId,
     listOrderTrades: vi.fn(async () => ({ trades: [], complete: true, pagesRead: 1 })),
@@ -82,7 +82,7 @@ function fixture() {
     coins: [{ symbol: "BTC", price: 100 }],
   } as unknown as DashboardData;
 
-  return { store, adapter, dashboard, findOrderByClientOrderId, getEvent: () => event };
+  return { store, adapter, dashboard, findOrderByClientOrderId, getEvent: () => event, setEvent: (next: Partial<SellEventRecord>) => { event = { ...event, ...next }; } };
 }
 
 describe("本地Trader服务端SELL执行", () => {
@@ -161,4 +161,59 @@ describe("本地Trader服务端SELL执行", () => {
     expect(f.store.sellEvents.claimSellEventForSubmission).not.toHaveBeenCalled();
     expect(submitOrder).not.toHaveBeenCalled();
   });
+
+  it("按原clientOrderId只读对账，逐笔成交一致后才写台账并结束SELL事件", async () => {
+    const f = fixture();
+    f.setEvent({ status: "reconcile_required", clientOrderId: "gpt-original-123" });
+    f.findOrderByClientOrderId.mockResolvedValue({
+      kind: "found",
+      order: {
+        symbol: "BTCUSDT",
+        orderId: 123,
+        clientOrderId: "gpt-original-123",
+        side: "SELL",
+        status: "FILLED",
+        origQty: "0.2",
+        executedQty: "0.2",
+        cummulativeQuoteQty: "20",
+        time: 1_800_000_000_000,
+        updateTime: 1_800_000_000_001,
+      },
+    });
+    (f.adapter.listOrderTrades as ReturnType<typeof vi.fn>).mockResolvedValue({
+      complete: true,
+      pagesRead: 1,
+      trades: [{
+        id: 456,
+        orderId: 123,
+        symbol: "BTCUSDT",
+        side: "SELL",
+        price: "100",
+        qty: "0.2",
+        quoteQty: "20",
+        commission: "0",
+        commissionAsset: "USDT",
+        time: 1_800_000_000_001,
+      }],
+    });
+
+    const result = await runServerSellCycle({
+      mode: "testnet",
+      store: f.store,
+      adapter: f.adapter,
+      dashboard: f.dashboard,
+      submitOrder: vi.fn(),
+      now: () => 1_800_000_000_002,
+    });
+
+    expect(result.reconciled).toBe(1);
+    expect(f.store.tradeLedger.recordConfirmedSellFill).toHaveBeenCalledTimes(1);
+    expect(f.getEvent()).toMatchObject({
+      status: "executed",
+      exchangeOrderId: "123",
+      fillIds: ["456"],
+      exchangeTerminalStatus: "FILLED",
+    });
+  });
+
 });
