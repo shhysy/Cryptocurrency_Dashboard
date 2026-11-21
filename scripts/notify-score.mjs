@@ -245,7 +245,7 @@ function buildMail(hits) {
 
     return [
       `【${i + 1}】${h.name}（代码 ${h.symbol}）`,
-      `      当前机会指数：${h.score} 分（满分 90）`,
+      `      当前机会指数：${h.score} 分（满分 100）`,
       `      本次触发门槛：${h.minScore} 分（${g}组，配置项 MAIL_MIN_SCORE_${h.group === "core" ? "CORE" : "ALT"}）`,
       `      超出门槛：${Math.max(0, h.score - h.minScore)} 分`,
       `      信号状态：${status} · ${stable}`,
