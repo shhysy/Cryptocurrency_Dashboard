@@ -4,7 +4,7 @@ import type { TradeNotificationOutboxEvent } from "../notification-outbox";
 
 const mocks = vi.hoisted(() => ({
   enabled: vi.fn(() => true),
-  dispatch: vi.fn(async () => ({ ok: true, sent: true })),
+  dispatch: vi.fn(async (): Promise<{ ok: boolean; sent: boolean; reason?: string }> => ({ ok: true, sent: true })),
 }));
 vi.mock("./trade-fill-mail.server", () => ({
   isTradeFillMailEnabled: mocks.enabled,
