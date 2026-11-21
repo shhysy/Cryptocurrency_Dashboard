@@ -1,3 +1,4 @@
+import type { ExecutionFill } from "./types";
 import type {
   BinanceOrderLookup,
   BinanceReadOrder,
@@ -11,6 +12,7 @@ type ReconcileAdapter = ReturnType<typeof createBinanceReconcileAdapter>;
 export type BinanceReconcilePlan =
   | { kind: "not_found"; reason: string }
   | { kind: "wait"; reason: string }
+  | { kind: "open_fills"; exchangeOrderId: string; status: "NEW" | "PARTIALLY_FILLED"; fills: ExecutionFill[] }
   | { kind: "manual_review"; reason: string }
   | {
       kind: "finalize";
@@ -126,9 +128,6 @@ export async function buildBinanceReconcilePlan(
   if (order.status === "UNKNOWN") {
     return { kind: "manual_review", reason: "交易所返回未知订单状态，禁止自动终态结算" };
   }
-  if (!TERMINAL.has(order.status)) {
-    return { kind: "wait", reason: `订单仍处于${order.status}，等待后续只读对账` };
-  }
   if (order.status === "FILLED" && !decimalsEqual(order.origQty, order.executedQty)) {
     return { kind: "manual_review", reason: "FILLED订单累计成交数量与原始委托数量不一致" };
   }
@@ -182,6 +181,31 @@ export async function buildBinanceReconcilePlan(
       ((isZero(order.executedQty)) !== (trades.length === 0)) ||
       (order.status === "FILLED" && trades.length === 0)) {
     return { kind: "manual_review", reason: "逐笔成交数量/金额与交易所订单累计值不一致，禁止释放资金" };
+  }
+
+  if (!TERMINAL.has(order.status)) {
+    const fills: ExecutionFill[] = trades.map((trade) => ({
+      fillId: String(trade.id),
+      orderId: String(trade.orderId),
+      symbol: trade.symbol,
+      side: "BUY",
+      time: trade.time,
+      price: Number(trade.price),
+      qty: Number(trade.qty),
+      quoteQty: Number(trade.quoteQty),
+      commission: Number(trade.commission),
+      commissionAsset: trade.commissionAsset,
+      commissionUsdt: trade.commissionAsset === rules.quoteAsset ? Number(trade.commission) : 0,
+    }));
+    if (fills.some((fill) => ![fill.price, fill.qty, fill.quoteQty, fill.commission, fill.commissionUsdt].every(Number.isFinite))) {
+      return { kind: "manual_review", reason: "开放订单逐笔成交数值超出本地台账可表示范围" };
+    }
+    return {
+      kind: "open_fills",
+      exchangeOrderId: String(order.orderId),
+      status: order.status as "NEW" | "PARTIALLY_FILLED",
+      fills,
+    };
   }
 
   return {
