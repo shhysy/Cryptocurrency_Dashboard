@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openLocalExecutionStore } from "./sqlite-store";
-import { readTraderStatusSnapshot } from "./trader-status.server";
+import { readTraderStatusSnapshot, readTraderStrategyHistory } from "./trader-status.server";
 
 const directories: string[] = [];
 async function tempDirectory(): Promise<string> {
@@ -96,3 +96,57 @@ describe("本地Trader只读状态快照", () => {
     expect(await readFile(stopPath, "utf8")).toContain("manual stop");
   });
 });
+  it("策略后处理只读读取SQLite确认SELL事件与完整成交台账", async () => {
+    const directory = await tempDirectory();
+    const dbPath = join(directory, "data", "trader.db");
+    const store = await openLocalExecutionStore({ path: dbPath });
+    try {
+      await store.sellEvents.reserveSellEvent({
+        eventKey: "sell:BTC:take_profit:1:止盈1",
+        symbol: "BTC",
+        kind: "take_profit",
+        status: "executed",
+        requestedQty: 0.2,
+        filledQty: 0.2,
+        createdAt: 100,
+        updatedAt: 200,
+        exchangeOrderId: "11",
+        fillIds: ["sell-fill-1"],
+        lastError: null,
+        exchangeTerminalStatus: "FILLED",
+        fillReconcileCompletedAt: 200,
+        lotStepSize: 0.00001,
+      });
+      await store.tradeLedger.recordConfirmedSellFill({
+        fillId: "sell-fill-1",
+        orderId: "11",
+        symbol: "BTCUSDT",
+        side: "SELL",
+        time: 150,
+        price: 150,
+        qty: 0.2,
+        quoteQty: 30,
+        commission: 0,
+        commissionAsset: "USDT",
+        commissionUsdt: 0,
+      }, "take_profit");
+    } finally {
+      store.close();
+    }
+
+    const history = await readTraderStrategyHistory({ dbPath });
+    expect(history?.sellEvents).toHaveLength(1);
+    expect(history?.sellEvents[0]).toMatchObject({
+      kind: "take_profit",
+      status: "executed",
+      fillIds: ["sell-fill-1"],
+    });
+    expect(history?.tradeLedger).toHaveLength(1);
+    expect(history?.tradeLedger[0]).toMatchObject({
+      fillId: "sell-fill-1",
+      symbol: "BTCUSDT",
+      side: "SELL",
+      sellKind: "take_profit",
+    });
+  });
+
