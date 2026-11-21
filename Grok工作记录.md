@@ -192,3 +192,16 @@
 - 已从`components/Dashboard.tsx`移除该后台组件，并删除`components/ExecutionBackground.tsx`。浏览器不再后台自动提交BUY/SELL；本地`scripts/trader.ts`成为唯一常驻自动执行入口。
 - 看板中的浏览器队列仍是旧IndexedDB记录/策略预览，不等于本地Trader SQLite订单。旧浏览器队列不会自动迁移到SQLite，也不应再被当作Trader真实执行状态；真实状态以新增的本地SQLite只读面板为准。
 - 需要继续核对策略后处理：`Dashboard.tsx`此前通过浏览器IndexedDB的SELL事件/成交台账调用`applyPostTakeProfitRebuy`；本地Trader的`getDashboard`尚未接入SQLite版同一后处理。这是当前发现的策略一致性缺口，下一步必须让Trader和服务端看板统一使用SQLite成交台账，未完成前不能宣称策略3.3完整自动执行。
+
+
+
+### GPT修复策略3.3止盈后回补的执行数据源一致性（2026-11-21）
+
+- 复核发现：旧Dashboard曾用浏览器IndexedDB的SELL事件/成交台账调用`applyPostTakeProfitRebuy`，而本地Trader的`getDashboard`只读取基础策略信号，未应用同一后处理。这会导致浏览器显示与Trader真实下单策略不一致。
+- 新增`readTraderStrategyHistory`：以SQLite只读连接读取完整`sell_events`和`trade_ledger`，严格校验成交ID JSON、side和关键数值；数据库不存在与数据库损坏分开处理，损坏/不兼容时抛错阻断策略后处理。
+- `lib/service.ts`现在对真实Binance Dashboard使用SQLite确认事件/成交台账统一执行`applyPostTakeProfitRebuy`；本地Trader调用同一`getDashboard`，因此顺序止盈与止盈后均价回补使用同一数据源。
+- `components/Dashboard.tsx`移除浏览器IndexedDB叠加策略结果；不再以浏览器台账覆盖服务端策略信号。
+- 新增测试验证策略后处理可读取SQLite确认SELL事件和成交台账；GitHub Actions Run `44888306511`测试、typecheck、build全部通过。
+- 浏览器自动执行器已从Dashboard移除并删除`components/ExecutionBackground.tsx`；浏览器BUY/SELL现货提交开关永久关闭。旧BuyQueue/SellQueue明确标注为浏览器IndexedDB历史记录，不属于Trader SQLite，也不参与自动执行。
+- README、执行层README、策略3.3自动化落地路径已同步说明。
+- 仍需注意：旧浏览器IndexedDB历史成交不会自动迁移到Trader SQLite；如果当前持仓与服务端买入历史/SQLite卖出台账无法核对，策略后处理会fail-closed暂停相关币种操作，不得手工伪造台账。
