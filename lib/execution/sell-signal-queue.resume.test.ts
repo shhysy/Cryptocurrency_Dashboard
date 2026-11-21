@@ -130,9 +130,10 @@ describe("止盈部分成交后安全续卖", () => {
       exchangeOrderId: "1", fillIds: ["a"], lastError: null,
       exchangeTerminalStatus: "CANCELED", fillReconcileCompletedAt: 1_700_000_000_000, lotStepSize: 0.00001,
     }];
+    const ledger = [{ symbol: "BTCUSDT", fillId: "a", qty: 0.05, side: "SELL", sellKind: "take_profit" as const }];
     expect(isTerminalReconciledPartial(existing[0])).toBe(true);
     expect(takeProfitTierFullyFilled(existing, ":止盈1")).toBe(false);
-    const plan = buildSellEventReservations(data(), existing);
+    const plan = buildSellEventReservations(data(), existing, { ledgerFills: ledger });
     expect(plan.records).toHaveLength(1);
     expect(plan.records[0].eventKey).toContain("resume");
     expect(plan.records[0].requestedQty).toBeCloseTo(0.1, 8);
@@ -158,6 +159,6 @@ describe("止盈部分成交后安全续卖", () => {
     }];
     const plan = buildSellEventReservations(data(), existing);
     expect(plan.records).toHaveLength(0);
-    expect(plan.blocked.some((b) => b.reason.includes("对账") || b.reason.includes("待处理"))).toBe(true);
+    expect(plan.blocked.some((b) => b.reason.includes("对账") || b.reason.includes("待处理") || b.reason.includes("台账"))).toBe(true);
   });
 });
