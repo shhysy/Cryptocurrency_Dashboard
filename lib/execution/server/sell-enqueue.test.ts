@@ -1,25 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
-import { enqueueEligibleSellSignals } from "../sell-signal-queue";
+import { enqueueServerSellSignals } from "./sell-enqueue";
+import type { LocalExecutionStore } from "./store";
 import type { DashboardData } from "@/lib/types";
 
-describe("SELL 入队依赖注入", () => {
-  it("可注入 list/reserve 而不触达 IndexedDB", async () => {
-    const reserve = vi.fn(async (record: { eventKey: string }) => ({
-      record: record as never,
-      created: true,
-    }));
+describe("服务端 SELL 入队", () => {
+  it("stale 数据不创建事件", async () => {
+    const store = {
+      sellEvents: {
+        listSellEvents: vi.fn(async () => []),
+        reserveSellEvent: vi.fn(),
+      },
+      tradeLedger: {
+        listTradeLedger: vi.fn(async () => []),
+      },
+    } as unknown as LocalExecutionStore;
     const data = {
       source: "mock",
       stale: true,
       market: { accountKnown: false },
       coins: [],
     } as unknown as DashboardData;
-    const result = await enqueueEligibleSellSignals(data, {
-      listSellEvents: async () => [],
-      reserveSellEvent: reserve,
-      listTradeLedger: async () => [],
-    });
+    const result = await enqueueServerSellSignals(data, store);
     expect(result.created).toBe(0);
-    expect(reserve).not.toHaveBeenCalled();
+    expect(store.sellEvents.reserveSellEvent).not.toHaveBeenCalled();
   });
 });

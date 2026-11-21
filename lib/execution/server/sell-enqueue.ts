@@ -1,37 +1,40 @@
 import type { DashboardData } from "@/lib/types";
 import {
-  enqueueEligibleSellSignals,
-  type SellEnqueueDeps,
+  buildSellEventReservations,
+  type BaseReduceLedgerFill,
 } from "../sell-signal-queue";
 import type { LocalExecutionStore } from "./store";
 
-/** 将 LocalExecutionStore 的卖出/台账接口适配为入队依赖。 */
-export function sellEnqueueDepsFromStore(store: LocalExecutionStore): SellEnqueueDeps {
-  return {
-    listSellEvents: () => store.sellEvents.listSellEvents(),
-    reserveSellEvent: (record) => store.sellEvents.reserveSellEvent(record),
-    listTradeLedger: async () => {
-      const rows = await store.tradeLedger.listTradeLedger();
-      return rows.map((row) => ({
-        symbol: row.symbol,
-        fillId: row.fillId,
-        qty: row.qty,
-        side: row.side,
-        sellKind: row.sellKind,
-      }));
-    },
-  };
-}
-
-/** 服务端卖出入队节拍（不提交订单）。 */
+/**
+ * 服务端卖出入队：使用 SQLite sellEvents / tradeLedger，不碰 IndexedDB。
+ * 复用 buildSellEventReservations 纯函数，保证与浏览器状态机一致。
+ */
 export async function enqueueServerSellSignals(
   data: DashboardData,
   store: LocalExecutionStore,
 ): Promise<{ created: number; existing: number; blocked: number }> {
-  const result = await enqueueEligibleSellSignals(data, sellEnqueueDepsFromStore(store));
-  return {
-    created: result.created,
-    existing: result.existing,
-    blocked: result.blocked.length,
-  };
+  const existingEvents = await store.sellEvents.listSellEvents();
+  let ledgerFills: BaseReduceLedgerFill[] | undefined;
+  try {
+    const ledger = await store.tradeLedger.listTradeLedger();
+    ledgerFills = ledger.map((row) => ({
+      symbol: row.symbol,
+      fillId: row.fillId,
+      qty: row.qty,
+      side: row.side,
+      sellKind: row.sellKind,
+    }));
+  } catch {
+    ledgerFills = undefined;
+  }
+
+  const plan = buildSellEventReservations(data, existingEvents, { ledgerFills });
+  let created = 0;
+  let existing = 0;
+  for (const record of plan.records) {
+    const result = await store.sellEvents.reserveSellEvent(record);
+    if (result.created) created += 1;
+    else existing += 1;
+  }
+  return { created, existing, blocked: plan.blocked.length };
 }
