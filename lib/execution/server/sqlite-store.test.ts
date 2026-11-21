@@ -8,6 +8,8 @@ import type { SellEventRecord } from "../sell-store.browser";
 import type { ExecutionFill } from "../types";
 import { openLocalExecutionDatabase } from "./sqlite-database";
 import { openLocalExecutionStore } from "./sqlite-store";
+import { runTraderCycle } from "./trader-loop";
+import { vi } from "vitest";
 
 const NOW = 1_800_000_000_000;
 const directories: string[] = [];
@@ -523,3 +525,72 @@ describe("本地SQLite执行存储", () => {
     }
   });
 });
+  it("SQLite文件重开后Trader只查询unknown订单的原clientOrderId且绝不再次POST", async () => {
+    const path = await tempDbPath();
+    const value = intent("BUY");
+    let originalClientOrderId = "";
+    const first = await openLocalExecutionStore({ path });
+    try {
+      await first.createIntent(value);
+      const claim = await first.claimIntent({
+        intentId: value.intentId,
+        availableAsset: "USDT",
+        availableAmount: "100",
+        snapshotAt: NOW,
+        now: NOW,
+        leaseMs: 30_000,
+      });
+      expect(claim).not.toBeNull();
+      originalClientOrderId = claim!.intent.clientOrderId!;
+      await first.markSubmitting({
+        intentId: value.intentId,
+        attempt: claim!.lease.attempt,
+        leaseToken: claim!.lease.token,
+        clientOrderId: originalClientOrderId,
+        now: NOW + 1,
+      });
+      await first.markUnknown({
+        intentId: value.intentId,
+        attempt: claim!.lease.attempt,
+        leaseToken: claim!.lease.token,
+        reason: "模拟下单请求发出后进程退出，响应未知",
+        now: NOW + 2,
+      });
+    } finally {
+      first.close();
+    }
+
+    // 模拟Trader重新启动：重新打开同一个真实SQLite文件，再运行正式循环。
+    const restarted = await openLocalExecutionStore({ path });
+    const findOrderByClientOrderId = vi.fn(async (symbol: string, clientOrderId: string) => {
+      return { kind: "not_found" as const };
+    });
+    const submitOrder = vi.fn(async () => {
+      throw new Error("测试失败：unknown恢复路径不允许再次POST");
+    });
+    try {
+      const result = await runTraderCycle({
+        mode: "off",
+        store: restarted,
+        getDashboard: vi.fn(async () => { throw new Error("off模式不得读取新信号"); }),
+        adapter: {
+          findOrderByClientOrderId,
+          listOrderTrades: vi.fn(),
+          getAccountBalances: vi.fn(),
+          getSymbolRules: vi.fn(),
+        } as never,
+        submitOrder,
+        now: () => NOW + 5_001,
+      });
+      expect(result.mode).toBe("off");
+      expect(findOrderByClientOrderId).toHaveBeenCalledTimes(1);
+      expect(findOrderByClientOrderId).toHaveBeenCalledWith("BTCUSDT", originalClientOrderId);
+      expect(submitOrder).not.toHaveBeenCalled();
+      const recovered = await restarted.getIntent(value.intentId);
+      expect(recovered?.state).toBe("unknown");
+      expect(recovered?.clientOrderId).toBe(originalClientOrderId);
+    } finally {
+      restarted.close();
+    }
+  });
+
