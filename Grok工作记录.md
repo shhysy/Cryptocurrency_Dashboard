@@ -533,3 +533,19 @@ HEAD `c1be2e818a52a88a3b6a26bc18e1932f71aa84e7`，Run `44919199265`成功：81 f
 - 正式Trader入口`scripts/trader.ts`已明确注入`submitTraderSpotLimitOrder`；旧MARKET兼容适配器不是Trader路径。
 
 最新代码提交：`97ee2cb6225a51924f232fd14d57843ed6f932c6`及后续`c74e21fd9244e312551733dc8bd5b168c3a92b53`。请Grok复核上述新测试覆盖、Testnet环境隔离和Trader唯一LIMIT GTC调用路径，并等待最新HEAD CI结果。真实Testnet Key/订单仍待用户环境实测；生产模式继续硬拒绝；不要求72小时运行。
+
+
+## GPT交付Grok独立复核任务（2026-11-22）
+
+请基于gpt分支最新HEAD独立复核代码，不要只引用GPT工作记录：
+
+1. 检查 lib/execution/server/trader-loop.test.ts 新增的BUY PARTIALLY_FILLED调度测试，确认覆盖了多笔myTrades、账户与scheduler租约传递、15秒defer，以及不终态结算/不重复POST。
+2. 独立检查 buildBinanceReconcilePlan → trader-loop → sqlite-store.recordConfirmedBuyFill 的开放GTC成交链，重点复核成交分页完整性、累计executedQty/cummulativeQuoteQty校验、tradeId冲突和重复入账、Outbox快照不漂移、进程重启后原clientOrderId恢复。
+3. 独立检查 SELL GTC开放订单PARTIALLY_FILLED入账与终态部分成交续卖；不得把旧MARKET命名误判为真实Trader提交路径，实际下单必须仍注入submitTraderSpotLimitOrder。
+4. 核对BTC/PAXG/ETH/BNB/UNI全部允许新增BUY，CL与未知资产仍禁止；不得恢复旧的六项基本面审核拦截。
+5. 检查生产模式硬拒绝、Testnet/Production密钥隔离、STOP与人工复核停机。
+6. 邮件只检查策略分数达标提醒与真实BUY/SELL fill邮件；用户取消真实SMTP投递测试，不得再要求实投、邮箱授权码或npm run test:smtp。
+7. Testnet真实订单仍需用户本机专用新Key实测；不得使用聊天中暴露的旧Secret，不得声称Mock/CI等同真实成交。
+8. 用户不要求72小时连续运行；生产模式继续硬拒绝。
+
+GPT新增测试HEAD 8539ac4a743d1184a87d6f81bc29e8673129e732，Run 44923502732成功：81文件/581测试，typecheck/build通过。移除SMTP实投测试脚本后的HEAD 2b125fed81cec1a925c2a1173386caedbdc41689，Run 44923582790成功：81文件/581测试，typecheck/build通过。后续请在最新HEAD完成独立复核并记录证据。
