@@ -1,6 +1,6 @@
 import { access, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { getServerBinanceSpotMode, hasCredentials, submitSpotMarketOrder } from "@/lib/binance";
+import { getServerBinanceSpotMode, hasCredentials, submitTraderSpotMarketOrder } from "@/lib/binance";
 import { getDashboard } from "@/lib/service";
 import { binanceReconcileAdapter } from "@/lib/execution/binance-reconcile.server";
 import { openLocalExecutionStore } from "@/lib/execution/server/sqlite-store";
@@ -65,12 +65,6 @@ async function main(): Promise<void> {
     if (getServerBinanceSpotMode() !== "testnet") {
       throw new Error("AUTO_TRADE_MODE=testnet时，BINANCE_SPOT_ENVIRONMENT必须为testnet");
     }
-    if (process.env.BINANCE_TESTNET_BUY_ENABLED !== "1") {
-      throw new Error("Testnet BUY服务端开关未启用；拒绝启动自动买入");
-    }
-    if (process.env.BINANCE_TESTNET_SELL_ENABLED !== "1") {
-      throw new Error("Testnet SELL服务端开关未启用；拒绝启动自动卖出");
-    }
     if (process.env.ENABLE_ACCOUNT === "0" || !hasCredentials()) {
       throw new Error("Testnet自动交易需要启用账户读取并配置专用Testnet Key/Secret");
     }
@@ -112,7 +106,7 @@ async function main(): Promise<void> {
           store,
           getDashboard,
           adapter: binanceReconcileAdapter,
-          submitOrder: submitSpotMarketOrder,
+          submitOrder: submitTraderSpotMarketOrder,
           log: (message) => safeLog(`[Trader] ${message}`),
         });
         if (effectiveMode !== "off") {
