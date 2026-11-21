@@ -343,6 +343,12 @@ describe("卖出", () => {
     expect(s.action.notes.join()).toContain("峰值");
   });
 
+  it("最后一根已收盘周线早于买入时，不得把买入前收盘价当成持仓峰值", () => {
+    const closes = [...flat(200, 100), 150];
+    const s = evaluateCoin(held(closes, [trade(100, 1, 300)], { price: 100 }), ctx());
+    expect(s.tag).not.toBe("追踪止损");
+  });
+
   it("峰值只看持仓之后：买入前的历史高位不触发止损", () => {
     const closes = [...flat(10, 100), ...ramp(100, 500, 20), ...ramp(500, 100, 20), ...flat(170, 100), 100];
     const s = evaluateCoin(held(closes, [trade(100, 1, 250)], { price: 100 }), ctx());
