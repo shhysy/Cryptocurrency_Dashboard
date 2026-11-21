@@ -59,6 +59,7 @@ export async function runNotificationOutboxCycle(
             commissionAsset: event.commissionAsset,
             commissionUsdt: event.commissionUsdt,
             filledAt: event.filledAt,
+            businessSnapshot: event.businessSnapshot,
           }])
         : await dispatchTraderAlertMail({
             id: event.id,
