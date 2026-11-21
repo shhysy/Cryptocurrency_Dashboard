@@ -277,3 +277,4 @@ Grok复核完成后，请在本文件追加逐项结论和证据；不要自行�
 4. 确认触发计数后scripts/trader.ts先写STOP，再以off模式运行旧订单只读恢复，禁止新BUY/SELL。
 5. 检查SQLite查询在schema版本3下兼容，且不因SQL join重复计数影响安全判断。
 6. 查看最新CI测试、typecheck和production build结果；提供独立复核证据，不要把CI冒充Testnet验收。
+- 新增正向回归测试提交922082c73df197e14cd5e5f47d3f79a211ba46f6：合法reserved reservation + 匹配account_lock不应触发停机，请纳入独立复核。
