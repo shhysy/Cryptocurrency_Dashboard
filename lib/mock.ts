@@ -97,8 +97,8 @@ const FOCUS: Record<Scenario, Record<string, KF>> = {
   sell: { BNB: [[208, 150], [235, 175], [259, 235]] },
 };
 
-// 各场景的恐惧贪婪指数（示例值）：accumulate 情绪中性偏恐惧，strong 极度恐惧，sell 极度贪婪
-const FEAR_GREED: Record<Scenario, number> = { none: 55, accumulate: 38, strong: 10, sell: 85 };
+// 各场景的恐惧贪婪指数（示例值）：accumulate 情绪偏恐惧，strong 极度恐惧，sell 极度贪婪
+const FEAR_GREED: Record<Scenario, number> = { none: 55, accumulate: 25, strong: 10, sell: 85 };
 
 const SCALE: Record<string, number> = { BTC: 400, ETH: 26, BNB: 3.2, UNI: 0.05, PAXG: 14, CL: 0.5 };
 const SEED: Record<string, number> = { BTC: 11, ETH: 22, BNB: 44, UNI: 55, PAXG: 77, CL: 88 };
