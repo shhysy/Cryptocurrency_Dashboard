@@ -66,6 +66,8 @@ export function validateServerExecutionIntent(
   if (input.strategyVersion !== "3.3") return "订单意图策略版本不匹配";
   if (!/^[A-Z0-9]{5,24}$/.test(input.symbol) || !input.symbol.endsWith("USDT")) return "交易对必须为USDT报价现货格式";
   if (input.side !== "BUY" && input.side !== "SELL") return "订单方向无效";
+  if (input.side === "BUY" && input.strategyTier !== "head" && input.strategyTier !== "add" && input.strategyTier !== "reserve") return "BUY订单意图缺少有效的策略执行档位";
+  if (input.side === "SELL" && input.strategyTier !== undefined) return "SELL订单不能携带BUY策略执行档位";
   if (input.quoteAsset !== "USDT") return "当前执行层只允许 USDT 报价资产";
   if (input.baseRatioAtSignal !== undefined &&
       (!Number.isFinite(input.baseRatioAtSignal) || input.baseRatioAtSignal < 0 || input.baseRatioAtSignal > 1)) {
