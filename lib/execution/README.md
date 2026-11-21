@@ -22,7 +22,7 @@
 | `buy-order-submit.browser.ts` / `sell-order-submit.browser.ts` | 受控测试网订单提交编排；生产开关关闭 |
 | `sync-buy-order.browser.ts` / `sync-sell-order.browser.ts` | 只读查单、成交核对与状态恢复 |
 | `fill-reconcile.ts` / `position-accounting.ts` | 成交事实校验、加权平均成本、底仓/周期仓及实现盈亏回放 |
-| `binance-reconcile.server.ts` | 服务端只读订单查单、成交分页、余额与交易规则解析；不具备POST/下单能力 |
+| `binance-reconcile.server.ts` / `binance-reconcile-plan.server.ts` | 服务端只读订单查单、成交分页、余额与交易规则解析；严格生成终态核对计划；不具备POST/下单能力 |
 | `earn-redemption.browser.ts` / `wallet-funds.ts` | Spot与Simple Earn Flexible资金规划及受控赎回适配 |
 | `notification-outbox.ts` / `notification-dispatch.browser.ts` | 已确认成交事件持久化、幂等投递与失败重试 |
 
@@ -57,3 +57,5 @@
 - 查单明确区分not_found与限流/权限/网络错误；未知订单状态映射为UNKNOWN。成交分页达到5页仍未结束时返回`complete=false`，调用方不得据此完成终态结算。
 - 成交字段以十进制字符串保留，包含commission与commissionAsset；成交ID重复内容冲突时拒绝。余额重复资产、非法数字、缺失交易规则均fail-closed。
 - 当前只完成适配器与单元测试，尚未接入DO `reconcile_intent`消费器、账户级预留结算和真实Cloudflare运行时；不得将本阶段称为完整自动交易。
+
+- `binance-reconcile-plan.server.ts` 只输出 `wait/not_found/manual_review/finalize` 决策；只有完整逐笔成交数量和金额精确匹配交易所终态累计值时才生成finalize数据，不负责调用DO或释放资金。
