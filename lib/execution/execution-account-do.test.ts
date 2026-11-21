@@ -48,6 +48,9 @@ class FakeSql {
         });
         rows = [{ intent_id: intentId }];
       }
+    } else if (query.includes("SELECT intent_id, state, symbol, side, attempt, client_order_id FROM order_intents")) {
+      const row = this.intents.get(String(bindings[0]));
+      rows = row ? [row] : [];
     } else if (query.includes("SELECT intent_id, state, strategy_event_id")) {
       const row = this.intents.get(String(bindings[0]));
       rows = row ? [row] : [];
@@ -510,6 +513,34 @@ describe("账户级Durable Object持久化基础", () => {
     expect(body).toEqual({ ok: true, intentId: intent.intentId, attempt: 1, clientOrderId: claim.clientOrderId, state: "submitting" });
     expect(sql.intents.get(intent.intentId)?.state).toBe("submitting");
     expect(sql.attempts.get(`${intent.intentId}:1`)?.state).toBe("submitting");
+  });
+
+  it("提交前入队只读对账任务，并可读取原订单身份与账户租约上下文", async () => {
+    const { coordinator, sql } = makeCoordinator();
+    await coordinator.fetch(new Request("https://do.internal/internal/intents", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(intent),
+    }));
+    const claimResponse = await coordinator.fetch(new Request("https://do.internal/internal/claim", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, asset: "USDT", availableBalance: "100", snapshotAt: Date.now() }),
+    }));
+    const claim = await claimResponse.json() as { attempt: number; leaseToken: string; clientOrderId: string };
+    await coordinator.fetch(new Request("https://do.internal/internal/mark-submitting", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intentId: intent.intentId, attempt: claim.attempt, leaseToken: claim.leaseToken }),
+    }));
+
+    const context = await coordinator.fetch(new Request(
+      `https://do.internal/internal/reconcile-context?intentId=${encodeURIComponent(intent.intentId)}`,
+    ));
+    const body = await context.json() as Record<string, unknown>;
+    expect(context.status).toBe(200);
+    expect(body).toMatchObject({
+      intentId: intent.intentId, state: "submitting", symbol: "BTCUSDT", side: "BUY",
+      attempt: 1, clientOrderId: claim.clientOrderId, leaseToken: claim.leaseToken, terminal: false,
+    });
+    expect(sql.statements.some((statement) =>
+      statement.includes("INSERT INTO scheduler_tasks") && statement.includes("reconcile_intent"))).toBe(true);
   });
 
   it("提交结果未知时保留账户锁，不允许释放或创建新订单", async () => {
