@@ -1,5 +1,6 @@
 import type { Candle, Trade } from "@/strategy/types";
 import { isSpotOrderSubmissionEnabled, resolveServerBinanceEnvironment } from "./binance-environment";
+import { isTraderOrderSubmissionAuthorized } from "./execution/server/auto-trade-mode";
 
 const SPOT_ENV = resolveServerBinanceEnvironment({
   BINANCE_SPOT_ENVIRONMENT: process.env.BINANCE_SPOT_ENVIRONMENT,
@@ -23,7 +24,7 @@ const apiSecret = () => SPOT_ENV.apiSecret;
  * 币安接口封装。
  * - 公开行情：不需要密钥。
  * - 账户 / 成交：HMAC SHA256 签名，密钥只在服务端读取（process.env），不会进入前端包。
- * - 只调用 GET 只读接口，代码里没有任何下单 / 提现请求。
+ * - 浏览器只读接口与服务端签名订单提交分离；提现请求不在此模块实现。
  */
 // 公开行情优先走只读行情域名 data-api.binance.vision（无需 Key，对云厂商 IP 更宽松），失败再回退
 const PUBLIC_BASES = SPOT_TESTNET
@@ -473,8 +474,23 @@ async function assertSpotMarketOrderPreflight(input: SpotMarketOrderInput): Prom
 export async function submitSpotMarketOrder(
   input: SpotMarketOrderInput,
 ): Promise<SpotMarketOrderResponse> {
+  return submitSpotMarketOrderInternal(input, false);
+}
+
+/** 本地Trader专用入口：订单开关由AUTO_TRADE_MODE派生；浏览器路由仍走显式服务端开关。 */
+export async function submitTraderSpotMarketOrder(
+  input: SpotMarketOrderInput,
+): Promise<SpotMarketOrderResponse> {
+  return submitSpotMarketOrderInternal(input, true);
+}
+
+async function submitSpotMarketOrderInternal(
+  input: SpotMarketOrderInput,
+  allowTraderMode: boolean,
+): Promise<SpotMarketOrderResponse> {
   const mode = SPOT_ENV.mode;
-  const enabled = isSpotOrderSubmissionEnabled(mode, input.side, {
+  const modeDerivedEnabled = allowTraderMode && isTraderOrderSubmissionAuthorized(mode, process.env);
+  const enabled = modeDerivedEnabled || isSpotOrderSubmissionEnabled(mode, input.side, {
     BINANCE_TESTNET_BUY_ENABLED: process.env.BINANCE_TESTNET_BUY_ENABLED,
     BINANCE_TESTNET_SELL_ENABLED: process.env.BINANCE_TESTNET_SELL_ENABLED,
     BINANCE_PRODUCTION_BUY_ENABLED: process.env.BINANCE_PRODUCTION_BUY_ENABLED,
