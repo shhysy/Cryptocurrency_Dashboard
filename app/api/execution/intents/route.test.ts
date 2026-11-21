@@ -51,7 +51,9 @@ describe("Testnet服务端策略意图入口", () => {
     vi.clearAllMocks();
     process.env.DASHBOARD_PASSWORD = "test-password";
     process.env.BINANCE_SPOT_ENVIRONMENT = "testnet";
-    process.env.BINANCE_TESTNET_INTENT_CREATION_ENABLED = "true";
+    process.env.BINANCE_TESTNET_INTENT_CREATION_ENABLED = "1";
+    process.env.BINANCE_TESTNET_BUY_ENABLED = "1";
+    process.env.BINANCE_TESTNET_SELL_ENABLED = "1";
     getDashboardMock.mockResolvedValue(dashboard());
     balancesMock.mockResolvedValue([{ asset: "USDT", free: "1000", locked: "0" }] as never);
     rulesMock.mockResolvedValue({
@@ -135,6 +137,24 @@ describe("Testnet服务端策略意图入口", () => {
     expect(stub.fetch).not.toHaveBeenCalled();
   });
 
+  it("服务端SELL开关关闭时不创建SELL intent", async () => {
+    const stub = { fetch: vi.fn() };
+    contextMock.mockReturnValue({
+      env: { EXECUTION_ACCOUNT: { idFromName: () => "id", get: () => stub } },
+    } as never);
+    getDashboardMock.mockResolvedValue(dashboard({
+      coins: [{
+        symbol: "BTC",
+        signal: { action: { side: "sell", kind: "takeProfit", usdt: 60, qty: 0.001, blocked: [] } },
+      }],
+    }) as never);
+    process.env.BINANCE_TESTNET_SELL_ENABLED = "0";
+    const response = await POST(makeRequest());
+    expect(response.status).toBe(200);
+    expect((await response.json()).created).toBe(0);
+    expect(stub.fetch).not.toHaveBeenCalled();
+  });
+
   it("交易规则步长或最小名义金额为零时拒绝创建intent", async () => {
     const stub = { fetch: vi.fn() };
     contextMock.mockReturnValue({
@@ -163,9 +183,9 @@ describe("Testnet服务端策略意图入口", () => {
     process.env.BINANCE_SPOT_ENVIRONMENT = "production";
     expect((await POST(makeRequest())).status).toBe(403);
     process.env.BINANCE_SPOT_ENVIRONMENT = "testnet";
-    process.env.BINANCE_TESTNET_INTENT_CREATION_ENABLED = "false";
+    process.env.BINANCE_TESTNET_INTENT_CREATION_ENABLED = "0";
     expect((await POST(makeRequest())).status).toBe(403);
-    process.env.BINANCE_TESTNET_INTENT_CREATION_ENABLED = "true";
+    process.env.BINANCE_TESTNET_INTENT_CREATION_ENABLED = "1";
     const cross = new Request("https://dashboard.example/api/execution/intents", {
       method: "POST", headers: { origin: "https://evil.example", authorization: `Basic ${btoa("user:test-password")}` },
     });
