@@ -721,6 +721,31 @@ describe("BUY GTC开放订单增量成交", () => {
       expect(await store.scheduler.defer(
         schedulerLease, NOW + 31_002, 15_000, "订单仍为PARTIALLY_FILLED",
       )).toBe(true);
+
+      const terminalTasks = await store.scheduler.claimDue({
+        now: NOW + 46_003, leaseMs: 30_000, limit: 1, taskType: "reconcile_intent",
+      });
+      expect(terminalTasks).toHaveLength(1);
+      const finalized = await store.finalizeReconciledOrder({
+        intentId: value.intentId,
+        attempt: claim.lease.attempt,
+        leaseToken: lease.token,
+        now: NOW + 46_004,
+        exchangeOrderId: "12345",
+        exchangeStatus: "FILLED",
+        executedQty: "0.00010000",
+        cumulativeQuoteQty: "5.00000000",
+        exchangeTerminalAt: NOW + 46_000,
+        schedulerLease: terminalTasks[0],
+        fills: [{
+          tradeId: "90001", orderId: "12345", price: "50000.00",
+          qty: "0.00010000", quoteQty: "5.00000000",
+          commission: "0.01000000", commissionAsset: "USDT",
+          filledAt: NOW + 30_900,
+        }],
+      });
+      expect(finalized.state).toBe("filled");
+      expect(await store.scheduler.ack(terminalTasks[0]!, NOW + 46_005)).toBe(true);
     } finally {
       store.close();
     }
