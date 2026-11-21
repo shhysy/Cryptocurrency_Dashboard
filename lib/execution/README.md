@@ -16,10 +16,12 @@
 | 模块 | 职责 |
 |------|------|
 | `sell-signal-queue.ts` / `sell-guard.ts` | 卖出信号计算、台账核验、底仓/周期仓保护 |
-| `server/sell-enqueue.ts` | 将策略 SELL 信号写入本地 SQLite；台账读取失败时fail-closed |\n| `server/sell-execution.ts` | 本地Trader SELL预检、提交、unknown只读恢复、成交核验与入账 |
+| `server/sell-enqueue.ts` | 将策略 SELL 信号写入本地 SQLite；台账读取失败时fail-closed |
+| `server/sell-execution.ts` | 本地Trader SELL预检、提交、unknown只读恢复、成交核验与入账 |
 | `server/sqlite-store.ts` | intent、reservation、scheduler、SELL event、ledger、Outbox 持久化 |
 | `server/trader-loop.ts` | BUY intent、提交与订单只读恢复 |
-| `binance-reconcile.server.ts` | Binance 只读查单/成交/余额/规则适配 |\n| `server/safe-log.ts` | 脱敏控制台日志与按UTC日期分文件落盘 |
+| `binance-reconcile.server.ts` | Binance 只读查单/成交/余额/规则适配 |
+| `server/safe-log.ts` | 脱敏控制台日志与按UTC日期分文件落盘 |
 | `notification-outbox.ts` / `server/notification-outbox-dispatcher.ts` | 成交Outbox、SQLite租约、SMTP直发与退避重试 |
 
 ## 安全规则
