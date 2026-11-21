@@ -1238,7 +1238,22 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       `SELECT
         (SELECT COUNT(*) FROM order_intents WHERE state = 'manual_review') +
         (SELECT COUNT(*) FROM sell_events WHERE status = 'blocked') +
-        (SELECT COUNT(*) FROM reservations WHERE state = 'manual_review') AS total`,
+        (SELECT COUNT(*) FROM reservations WHERE state = 'manual_review') +
+        (SELECT COUNT(*) FROM reservations r
+          LEFT JOIN order_intents i ON i.intent_id = r.intent_id
+          WHERE r.state = 'reserved' AND (
+            i.intent_id IS NULL OR
+            i.state NOT IN ('reserved', 'submitting', 'unknown', 'reconciling', 'partial_open') OR
+            NOT EXISTS (
+              SELECT 1 FROM account_lock l
+              WHERE l.singleton = 1 AND l.intent_id = r.intent_id AND l.attempt = r.attempt
+            )
+          )) +
+        (SELECT COUNT(*) FROM account_lock l
+          LEFT JOIN order_intents i ON i.intent_id = l.intent_id
+          WHERE i.intent_id IS NULL OR i.attempt != l.attempt OR
+            i.state NOT IN ('reserved', 'submitting', 'unknown', 'reconciling', 'partial_open')
+        ) AS total`,
     );
     const total = Number(row?.total ?? 0);
     if (!Number.isSafeInteger(total) || total < 0) {
