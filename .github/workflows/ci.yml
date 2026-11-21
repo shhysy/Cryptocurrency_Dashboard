@@ -21,6 +21,8 @@ jobs:
         run: npm ci
       - name: Run tests
         run: npm test
+      - name: Cloudflare Durable Object SQLite integration
+        run: npm run test:cloudflare-do
       - name: TypeScript typecheck
         if: always()
         run: npm run typecheck
