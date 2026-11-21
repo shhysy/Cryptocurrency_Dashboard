@@ -55,9 +55,17 @@
 
 ### GPT复核结论
 
-- M0-02：**未通过独立复核**（缺混合冲突 tick 集成测试）。
+- M0-02：原缺口已补充：提交 `a9726b05a30f73aae70962aeda4942be23644f83` 新增“BTC台账同键冲突时只阻断BTC，同轮ETH仍正常入队”集成用例；GitHub Actions Run `44876002637` 的 test/typecheck/build 全部成功。仍待 Claude 最终独立验收。
 - M0-03/M0-04：M0-04文档已在本次提交同步；M0-03仍未完成。
 - M1：**未通过“关闭浏览器自动买卖”验收**，SELL服务端处理链路缺失。
 - M2：未开始/阻塞于专用Testnet实测。
 - M3：未通过生产预检验收；生产硬拒绝必须保留。
 - 当前不得向用户宣称“只填真实Key就能实盘自动交易”。
+
+
+### GPT补充提交证据（2026-11-21）
+
+- M0-02混合冲突集成用例：`lib/execution/sell-automation-tick.integration.test.ts`。
+- 提交：`a9726b05a30f73aae70962aeda4942be23644f83`。
+- GitHub Actions Run：`44876002637`，结论 success；Run中 Run tests、TypeScript typecheck、Next.js production build 均成功。
+- 该测试验证BTC同一fillId存在有效qty与qty=0冲突行时，BTC止盈续卖被阻断，而ETH在同一tick仍可正常入队。M0-02待Claude确认后才能标记[x]。
