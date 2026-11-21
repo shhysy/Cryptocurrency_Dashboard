@@ -111,13 +111,14 @@ describe("post-take-profit average-cost rebuy", () => {
   it("does not switch modes for a pending or unfilled take-profit event", () => {
     const pending = { ...event, status: "pending" as const, filledQty: 0 };
     const result = applyPostTakeProfitRebuy(data(), [pending], [sell]);
-    expect(result.coins[0].signal.action.label).not.toContain("均价回补");
+    expect(result.coins[0].signal.tag).toBe("暂缓");
+    expect(result.coins[0].signal.action.blocked.join()).toContain("未终态或需人工复核");
   });
 
   it("fails closed if the confirmed take-profit fill is missing from the ledger", () => {
     const result = applyPostTakeProfitRebuy(data(), [event], []);
     expect(result.coins[0].signal.tag).toBe("暂缓");
-    expect(result.coins[0].signal.action.blocked.join()).toContain("明细不完整");
+    expect(result.coins[0].signal.action.blocked.join()).toContain("事件索引与SQLite确认成交不一致");
   });
 
   it("does not apply the post-TP ladder after the position is fully closed", () => {
