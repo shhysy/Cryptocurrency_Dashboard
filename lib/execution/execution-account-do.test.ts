@@ -228,7 +228,11 @@ class FakeSql {
         reserved_amount: String(bindings[5]),
       };
     } else if (query.includes("SELECT COUNT(*) AS total")) {
-      rows = [{ total: this.intents.size }];
+      if (query.includes("FROM order_intents")) rows = [{ total: this.intents.size }];
+      else if (query.includes("FROM fills")) rows = [{ total: this.fills.size }];
+      else if (query.includes("FROM reservations")) rows = [{ total: this.reservations.size }];
+      else if (query.includes("FROM account_lock")) rows = [{ total: this.lock ? 1 : 0 }];
+      else if (query.includes("FROM scheduler_tasks")) rows = [{ total: this.schedulerTasks.size }];
     }
     return { toArray: () => rows };
   }
