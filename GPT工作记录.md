@@ -694,3 +694,22 @@
 - 推进原则：Grok负责SELL并由GPT独立复核；GPT负责DO调度、Binance只读适配器、策略事件/intent、服务端执行闭环与总集成。依赖满足的任务并行推进，阻塞时拆解处理。
 - 安全边界：当前只用Mock/Testnet；生产BUY/SELL、Simple Earn真实赎回、Outbox生产投递保持关闭；未知POST只读查单，不盲目重发；生产启用必须等待完整验收和用户明确授权。
 - 本次只更新任务清单与工作记录，没有开启生产开关，也没有发送任何Binance订单或赎回请求。
+
+
+## Binance服务端只读对账适配器第一阶段（2026-11-21）
+
+### 本轮代码交付
+- 新增 `lib/execution/binance-reconcile.server.ts`，默认复用服务端 `fetchSignedBinanceRead`，没有任何POST/下单能力。
+- 按 `symbol + origClientOrderId` 查单，严格验证返回symbol/clientOrderId/orderId/side/数量/时间；识别Binance -2013/-2011为明确not_found，其他错误（包括429）继续抛出，不伪装成无订单。
+- 订单状态白名单覆盖NEW/PARTIALLY_FILLED/FILLED/CANCELED/REJECTED/EXPIRED/EXPIRED_IN_MATCH；未知状态映射UNKNOWN，禁止当作终态。
+- 按 `symbol + orderId` 读取myTrades，最多5页，每页1000条；校验tradeId/orderId/symbol/方向/价格/数量/成交额/commission/commissionAsset/time，重复ID内容冲突拒绝，超出分页上限返回complete=false。
+- 增加账户free/locked余额严格解析，拒绝重复资产；增加交易对状态、base/quote资产及过滤器字段解析。
+- 扩展 `lib/binance.ts` 的myTrades只读参数白名单，允许orderId过滤。
+- 新增 `lib/execution/binance-reconcile.server.test.ts`，覆盖订单状态/字段校验、成交与手续费字段、余额重复/非法字段、交易规则缺失、clientOrderId查单not_found与429错误区分、成交分页和错误订单拒绝。
+- 中文提交：
+  - `cfbe8f71a4617d4c97287786703686959e2f8b57`：新增Binance服务端只读对账适配器。
+  - `dab6ae20dfb1be7ad2eb0ea19c2ed3a92abe2d9b`：新增适配器测试。
+  - `c270294f4f3e621703a37c4783cfd8147127d8f0`：允许按订单ID读取只读成交历史。
+- 当前状态：代码已写入gpt分支，**CI结果待核验**；不得标记为完成。尚未连接DO reconcile_intent任务，也未将逐笔结果接入fill-reconcile终态结算；第三资产手续费USDT折算仍由既有fill-reconcile逻辑fail-closed处理。
+- 安全边界：只读GET；没有调用Binance交易/赎回接口，没有开启生产BUY/SELL。
+
