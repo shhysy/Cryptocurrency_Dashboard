@@ -136,7 +136,9 @@ export async function readTraderStatusSnapshot(options: {
   const stopPath = resolve(options.stopPath ?? "data/STOP");
   const [trader, stopFile, dbStat] = await Promise.all([
     readTraderLock(lockPath),
-    readFile(stopPath, "utf8").then(() => true).catch(() => false),
+    stat(stopPath).then(() => true).catch((error) =>
+      (error as NodeJS.ErrnoException).code === "ENOENT" ? false : true
+    ),
     stat(dbPath).catch(() => null),
   ]);
 
@@ -201,7 +203,9 @@ export async function readTraderStatusSnapshot(options: {
     const manualReview = intentRows.filter((row) => row.state === "manual_review")
       .reduce((sum, row) => sum + Number(row.total), 0) +
       sellRows.filter((row) => row.status === "blocked")
-        .reduce((sum, row) => sum + Number(row.total), 0);
+        .reduce((sum, row) => sum + Number(row.total), 0) +
+      count(db, "SELECT COUNT(*) AS total FROM reservations WHERE state = 'manual_review'") +
+      (notificationStates.manual_review ?? 0);
     const notificationStates = Object.fromEntries(
       notificationRows.map((row) => [row.state, Number(row.total)]),
     );
@@ -339,8 +343,11 @@ export async function readTraderStrategyHistory(options: { dbPath?: string } = {
     });
     if (sellEvents.some((event) => !Number.isFinite(event.requestedQty) ||
         !Number.isFinite(event.createdAt) || !Number.isFinite(event.updatedAt)) ||
-        tradeLedger.some((fill) => !Number.isFinite(fill.qty) || fill.qty <= 0 ||
-          !Number.isFinite(fill.price) || fill.price <= 0 || !Number.isFinite(fill.time))) {
+        tradeLedger.some((fill) =>
+          ![fill.qty, fill.price, fill.time, fill.quoteQty, fill.commission, fill.commissionUsdt]
+            .every(Number.isFinite) ||
+          fill.qty <= 0 || fill.price <= 0 || fill.quoteQty <= 0 || fill.commission < 0 ||
+          fill.commissionUsdt < 0)) {
       throw new Error("成交台账包含无效数值");
     }
     return { sellEvents, tradeLedger };
