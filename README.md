@@ -114,26 +114,30 @@ BINANCE_API_SECRET=你的生产只读_API_Secret
 
 测试网模式固定使用 `https://testnet.binance.vision`，只读取测试网凭证，不会回退到生产 Key；生产模式只读取生产凭证。测试网不支持 Simple Earn，因此测试网环境会拒绝 Simple Earn 路径。
 
-**当前完成边界：** Dashboard 的账户与行情请求已切换到 Next.js 服务端，浏览器不持有 Binance Secret；统一 `/api/binance/spot-order` 已提供 BUY/SELL MARKET 服务端入口，并在提交前复核交易对状态、USDT报价、市场过滤器、价格和账户可用余额。环境与方向开关由服务端独立控制，生产BUY/SELL默认关闭。最新分支CI Run `44761482631` 已通过：52个测试文件、440项测试全部通过，并通过TypeScript typecheck、Next.js production build和Cloudflare OpenNext build；自定义Worker入口、账户级Durable Object SQLite基础表、内部幂等订单意图落库、transactionSync原子claim、单活动订单锁、资金预留及attempt/clientOrderId/leaseToken持久化、每分钟Cron看门狗和DO Alarm心跳已进入开发分支，但尚未部署；claim、提交前submitting持久化、unknown冻结、过期租约reconcile-only接管、有效租约续期、逐笔成交核对、手续费计入预留消耗、订单终态结算和账户锁释放的DO内部原语已实现，但尚未接入Next.js可信策略事件、Binance真实余额/下单/查单/成交历史适配器；P2-C仅新增了任务类型白名单、稳定任务ID/dueAt校验、30秒fencing租约和有上限指数退避纯函数；DO SQLite enqueue/claim/ack/retry接口、Alarm过期租约回收/最近任务调度、Cron消费器、真实SQLite重启恢复和跨设备执行尚未完成。当前策略信号仍需由受控的服务端意图入口触发；关闭页面后Worker Cron只恢复已持久化的submitting/unknown订单，不会自行生成新策略信号或提交新订单，因此目前不能视为完整无人值守自动交易。SELL状态机仍待GPT独立验收。Simple Earn真实赎回仍关闭。服务端执行架构评审稿见[服务端自动执行架构设计](docs/策略3.3/服务端自动执行架构设计.md)。
+**当前完成边界：** Dashboard 的账户与行情请求已切换到 Next.js 服务端，浏览器不持有 Binance Secret；统一 `/api/binance/spot-order` 已提供 BUY/SELL MARKET 服务端入口，并在提交前复核交易对状态、USDT报价、市场过滤器、价格和账户可用余额。环境与方向开关由服务端独立控制，生产BUY/SELL默认关闭。最新分支CI Run `44761482631` 已通过：52个测试文件、440项测试全部通过，并通过TypeScript typecheck、Next.js production build和Cloudflare OpenNext build；自定义Worker入口、账户级Durable Object SQLite基础表、内部幂等订单意图落库、transactionSync原子claim、单活动订单锁、资金预留及attempt/clientOrderId/leaseToken持久化、每分钟Cron看门狗和DO Alarm心跳已进入开发分支，但尚未部署；claim、提交前submitting持久化、unknown冻结、过期租约reconcile-only接管、有效租约续期、逐笔成交核对、手续费计入预留消耗、订单终态结算和账户锁释放的DO内部原语已实现，但尚未接入Next.js可信策略事件、Binance真实余额/下单/查单/成交历史适配器；P2-C仅新增了任务类型白名单、稳定任务ID/dueAt校验、30秒fencing租约和有上限指数退避纯函数；DO SQLite enqueue/claim/ack/retry接口、Alarm过期租约回收/最近任务调度、Cron消费器、真实SQLite重启恢复和跨设备执行尚未完成。Worker Cron可在Testnet扫描与intent创建开关显式开启时重新计算策略信号并创建幂等DO intent；扫描开关默认关闭，且Cron仍不会提交新订单。关闭页面后Worker Cron可持续恢复已持久化的submitting/unknown订单，因此目前仍不能视为完整无人值守自动交易。SELL状态机仍待GPT独立验收。Simple Earn真实赎回仍关闭。服务端执行架构评审稿见[服务端自动执行架构设计](docs/策略3.3/服务端自动执行架构设计.md)。
 
 ## 服务端策略意图入口（Testnet开发阶段）
 
 新增同源 `POST /api/execution/intents`，由服务端重新调用 `getDashboard()` 计算策略3.3信号，不接受浏览器提交的价格、评分、方向或下单金额。入口会拒绝Mock/STALE/过期数据，读取Binance free余额并核验交易对TRADING状态、USDT报价、LOT_SIZE、PRICE_FILTER、MIN_NOTIONAL/NOTIONAL；SELL按基础资产free余额检查，BUY只检查USDT free余额。事件ID按币种、动作类型和ISO周生成，重复请求幂等写入Durable Object intent。
 
-启用条件必须同时满足：
+手动调用启用条件必须同时满足：
 - `BINANCE_SPOT_ENVIRONMENT=testnet`
 - `BINANCE_TESTNET_INTENT_CREATION_ENABLED=1`
+- 对应方向的服务端开关 `BINANCE_TESTNET_BUY_ENABLED` 或 `BINANCE_TESTNET_SELL_ENABLED` 为 `1`
 - 已设置 `DASHBOARD_PASSWORD` 并使用同源认证请求
 - 已配置Testnet账户Key且 `ENABLE_ACCOUNT=1`，返回数据必须是新鲜Binance数据
+
+后台自动扫描还需额外设置 `BINANCE_TESTNET_INTENT_SCAN_ENABLED=1`。Worker Cron每分钟通过自引用Service Binding调用同一个服务端入口；必须至少开启一个Testnet方向开关。
 
 该入口只创建DO订单意图，响应明确返回 `orderSubmitted=false`；不会调用Binance订单POST，不会开启BUY/SELL开关。默认关闭，未设置该变量时拒绝创建。生产环境硬拒绝此入口。
 
 ```dotenv
 BINANCE_SPOT_ENVIRONMENT=testnet
 BINANCE_TESTNET_INTENT_CREATION_ENABLED=0
+BINANCE_TESTNET_INTENT_SCAN_ENABLED=0
 ```
 
-当前尚未把该入口接入定时策略事件生成；需要由受控的服务端调用触发。创建intent不等于订单已经提交，也不代表自动交易闭环完成。
+该入口已接入受控的Worker Cron扫描，但后台扫描开关默认关闭；创建intent不等于订单已经提交，也不代表自动交易闭环完成。
 
 ## 安全提醒
 
