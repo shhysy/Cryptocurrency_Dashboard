@@ -200,15 +200,15 @@ export async function readTraderStatusSnapshot(options: {
     const sellsOpen = sellRows.filter((row) =>
       ["pending", "reconcile_required", "partially_filled"].includes(row.status))
       .reduce((sum, row) => sum + Number(row.total), 0);
+    const notificationStates = Object.fromEntries(
+      notificationRows.map((row) => [row.state, Number(row.total)]),
+    );
     const manualReview = intentRows.filter((row) => row.state === "manual_review")
       .reduce((sum, row) => sum + Number(row.total), 0) +
       sellRows.filter((row) => row.status === "blocked")
         .reduce((sum, row) => sum + Number(row.total), 0) +
       count(db, "SELECT COUNT(*) AS total FROM reservations WHERE state = 'manual_review'") +
       (notificationStates.manual_review ?? 0);
-    const notificationStates = Object.fromEntries(
-      notificationRows.map((row) => [row.state, Number(row.total)]),
-    );
 
     base.database = {
       available: true,
