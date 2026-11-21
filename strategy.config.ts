@@ -66,7 +66,7 @@ export const strategyConfig = {
       { max: 35, points: 10 },
       { max: 40, points: 5 },
     ],
-    extremeFear: 25, // 备用金的「极度恐惧」门槛（与打分最严档解耦，保持 V3.2 的触发条件不过松）
+    extremeFear: 10, // 备用金的「极度恐惧」门槛：按策略3.3参数中心F&G阈值1执行；与C2评分细分档位解耦
     overheat: 80, // ≥ 80：过热，进入止盈检查
   },
   score: {
