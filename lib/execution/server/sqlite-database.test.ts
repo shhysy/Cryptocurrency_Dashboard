@@ -119,9 +119,11 @@ describe("本地执行SQLite数据库基础设施", () => {
       const columns = upgraded.prepare("PRAGMA table_info(order_intents)").all() as Array<{ name: string }>;
       expect(columns.some((column) => column.name === "base_ratio_at_signal")).toBe(true);
       expect(columns.some((column) => column.name === "strategy_tier")).toBe(true);
-      const intent = upgraded.prepare("SELECT amount FROM order_intents WHERE intent_id = ?")
-        .get("v33:BTC:head:2026W47") as { amount: string };
+      const intent = upgraded.prepare("SELECT amount, state, last_error FROM order_intents WHERE intent_id = ?")
+        .get("v33:BTC:head:2026W47") as { amount: string; state: string; last_error: string };
       expect(intent.amount).toBe("100");
+      expect(intent.state).toBe("manual_review");
+      expect(intent.last_error).toContain("缺少显式策略档位");
       const version = upgraded.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number };
       expect(version.version).toBe(4);
     } finally {
