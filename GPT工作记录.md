@@ -326,3 +326,24 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - .env.example增加 MAIL_AUTO=1；运维手册明确策略信号邮件由Trader主循环触发，Trader在dry-run/Testnet且真实Binance非STALE时按55/75分门槛检查，无需另开notify进程。成交邮件需要配置SMTP后明确设置 TRADE_FILL_MAIL_ENABLED=1。
 - 最新HEAD a9665ef8dd57a0d090cc43dad66018971b550aa1，Run 44919447873成功：81文件、581项测试通过，typecheck与Next.js production build通过。
 - 真实SMTP投递仍需用户配置自己的SMTP凭证和收件地址后验证；未在仓库或对话中写入真实密码。
+
+
+## GPT继续推进：BUY开放订单调度回归与邮件测试范围收敛（2026-11-22）
+
+### BUY开放GTC订单调度回归
+- 直接检查本地常驻Trader的BUY对账分支，确认此前虽有SQLite单笔fill事务测试，但缺少对 trader-loop 调度编排的直接覆盖。
+- 在 lib/execution/server/trader-loop.test.ts 新增 PARTIALLY_FILLED 场景：构造同一订单两笔真实myTrades，验证Trader逐笔调用 recordConfirmedBuyFill，传递原intent/attempt/账户租约/scheduler租约，并将仍开放的订单延后15秒继续只读跟踪。
+- 测试同时断言开放订单不会进入终态finalize，不会调用markSubmitting/markUnknown，不会重复POST新订单。
+- 提交HEAD 8539ac4a743d1184a87d6f81bc29e8673129e732；GitHub Actions Run 44923502732成功：81个测试文件、581项测试通过，TypeScript typecheck与Next.js production build通过。
+- 该项是自动化回归测试，不代表Binance Testnet真实挂单或成交已执行。
+
+### 按用户决定取消真实SMTP投递测试
+- 删除 package.json 的 test:smtp 命令和 scripts/test-smtp.mjs；保留正式邮件发送功能、信号邮件、真实BUY/SELL fill邮件及Mock测试。
+- 依次提交 package 清理HEAD 7a51a6c61f8e5e7064e792c8747c56fcb983f611（Run 44923579156成功）及测试脚本删除HEAD 2b125fed81cec1a925c2a1173386caedbdc41689（Run 44923582790成功）。
+- 两次CI均为81个测试文件、581项测试通过，typecheck和Next.js production build通过。
+- 真实SMTP投递/收件箱测试不再是项目任务或上线条件；用户本机配置SMTP后邮件功能可按配置发送，不要求用户向聊天提供授权码。
+
+### 本轮仍未完成
+- Binance Spot Testnet真实BUY/SELL、部分成交和重启恢复仍需用户在本机使用新生成的专用Testnet Key实测。
+- 聊天中曾暴露的旧Testnet Secret必须先在Binance Testnet撤销并重建；新凭证只放本机.env.local，不得发到聊天或提交GitHub。
+- 策略历史回测/样本外验证与独立风险复核未完成；production继续硬拒绝；不要求72小时连续运行。
