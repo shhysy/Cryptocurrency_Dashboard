@@ -97,7 +97,7 @@ export default function SellQueue({ refreshKey }: { refreshKey: number }) {
     <section className="glass space-y-3 p-3">
       <div>
         <h3 className="text-sm font-semibold text-fg">待卖事件</h3>
-        <p className="mt-0.5 text-[11px] text-mute">策略卖出信号已预留并做仓位保护；当前不会向 Binance 提交卖单。</p>
+        <p className="mt-0.5 text-[11px] text-mute">旧版浏览器IndexedDB卖出事件，仅供历史核对；不属于本地Trader SQLite，浏览器自动/手动下单已关闭。</p>
       </div>
       <div className="flex flex-wrap gap-3 text-[11px] text-mute">
         <span>事件 {events.length}</span>
