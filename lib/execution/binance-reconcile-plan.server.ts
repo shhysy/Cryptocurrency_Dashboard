@@ -22,6 +22,7 @@ export type BinanceReconcilePlan =
       fills: Array<{
         tradeId: string;
         orderId: string;
+        price: string;
         qty: string;
         quoteQty: string;
         commission: string;
@@ -193,6 +194,7 @@ export async function buildBinanceReconcilePlan(
     fills: trades.map((trade) => ({
       tradeId: String(trade.id),
       orderId: String(trade.orderId),
+      price: trade.price,
       qty: trade.qty,
       quoteQty: trade.quoteQty,
       commission: trade.commission,
