@@ -61,15 +61,18 @@ export async function dispatchReconcileIntentTask(
   adapter: ReconcileAdapter,
   now = Date.now(),
 ): Promise<"completed" | "retry_scheduled" | "lease_lost"> {
-  if (task.taskType !== "reconcile_intent" || task.taskId.length > 160 ||
+  if (task.taskType !== "reconcile_intent" || task.taskId.length > 170 ||
+      !task.taskId.startsWith("reconcile:") ||
       !Number.isSafeInteger(task.attempt) || task.attempt <= 0 ||
       !task.leaseToken || !Number.isSafeInteger(task.leaseUntil)) {
     return "lease_lost";
   }
+  const intentId = task.taskId.slice("reconcile:".length);
+  if (!/^v33:[A-Za-z0-9:_-]{1,156}$/.test(intentId)) return "lease_lost";
 
   const contextResult = await getJson(
     coordinator,
-    `/internal/reconcile-context?intentId=${encodeURIComponent(task.taskId)}`,
+    `/internal/reconcile-context?intentId=${encodeURIComponent(intentId)}`,
   );
   if (!contextResult.ok) {
     await postJson(coordinator, "/internal/scheduler/retry", {
@@ -79,7 +82,7 @@ export async function dispatchReconcileIntentTask(
     return "retry_scheduled";
   }
   const context = contextResult.data as unknown as ReconcileContext;
-  if (context.intentId !== task.taskId) {
+  if (context.intentId !== intentId) {
     await postJson(coordinator, "/internal/scheduler/retry", {
       taskId: task.taskId, attempt: task.attempt, leaseToken: task.leaseToken,
       reason: "对账上下文intentId与任务ID不匹配",
