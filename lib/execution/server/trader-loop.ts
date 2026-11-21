@@ -68,7 +68,7 @@ export function buildServerBuyIntents(
       strategyConfig.coreSymbols.includes(coin.symbol) ? "core" : "alt"
     ];
     const strategyEventId = [
-      coin.symbol, action.kind, action.label || "buy", String(sourceWeek),
+      coin.symbol, action.kind, String(sourceWeek),
     ].join(":");
     intents.push({
       intentId: serverExecutionIntentId(strategyEventId),
