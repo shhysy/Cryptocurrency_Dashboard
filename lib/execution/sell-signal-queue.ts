@@ -37,6 +37,38 @@ function baseAssetSymbol(symbol: string): string {
   return s.endsWith("USDT") ? s.slice(0, -4) : s;
 }
 
+/**
+ * 按 symbol+fillId 索引台账。
+ * 同一键出现多行（无论 side/sellKind）一律冲突 fail-closed；
+ * 仅当该键恰好一行且 side=SELL、sellKind=requiredKind 时计入数量。
+ */
+function indexLedgerFillsForSellKind(
+  ledgerFills: BaseReduceLedgerFill[],
+  requiredKind: string,
+): { qtyByKey: Map<string, number>; conflictKeys: Set<string> } {
+  const groups = new Map<string, BaseReduceLedgerFill[]>();
+  for (const fill of ledgerFills) {
+    if (!fill?.symbol || !fill.fillId) continue;
+    if (!Number.isFinite(fill.qty) || fill.qty <= 0) continue;
+    const key = `${baseAssetSymbol(fill.symbol)}:${String(fill.fillId).trim()}`;
+    const list = groups.get(key) ?? [];
+    list.push(fill);
+    groups.set(key, list);
+  }
+  const qtyByKey = new Map<string, number>();
+  const conflictKeys = new Set<string>();
+  for (const [key, rows] of groups) {
+    if (rows.length !== 1) {
+      conflictKeys.add(key);
+      continue;
+    }
+    const row = rows[0]!;
+    if (row.side !== "SELL" || row.sellKind !== requiredKind) continue;
+    qtyByKey.set(key, row.qty);
+  }
+  return { qtyByKey, conflictKeys };
+}
+
 export function confirmedBaseReduceFilledQty(
   events: SellEventRecord[],
   ledgerFills?: BaseReduceLedgerFill[],
@@ -44,22 +76,10 @@ export function confirmedBaseReduceFilledQty(
   if (!Array.isArray(ledgerFills) || ledgerFills.length === 0) {
     return 0;
   }
-  const ledgerByKey = new Map<string, number>();
-  const conflictKeys = new Set<string>();
-  for (const fill of ledgerFills) {
-    if (!fill?.symbol || !fill.fillId) continue;
-    if (!Number.isFinite(fill.qty) || fill.qty <= 0) continue;
-    if (fill.side !== "SELL") continue;
-    if (fill.sellKind !== "base_reduce") continue;
-    const key = `${baseAssetSymbol(fill.symbol)}:${String(fill.fillId).trim()}`;
-    if (conflictKeys.has(key)) continue;
-    if (ledgerByKey.has(key)) {
-      ledgerByKey.delete(key);
-      conflictKeys.add(key);
-      continue;
-    }
-    ledgerByKey.set(key, fill.qty);
-  }
+  const { qtyByKey: ledgerByKey, conflictKeys } = indexLedgerFillsForSellKind(
+    ledgerFills,
+    "base_reduce",
+  );
 
   const seenFillIds = new Set<string>();
   let sum = 0;
@@ -141,22 +161,10 @@ export function verifiedTakeProfitEventFilledQty(
   if (normalized.length !== event.fillIds.length) return null;
   if (new Set(normalized).size !== normalized.length) return null;
 
-  const ledgerByKey = new Map<string, number>();
-  const conflictKeys = new Set<string>();
-  for (const fill of ledgerFills) {
-    if (!fill?.symbol || !fill.fillId) continue;
-    if (!Number.isFinite(fill.qty) || fill.qty <= 0) continue;
-    if (fill.side !== "SELL") continue;
-    if (fill.sellKind !== "take_profit") continue;
-    const key = `${baseAssetSymbol(fill.symbol)}:${String(fill.fillId).trim()}`;
-    if (conflictKeys.has(key)) continue;
-    if (ledgerByKey.has(key)) {
-      ledgerByKey.delete(key);
-      conflictKeys.add(key);
-      continue;
-    }
-    ledgerByKey.set(key, fill.qty);
-  }
+  const { qtyByKey: ledgerByKey, conflictKeys } = indexLedgerFillsForSellKind(
+    ledgerFills,
+    "take_profit",
+  );
 
   const sym = baseAssetSymbol(event.symbol);
   let sum = 0;

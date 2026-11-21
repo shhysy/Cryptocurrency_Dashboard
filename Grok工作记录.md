@@ -1,29 +1,31 @@
 # Grok工作记录
 
-> 主开发分支：gpt。用户要求：先实现功能，再交 GPT 验收。
+> 主开发分支：gpt。Issue #2。
 
-## 本轮（GROK-SELL-06 Outbox 实现）
+## GROK-SELL-01A 历史与本轮修复（勿覆盖）
 
-### 实现
-- `isTradeFillNotificationDispatchEnabled`：**默认关闭**（`NEXT_PUBLIC_TRADE_FILL_DISPATCH_ENABLED=1` 才投递）
-- 已有 lease/token fencing 保留；补齐边界测试
-- IndexedDB：claim 互斥、过期接管、旧 token 拒绝 sent/failed
-- dispatch：不完整 accepted 整批失败路径
+### 此前已交付
+- take_profit resume 台账：`verifiedTakeProfitEventFilledQty` / `hasUnverifiedTakeProfitClaims`
+- enqueue → `listTradeLedger` 真实链路
+- 错误 symbol、手续费、tick 有/无台账、IndexedDB 持久化冲突
+
+### GPT 复核缺陷（本轮修复）
+同键 `symbol+fillId` 同时存在有效 SELL/take_profit 与 BUY 或 SELL/base_reduce 时，旧逻辑先过滤错误 side/kind 仍接受有效行。
+
+### 修复
+- `indexLedgerFillsForSellKind`：同键多行一律 conflict；仅恰好一行且 SELL+requiredKind 才计入
+- take_profit 与 base_reduce 共用
+- 测试改为混合冲突必须 `null`；enqueue 混合冲突阻断本币
 
 ### 本地
 ```
-npm test → 64 files / 509 tests 通过
+npm test → 64 files / 507 tests 通过
 npm run typecheck → 通过
 ```
 
-### 安全边界（未改）
-- 生产 BUY/SELL **关闭**
-- Outbox 生产投递 **默认关闭**
-- 不宣称 exactly-once，至少一次 + 服务端幂等
+### SELL-06 Outbox（此前）
+默认关闭投递；租约/fencing/IDB 接管测试已有。生产投递仍关。
 
-### 请 GPT 验收
-1. SELL-01～05 / 01A 台账与 resume
-2. SELL-06 Outbox 租约/fencing/默认关闭
-3. 全量测试与 CI
-
-未改 GPT 共享模块。
+### 请 GPT 复核
+01A 混合冲突 fail-closed；正式关闭仍取决于独立验收。
+未改 GPT 共享模块；生产 BUY/SELL 关闭。
