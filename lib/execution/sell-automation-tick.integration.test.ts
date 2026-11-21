@@ -283,4 +283,55 @@ describe("sync/tick 集成：wait 冻结与不 resume", () => {
     });
     expect(resumeCalls).toHaveLength(0);
   });
+
+  it("BTC台账同键冲突时只阻断BTC，同轮ETH仍正常入队", async () => {
+    const btcPartial = {
+      eventKey: "sell:BTC:take_profit:2:止盈1",
+      symbol: "BTC",
+      kind: "take_profit" as const,
+      status: "partially_filled" as const,
+      requestedQty: 0.15,
+      filledQty: 0.05,
+      createdAt: 1,
+      updatedAt: 1,
+      exchangeOrderId: "103",
+      fillIds: ["f1"],
+      lastError: null,
+      exchangeTerminalStatus: "CANCELED",
+      fillReconcileCompletedAt: 1_700_000_000_000,
+      lotStepSize: 0.00001,
+    };
+    listSellEvents.mockResolvedValue([btcPartial]);
+    // 同一个 BTC fillId 同时出现有效行和 qty=0 冲突行，必须按键整体判冲突。
+    listTradeLedger.mockResolvedValue([
+      {
+        symbol: "BTCUSDT", fillId: "f1", qty: 0.05, side: "SELL", sellKind: "take_profit",
+        orderId: "103", time: 1, price: 60000, quoteQty: 3000, commission: 0,
+        commissionAsset: "USDT", commissionUsdt: 0, id: "btc-valid", realizedPnlUsdt: null,
+      },
+      {
+        symbol: "BTCUSDT", fillId: "f1", qty: 0, side: "SELL", sellKind: "take_profit",
+        orderId: "103", time: 1, price: 60000, quoteQty: 0, commission: 0,
+        commissionAsset: "USDT", commissionUsdt: 0, id: "btc-conflict", realizedPnlUsdt: null,
+      },
+    ]);
+    reserveSellEvent.mockResolvedValue({ created: true, record: {} });
+    const snapshot = data();
+    const btc = snapshot.coins[0]!;
+    const eth = { ...btc, symbol: "ETH", name: "Ethereum" };
+    const result = await runSellAutomationTick(
+      { ...snapshot, coins: [btc, eth] },
+      { attemptLiveSubmit: false },
+    );
+
+    expect(result.enqueueBlocked).toBe(1);
+    expect(result.enqueued).toBe(1);
+    expect(reserveSellEvent).toHaveBeenCalledTimes(1);
+    expect(reserveSellEvent.mock.calls[0]?.[0]).toMatchObject({
+      symbol: "ETH",
+      kind: "take_profit",
+      status: "pending",
+    });
+  });
+
 });
