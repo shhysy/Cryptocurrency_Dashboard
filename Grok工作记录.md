@@ -124,3 +124,13 @@
 - 新增Trader专用下单函数；浏览器API仍保留显式服务端开关，不会因为Trader模式而自动放开浏览器下单入口。
 - production仍由`scripts/trader.ts`硬拒绝；即使设置`AUTO_TRADE_MODE=production`和确认变量，也不会执行实盘订单。
 - 新增5项模式授权单测；待最新CI确认。
+
+
+### GPT修复STOP下SELL只读恢复缺口（2026-11-21）
+
+- 复核发现：Trader检测到`data/STOP`后切换`off`，旧SELL事件之前会被`runServerSellCycle`直接跳过；行情STALE也会在旧订单查单前提前返回。这与“停止新订单但继续只读恢复”的安全语义不一致。
+- 已修复：`off`模式仍查询原`clientOrderId`并核验旧SELL订单；不读取行情快照也能恢复；只有`testnet`且行情/account快照有效时才允许处理新SELL事件。
+- Trader循环已调整：STOP时不再生成SELL新信号，但仍调用SELL只读恢复；BUY原有只读对账路径保留。
+- 新增回归测试：STOP/off模式恢复旧SELL且不POST；行情STALE时仍先恢复旧SELL，再拒绝新卖单。
+- 代码提交：`31830362`、`4725ba7f`、`a0be32c1`、`e594cd31`、`3579ea7a`、`6280f5e3`。其中Run `44885859526`验证到`3579ea7a`：75 files / 528 tests、typecheck、Next build通过；最新增加的STALE回归用例在`6280f5e3`，等待包含该SHA的CI。
+- 不宣称Testnet实盘完成；production仍硬拒绝。
