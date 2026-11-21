@@ -172,6 +172,7 @@ function sendSmtp(subject: string, text: string): Promise<void> {
 
   return new Promise((resolvePromise, reject) => {
     const socket = tlsConnect({ host, port, servername: host }, () => {
+      socket.setTimeout(15_000, () => socket.destroy(new Error("SMTP响应超时")));
       let buf = "";
       let step = 0;
       const send = (cmd: string) => socket.write(cmd + "\r\n");
@@ -237,6 +238,28 @@ function sendSmtp(subject: string, text: string): Promise<void> {
     });
     socket.on("error", reject);
   });
+}
+
+/** 供服务端成交Outbox复用的纯文本SMTP发送入口；不暴露SMTP凭证。 */
+export async function sendSmtpTextMail(subject: string, text: string): Promise<void> {
+  const normalizedSubject = String(subject ?? "").replace(/[\r\n]+/g, " ").trim().slice(0, 180);
+  const body = String(text ?? "");
+  if (!normalizedSubject || !body || body.length > 20_000) {
+    throw new Error("SMTP邮件主题或正文无效");
+  }
+  const host = process.env.SMTP_HOST || "smtp.qq.com";
+  const port = Number(process.env.SMTP_PORT || 465);
+  const to = process.env.MAIL_TO || process.env.SMTP_USER || "";
+  const from = process.env.MAIL_FROM || process.env.SMTP_USER || "";
+  if (!/^[A-Za-z0-9.-]{1,253}$/.test(host) || !Number.isSafeInteger(port) || port < 1 || port > 65535) {
+    throw new Error("SMTP主机或端口配置无效");
+  }
+  if (!to || !from || /[\r\n<>]/.test(to) || /[\r\n<>]/.test(from) ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to) ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(from)) {
+    throw new Error("SMTP收件人或发件人地址无效");
+  }
+  await sendSmtp(normalizedSubject, body);
 }
 
 let inFlight: Promise<NotifyResult> | null = null;
