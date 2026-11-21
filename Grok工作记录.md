@@ -134,3 +134,10 @@
 - 新增回归测试：STOP/off模式恢复旧SELL且不POST；行情STALE时仍先恢复旧SELL，再拒绝新卖单。
 - 代码提交：`31830362`、`4725ba7f`、`a0be32c1`、`e594cd31`、`3579ea7a`、`6280f5e3`。其中Run `44885859526`验证到`3579ea7a`：75 files / 528 tests、typecheck、Next build通过；最新增加的STALE回归用例在`6280f5e3`，等待包含该SHA的CI。
 - 不宣称Testnet实盘完成；production仍硬拒绝。
+
+
+### GPT清理Cloudflare残留代码（2026-11-21）
+
+- 仓库递归文件树仅发现两个旧Cloudflare Access验证文件，GitHub代码搜索未发现引用；已删除模块及对应测试。
+- 删除后重新检查完整Git tree：无Cloudflare、Workers、Access、Wrangler、Durable Object、Cron相关文件路径。
+- GitHub历史检查仍出现外部`Workers Builds: cryptocurrency-dashboard`，它不是当前仓库代码树文件；M0-01仍保留[~]，需仓库管理员在集成设置核对是否解绑。

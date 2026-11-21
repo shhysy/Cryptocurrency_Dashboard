@@ -1,6 +1,6 @@
 # 长期投资信号看板
 
-> **运行方式：本地优先。** 使用 `npm run dev` 在本机运行；不依赖 Cloudflare Workers / OpenNext 部署。
+> **运行方式：本地优先。** 使用`npm run dev`在本机运行；交易执行依赖本地Node Trader和SQLite，不依赖Cloudflare Workers/OpenNext。
 
 周线级别的信号、持仓、成本价和交易执行研究看板。实盘买入、卖出与 Simple Earn 赎回由独立开关控制，当前全部关闭；未完成测试网演练前不得启用。
 
