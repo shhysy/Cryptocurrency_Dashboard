@@ -95,6 +95,19 @@ describe("post-take-profit average-cost rebuy", () => {
     expect(result.coins[0].signal.action.side).toBe("buy");
   });
 
+  it("任意未终态SELL事件都会冻结本币新买入，避免买卖并发", () => {
+    const pendingStop = {
+      ...event,
+      kind: "trail_stop",
+      status: "pending" as const,
+      fillIds: [],
+      filledQty: 0,
+    };
+    const result = applyPostTakeProfitRebuy(data(), [pendingStop], []);
+    expect(result.coins[0].signal.tag).toBe("暂缓");
+    expect(result.coins[0].signal.action.blocked.join()).toContain("SELL事件");
+  });
+
   it("does not switch modes for a pending or unfilled take-profit event", () => {
     const pending = { ...event, status: "pending" as const, filledQty: 0 };
     const result = applyPostTakeProfitRebuy(data(), [pending], [sell]);
