@@ -101,6 +101,8 @@ async function reconcileDueTasks(
   deps: TraderCycleDependencies,
   now: () => number,
 ): Promise<Pick<TraderCycleResult, "reconciled" | "retried" | "manualReview">> {
+  // 进程重启后先回收上次崩溃留下的leased任务，再领取到期任务。
+  await deps.store.scheduler.recoverExpired(now());
   const tasks = await deps.store.scheduler.claimDue({
     now: now(), leaseMs: 30_000, limit: 10, taskType: "reconcile_intent",
   });
