@@ -120,6 +120,15 @@ async function reconcileSellEvent(
     });
     return "blocked";
   }
+  const exchangeOrderId = String(order.orderId);
+  if (event.exchangeOrderId && event.exchangeOrderId !== exchangeOrderId) {
+    await deps.store.sellEvents.updateSellEvent({
+      ...event, status: "blocked", lastError: "同一clientOrderId返回了不同Binance订单ID，转人工复核", updatedAt: now(),
+    });
+    return "blocked";
+  }
+  // 先持久化订单身份，再写逐笔成交；即使进程在两步之间崩溃，策略后处理也能识别该订单的已确认成交。
+  await deps.store.sellEvents.bindSellEventToExchangeOrder(event.eventKey, exchangeOrderId, now());
   const tradePage = await deps.adapter.listOrderTrades(pair, order.orderId);
   if (!tradePage.complete) return "waiting";
   const reconciled = reconcileConfirmedSellFills({
