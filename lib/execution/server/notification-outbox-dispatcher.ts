@@ -1,4 +1,9 @@
-import { dispatchTradeFillMail, isTradeFillMailEnabled } from "./trade-fill-mail.server";
+import {
+  dispatchTradeFillMail,
+  dispatchTraderAlertMail,
+  isTradeFillMailEnabled,
+  isTraderAlertMailEnabled,
+} from "./trade-fill-mail.server";
 import type { LocalExecutionStore } from "./store";
 
 export interface NotificationOutboxCycleResult {
@@ -8,7 +13,7 @@ export interface NotificationOutboxCycleResult {
   skipped: boolean;
 }
 
-/** 本地Trader Outbox投递：SQLite租约防并发、指数退避、失败达到10次转人工复核。 */
+/** 本地Trader Outbox投递：按事件类型启用、SQLite租约防并发、指数退避。 */
 export async function runNotificationOutboxCycle(
   store: LocalExecutionStore,
   now = Date.now(),
@@ -19,7 +24,11 @@ export async function runNotificationOutboxCycle(
     failed: 0,
     skipped: false,
   };
-  if (!isTradeFillMailEnabled()) {
+  const eventTypes = [
+    ...(isTradeFillMailEnabled() ? ["confirmed_trade_fill" as const] : []),
+    ...(isTraderAlertMailEnabled() ? ["system_alert" as const] : []),
+  ];
+  if (!eventTypes.length) {
     result.skipped = true;
     return result;
   }
@@ -28,20 +37,30 @@ export async function runNotificationOutboxCycle(
     now,
     leaseMs: 30_000,
     limit: 10,
+    eventTypes,
   });
   result.claimed = leases.length;
 
   for (const lease of leases) {
     const event = lease.event;
     try {
-      const sent = await dispatchTradeFillMail([{
-        id: event.id,
-        type: event.type,
-        side: event.side,
-        symbol: event.symbol,
-        filledQty: event.filledQty,
-        fillPrice: event.fillPrice,
-      }]);
+      const sent = event.type === "confirmed_trade_fill"
+        ? await dispatchTradeFillMail([{
+            id: event.id,
+            type: event.type,
+            side: event.side,
+            symbol: event.symbol,
+            filledQty: event.filledQty,
+            fillPrice: event.fillPrice,
+          }])
+        : await dispatchTraderAlertMail({
+            id: event.id,
+            severity: event.severity ?? "critical",
+            title: event.title ?? "Trader系统告警",
+            message: event.message ?? "告警事件缺少正文，请检查本地日志。",
+            occurredAt: event.occurredAt ?? event.createdAt,
+          });
+
       if (sent.ok && sent.sent) {
         const marked = await store.notificationOutbox.markSent({
           id: event.id,
@@ -51,15 +70,13 @@ export async function runNotificationOutboxCycle(
         if (marked) result.sent += 1;
         else result.failed += 1;
       } else {
-        const reason = sent.reason ?? "SMTP未确认发送成功";
-        const state = await store.notificationOutbox.markFailed({
+        await store.notificationOutbox.markFailed({
           id: event.id,
           leaseToken: lease.leaseToken,
           now: Date.now(),
-          reason,
+          reason: sent.reason ?? "SMTP未确认发送成功",
         });
-        if (state === "lease_lost") result.failed += 1;
-        else result.failed += 1;
+        result.failed += 1;
       }
     } catch (error) {
       await store.notificationOutbox.markFailed({
