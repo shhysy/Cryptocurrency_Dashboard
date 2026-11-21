@@ -101,3 +101,20 @@ Claude 判断：项目已转为本地优先，GPT 负责"本地常驻执行器"�
 - 新增`lib/execution/server/sqlite-database.test.ts`，提交`8ab178ed40233fbcf2fd246720dc28b1693567d5`，覆盖首次schema、重复打开/数据持久化、异常回滚、拒绝async事务、关闭后拒绝访问。
 - GitHub Actions Run `44870478846`通过：64个测试文件、504项测试通过；TypeScript typecheck、Next.js production build通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44870478846
 - 当前仍只是SQLite连接/迁移/事务基础设施，不是完整`LocalExecutionStore`；intent/attempt/reservation/账户锁/调度任务各方法实现、SELL/BUY原子成交落账、进程重启恢复/并发集成测试仍待完成。M1-01保持[~]。
+
+
+### M1-01补充：SQLite仓储方法与订单恢复测试（阶段性）
+- 新增`lib/execution/server/sqlite-store.ts`，提交`8d1ae26ae0f97dc4813ff96dbe65cd0705605b84`，导出`openLocalExecutionStore()`，实现`LocalExecutionStore`接口：intent幂等创建、待执行查询、基于新鲜余额快照的账户锁/reservation/attempt/clientOrderId原子claim、lease续期、POST前submitting、unknown冻结、过期lease的reconcile-only takeover、成交逐笔核对/订单终态/reservation消费/账户锁释放单事务、scheduler enqueue/claim/renew/ack/retry/过期租约恢复、SELL event持久化及SELL fill+台账+Outbox原子写入。
+- 增加`baseRatioAtSignal`历史字段，避免BUY成交入账时用当前策略参数回填历史底仓比例；schema v2迁移`0b8390001436b440a68284b65fb561f8e774f59f`，BUY claim缺少有效历史比例时fail-closed。
+- schema v3将交易所订单表`orig_qty`更名为`requested_amount`，避免把策略USDT预算误写成Binance原始base数量；迁移提交`967805194174e3f60e64db9e3a21dcaf6ab831b0`。
+- 关键测试：进程关闭/重开恢复unknown订单原clientOrderId、账户lease和reconcile任务；并发scheduler claim只成功一次；过期账户租约只能reconcile-only接管；终态结算成功写fill/ledger/Outbox并释放锁；超出reservation时fill/ledger/Outbox及释放操作整体回滚；BUY台账保留历史baseRatio；SELL事件幂等和成交去重。
+- 测试文件：`lib/execution/server/sqlite-store.test.ts`、`lib/execution/server/sqlite-database.test.ts`。
+- GitHub Actions Run `44871362483`通过：65个测试文件、514项测试；typecheck和Next.js production build通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44871362483
+- 本轮曾出现schema版本断言和v1迁移样本不完整，已在最终通过的Run前修正。
+- **仍未标记M1-01完成**：需要补充双独立SQLite连接竞争claim/账户锁、scheduler lease fencing失败路径、终态重复fill/Outbox冲突等边界测试，并由M1-02实际常驻进程接入验收。
+
+### M0-02独立复核（2026-11-21）
+- Issue #2 新增GPT复核评论`7057996567`。
+- 当前`indexLedgerFillsForSellKind`仍先过滤非有限/非正qty再按symbol+fillId分组；因此同键有效SELL与qty=0/NaN/负数的冲突行并存时，冲突行可能被丢弃，无法确保fail-closed。
+- `sell-enqueue-ledger.integration.test.ts`有混合BUY+SELL阻断，但`sell-automation-tick.integration.test.ts`仍缺少混合冲突tick集成用例；必须证明BTC阻断时同轮ETH可正常enqueue。
+- M0-02仍未通过GPT复核；Grok不得启动M1-04，Outbox保持默认关闭。
