@@ -238,3 +238,13 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - 信号邮件正文评分满分由旧90修正为当前策略3.3的100分制。
 - `.env.example`核心门槛改为55、山寨75，`MAIL_REQUIRE_STABLE=0`，`TRADE_FILL_MAIL_ENABLED=1`；已有`.env.local`需手动对照配置。
 - 真实SMTP投递未验证；BUY GTC未终态部分成交的增量入账仍是待开发项。
+
+
+### GPT继续完成BUY GTC部分成交入账（2026-11-21）
+- `buildBinanceReconcilePlan`不再对所有NEW/PARTIALLY_FILLED订单直接返回wait；现会完整读取myTrades并校验逐笔成交数量/金额与Binance累计值。
+- 新增SQLite `recordConfirmedBuyFill`：校验intent/attempt、原订单ID、账户租约、scheduler租约、冻结底仓比例、USDT预留和累计消耗；原始十进制成交字段直接落库。
+- BUY新增fill在同一SQLite事务写入fills、trade_ledger和confirmed_trade_fill Outbox；tradeId唯一键防重，冲突数据拒绝覆盖。
+- Trader对正常开放GTC订单使用15秒defer调度，重置故障重试计数，不释放资金预留/账户锁，也不因正常挂单转人工复核。
+- 新增SQLite集成测试：部分成交真实fill入账、重复tradeId幂等、成交邮件Outbox、资金锁保留、开放订单延后调度。
+- CI Run `44912627106`成功：81个测试文件/579个测试通过，typecheck和Next build通过。
+- 未完成：完整NEW→多笔PARTIALLY_FILLED→FILLED生命周期测试、SELL开放订单验收、Cloudflare dispatcher是否实际使用的核对、Testnet真实订单/重启恢复和SMTP实投验证。
