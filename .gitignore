@@ -24,6 +24,7 @@ data/*.db
 data/*.db-*
 data/STOP
 data/trader.lock
+data/logs/
 logs/
 
 # 本地Trader编译产物
