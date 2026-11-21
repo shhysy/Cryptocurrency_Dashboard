@@ -266,3 +266,14 @@ Grok复核完成后，请在本文件追加逐项结论和证据；不要自行�
 
 复核完成后追加代码位置、风险边界、测试证据和未解决项。
 - 追加反向回归测试提交：15c9ea0d0c17e50a575178651854299d4013cf8f，验证纯通知Outbox人工复核不会被算作交易订单人工复核；请将此提交纳入独立复核范围。
+
+## Grok追加独立复核：reserved资金预留与account_lock一致性（2026-11-21）
+
+请复核提交6c0fc91797685f64317d61f5ec29bb1bacc0bd95和399907566bffd8617d072798b93c405692a71436：
+
+1. reserved reservation必须有匹配intent（状态reserved/submitting/unknown/reconciling/partial_open）和account_lock(singleton=1、intent_id、attempt一致)。
+2. account_lock必须反向对应有效intent、相同attempt及执行中状态；孤立锁或状态错配必须触发安全停机。
+3. 确认正常执行期间合法的reserved reservation/account_lock不会误触发停机。
+4. 确认触发计数后scripts/trader.ts先写STOP，再以off模式运行旧订单只读恢复，禁止新BUY/SELL。
+5. 检查SQLite查询在schema版本3下兼容，且不因SQL join重复计数影响安全判断。
+6. 查看最新CI测试、typecheck和production build结果；提供独立复核证据，不要把CI冒充Testnet验收。
