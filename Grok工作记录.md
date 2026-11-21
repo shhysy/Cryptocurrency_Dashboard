@@ -205,3 +205,12 @@
 - 浏览器自动执行器已从Dashboard移除并删除`components/ExecutionBackground.tsx`；浏览器BUY/SELL现货提交开关永久关闭。旧BuyQueue/SellQueue明确标注为浏览器IndexedDB历史记录，不属于Trader SQLite，也不参与自动执行。
 - README、执行层README、策略3.3自动化落地路径已同步说明。
 - 仍需注意：旧浏览器IndexedDB历史成交不会自动迁移到Trader SQLite；如果当前持仓与服务端买入历史/SQLite卖出台账无法核对，策略后处理会fail-closed暂停相关币种操作，不得手工伪造台账。
+
+
+
+### GPT修复本地Trader状态统计并完成最新CI（2026-11-21）
+
+- 状态面板的STOP检测改为文件存在性检查；非ENOENT错误按STOP未知/已触发的保守方式显示，避免权限异常时误报STOP未触发。
+- 人工复核数现在合并订单intent、SELL blocked事件、资金预留manual_review与通知Outbox manual_review，不再漏计。
+- 首轮CI发现统计变量初始化顺序错误（notificationStates在manualReview之后声明），已调整初始化顺序。此前失败Run `44888489442`及其文档触发的后续Run均为同一缺陷；修复后最终Run `44888644093`通过。
+- 最新HEAD `acf4e1992c5258c3064f4daa923d379e567bd473`：**77 files / 537 tests通过**，TypeScript typecheck和Next.js production build全部通过。
