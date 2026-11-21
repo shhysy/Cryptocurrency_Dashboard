@@ -529,19 +529,43 @@ describe("本地SQLite执行存储", () => {
   });
 
   it("SELL成交fill、台账和Outbox幂等写入", async () => {
-    const store = await openLocalExecutionStore({ path: await tempDbPath() });
+    const path = await tempDbPath();
+    const store = await openLocalExecutionStore({ path });
+    const seed = await openLocalExecutionDatabase({ path });
     try {
+      seed.prepare(
+        "INSERT INTO trade_ledger(id, symbol, fill_id, order_id, side, time, price, qty, quote_qty, commission, commission_asset, commission_usdt, realized_pnl_usdt, sell_kind, base_ratio_at_buy) VALUES (?, ?, ?, ?, 'BUY', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)",
+      ).run("BTCUSDT:seed-buy", "BTCUSDT", "seed-buy", "seed-order", NOW - 1, 50, 0.1, 5, 0, "USDT", 0, 0.4);
       const fill: ExecutionFill = {
         fillId: "99001", orderId: "12349", symbol: "BTCUSDT", side: "SELL",
         time: NOW, price: 100, qty: 0.05, quoteQty: 5,
         commission: 0.01, commissionAsset: "USDT", commissionUsdt: 0.01,
       };
       expect((await store.tradeLedger.recordConfirmedSellFill(fill, "take_profit")).recorded).toBe(true);
+      const mailLeases = await store.notificationOutbox.claimDue({
+        now: NOW + 1, leaseMs: 30_000, limit: 10,
+        eventTypes: ["confirmed_trade_fill"],
+      });
+      expect(mailLeases).toHaveLength(1);
+      expect(mailLeases[0]!.event).toMatchObject({
+        side: "SELL",
+        businessSnapshot: {
+          side: "SELL",
+          sellKind: "take_profit",
+          cumulativeFilledQty: "0.05",
+          cumulativeQuoteQty: "5",
+          cumulativeCommissionUsdt: "0.01",
+          averageFillPrice: "100",
+          realizedPnlUsdt: 2.49,
+          remainingPositionQty: 0.05,
+        },
+      });
       expect((await store.tradeLedger.recordConfirmedSellFill(fill, "take_profit")).recorded).toBe(false);
       await expect(store.tradeLedger.recordConfirmedSellFill(fill, "base_reduce"))
         .rejects.toThrow("不同内容或卖出分类");
-      expect(await store.tradeLedger.listTradeLedger()).toHaveLength(1);
+      expect(await store.tradeLedger.listTradeLedger()).toHaveLength(2);
     } finally {
+      seed.close();
       store.close();
     }
   });
@@ -724,6 +748,24 @@ describe("BUY GTC开放订单增量成交", () => {
       expect(first.recorded).toBe(true);
       expect(first.ledger.side).toBe("BUY");
       expect(first.ledger.baseRatioAtBuy).toBe(0.7);
+      const mailLeases = await store.notificationOutbox.claimDue({
+        now: NOW + 31_002, leaseMs: 30_000, limit: 10,
+        eventTypes: ["confirmed_trade_fill"],
+      });
+      expect(mailLeases).toHaveLength(1);
+      expect(mailLeases[0]!.event).toMatchObject({
+        side: "BUY",
+        businessSnapshot: {
+          side: "BUY",
+          strategyTier: "head",
+          plannedUsdt: "10",
+          cumulativeFilledQty: "0.0001",
+          cumulativeQuoteQty: "5",
+          cumulativeCommissionUsdt: "0.01",
+          averageFillPrice: "50000",
+          remainingBudgetUsdt: "4.99",
+        },
+      });
       const duplicate = await store.tradeLedger.recordConfirmedBuyFill(input);
       expect(duplicate.recorded).toBe(false);
       expect((await store.tradeLedger.listTradeLedger())).toHaveLength(1);
