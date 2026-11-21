@@ -518,12 +518,11 @@ export async function submitTraderSpotLimitOrder(
   if (!priceFilter?.tickSize || !lotFilter?.stepSize) {
     throw new Error("Binance缺少PRICE_FILTER或LOT_SIZE规则，已阻止下单");
   }
-  const ticker = await fetchTickers([input.symbol]);
-  const referencePrice = ticker[input.symbol]?.price;
-  if (!Number.isFinite(referencePrice) || (referencePrice ?? 0) <= 0) {
+  const ticker = await publicGet<{ symbol: string; price: string }>(`/api/v3/ticker/price?symbol=${encodeURIComponent(input.symbol)}`);
+  if (ticker.symbol !== input.symbol || !/^(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$/.test(ticker.price) || Number(ticker.price) <= 0) {
     throw new Error("无法取得有效现货参考价格，已阻止下单");
   }
-  const referencePriceText = String(referencePrice);
+  const referencePriceText = ticker.price;
   const price = calculateLimitOrderPrice({
     side: input.side, referencePrice: referencePriceText, tickSize: priceFilter.tickSize,
   });
