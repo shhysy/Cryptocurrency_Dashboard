@@ -24,8 +24,10 @@ const root = resolve(__dirname, "..");
 
 function loadEnv() {
   const out = { ...process.env };
-  const p = resolve(root, ".env");
-  if (existsSync(p)) {
+  // .env.local优先，其次兼容.env；系统环境变量始终拥有最高优先级。
+  for (const filename of [".env.local", ".env"]) {
+    const p = resolve(root, filename);
+    if (!existsSync(p)) continue;
     for (const line of readFileSync(p, "utf8").split(/\r?\n/)) {
       if (!line || line.startsWith("#") || !line.includes("=")) continue;
       const i = line.indexOf("=");
@@ -50,11 +52,11 @@ function num(v, def) {
 /** 每轮检查前重新读 .env，改配置不用重启 */
 function loadConfig() {
   env = loadEnv();
-  SMTP_HOST = env.SMTP_HOST || "smtp.qq.com";
+  SMTP_HOST = env.SMTP_HOST || "";
   SMTP_PORT = num(env.SMTP_PORT, 465);
   SMTP_USER = env.SMTP_USER || "";
   SMTP_PASS = env.SMTP_PASS || "";
-  MAIL_TO = env.MAIL_TO || "2157936243@qq.com";
+  MAIL_TO = env.MAIL_TO || SMTP_USER;
   MAIL_FROM = env.MAIL_FROM || SMTP_USER;
   DASHBOARD_URL = (env.DASHBOARD_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
   REQUIRE_STABLE = env.MAIL_REQUIRE_STABLE === "1";
@@ -97,8 +99,8 @@ function writeState(state) {
 }
 
 function sendMail({ subject, text }) {
-  if (!SMTP_USER || !SMTP_PASS) throw new Error("请在 .env 设置 SMTP_USER 与 SMTP_PASS（QQ 授权码）");
-  if (!MAIL_TO) throw new Error("请设置 MAIL_TO");
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) throw new Error("请在 .env.local 或 .env 设置 SMTP_HOST、SMTP_USER 与 SMTP_PASS");
+  if (!MAIL_TO) throw new Error("请设置 MAIL_TO（可留空，默认发送到 SMTP_USER）");
 
   return new Promise((resolvePromise, reject) => {
     const socket = tlsConnect({ host: SMTP_HOST, port: SMTP_PORT, servername: SMTP_HOST }, () => {
