@@ -760,3 +760,35 @@
 - dispatcher、scheduler renew、context读取、终态scheduler fencing已通过Fake SQL单元/集成测试；这不等同真实Cloudflare SQLite并发/重启测试。
 - 仍未完成：真实Cloudflare Durable Object SQLite重启/并发验证、部署后的Testnet只读恢复演练、策略事件自动生成intent、后台自动新单提交。当前Cron只恢复已持久化的submitting/unknown/reconciling订单。
 - 安全边界：该dispatcher没有Binance POST能力；not_found绝不自动重发；达到8次调度重试上限进入manual_review并保留账户锁。生产BUY/SELL、Simple Earn真实赎回、Outbox生产投递继续关闭。
+
+
+## 服务端策略3.3 Testnet订单意图入口第一阶段（2026-11-21）
+
+### 本轮实现
+- 新增 `POST /api/execution/intents`：必须通过Dashboard Basic Auth与同源Origin检查；请求体不接受客户端策略参数。
+- 服务端重新调用`getDashboard()`计算信号，只接受source=binance、账户已知、非STALE且数据更新时间不超过45分钟的数据；拒绝Mock、过期和STALE信号。
+- 必须同时满足`BINANCE_SPOT_ENVIRONMENT=testnet`与`BINANCE_TESTNET_INTENT_CREATION_ENABLED=true`；生产环境硬拒绝。新增环境变量默认0。
+- 从服务端只读账户快照读取free余额；BUY只检查USDT free，SELL只检查交易对baseAsset free，不把locked数量当作可卖余额。
+- 对每个候选现货信号校验交易对TRADING、USDT报价、LOT_SIZE、PRICE_FILTER、MIN_NOTIONAL/NOTIONAL、正数step/tick/minNotional；BUY还要求quoteOrderQtyMarketAllowed。
+- 不接收浏览器提交的价格、分数、动作或额度；金额来自服务端策略3.3 action。按symbol+action.kind+ISO周生成稳定strategyEventId，通过DO内部`/internal/intents`幂等创建。
+- 该入口只创建DO intent，响应明确`orderSubmitted=false`；没有调用Binance订单POST，也不改变生产BUY/SELL开关。
+- 新增测试覆盖服务端信号创建、STALE拒绝、余额不足、SELL只按free余额、非法交易规则、生产环境/开关/跨源/未认证拒绝。
+
+### 提交与CI
+- `ced383700162bbf804e456238780b6164f96cf78`：新增服务端策略3.3 Testnet意图入口。
+- `2ec05977bb7820280ec0726d63b56ced79377d2d`：新增策略意图入口安全测试。
+- `c9862995b6a7783281f367e32412acf522a198be`：修正路由运行时与初始化。
+- `5b24b3c8c64e51919691a29f2d62d49e79aa1cca`：加强交易规则校验（首轮CI因测试fixture未同步规则过滤器而失败，已修正）。
+- `d8489cf95f8b907de7be422f6a9e7a9e6c4b392d`：补齐测试交易规则数据。
+- `8e692e444db600dc70ad467d2aa71fc774610809`：增加Testnet intent创建独立默认关闭开关。
+- `4cdda97261f71163b9d5e0fd7484e308f8de0bc8`：拒绝零步长与零最小名义金额。
+- `5aa17dd249cfe543d916fa4f7d87d6cb4caa2c70`：补充SELL可用余额与交易规则fail-closed测试。
+- 根README同步：`4e69babd3a425956c72b7a71be74c336bcc960c5`。
+- 最新Run `44866377303` 成功：61个测试文件、496项测试通过；TypeScript typecheck、Next.js production build、Cloudflare OpenNext build全部通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44866377303
+
+### 尚未完成
+- 当前入口仍需受控POST触发，尚未由Cron自动扫描策略事件；本轮没有把策略事件自动化为定时后台任务。
+- 入口仅检查free余额与交易规则，没有调用DO claim/reservation；原子预留和下单前二次preflight仍待接线。
+- 尚未增加逐币signalAsOf/策略输入哈希/事件到期证明；更新时间45分钟和STALE检查只是第一层门槛。
+- 真实Cloudflare DO SQLite与Testnet演练未完成；intent创建不代表下单。
+- 生产BUY/SELL、Simple Earn真实赎回、Outbox生产投递继续关闭。
