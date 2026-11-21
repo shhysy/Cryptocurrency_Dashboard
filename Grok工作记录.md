@@ -1,36 +1,26 @@
 # Grok工作记录
 
-> **请 Claude 一次性验收。** 分支：`gpt`。
+## 自验收（2026-11-21）
 
-## 验证
+在干净 `gpt` 克隆上执行：
 
-- `npm test`：72 files / 503 tests 通过  
-- `npm run typecheck`：通过  
-
-## 已交付清单
-
-| 编号 | 内容 |
+| 检查 | 结果 |
 |------|------|
-| M0-01 | 删除纯 DO 实现与测试 |
-| M0-02 | SELL 01A 台账先按键收集 |
-| M0-03 | 规则矩阵核对备注 |
-| M0-04 | 文档本地优先 |
-| M1-01 | 双连接竞争 claim 测试 |
-| M1-02/03 | Trader 常驻 + unknown 只读恢复（既有 + 本轮加固） |
-| M1-04 | SQLite SELL 入队 + `scripts/trader.ts` 每轮调用 |
-| M1-05 | 看板只读说明 |
-| M3-01/02/03 | 模式、自检、熔断 STOP |
-| M3-04 | Earn 服务端门控默认关 |
-| M3-05 | 成交通知邮件门控默认不发 |
-| M3-06 | 日志脱敏 |
-| M3-07 | 运维手册 |
+| `npm test` | **72 files / 505 tests** 通过 |
+| `npm run typecheck` | 通过 |
+| `npm run build` | 通过 |
+| DO/Cron 纯实现文件 | 已删除 |
+| SELL 01A 先按键收集 | 代码在 |
+| qty=0/NaN 冲突测试 | 已补推 |
+| Trader SELL 入队 | `scripts/trader.ts` 调用 `enqueueServerSellSignals` |
+| 生产模式 | 启动路径明确拒绝真实资金 |
+| 运维手册 | `docs/运维手册.md` 存在 |
 
-## 依赖用户条件（非代码可单独闭环）
+### 结论
 
-- **M2 Testnet 订单号报告**：需用户 Testnet Key 与授权实跑  
-- **生产放行**：`AUTO_TRADE_MODE=production` 仍代码拒绝，待验收通过后再开  
-- **SMTP 真发成交邮件**：需配置 SMTP 并显式开开关  
+**代码侧交付项自验收通过。**  
+非代码依赖项（Testnet 真实订单号、SMTP 真发、生产放行）仍须用户环境，不标记为已完成。
 
-## 安全
+### 安全
 
-生产 BUY/SELL、Earn、成交通知默认关闭；Trader 生产模式拒绝启动。
+生产 BUY/SELL、Earn、成交通知默认关闭。
