@@ -112,6 +112,14 @@ async function reconcileSellEvent(
     return "blocked";
   }
 
+  const originalQuantity = Number(order.origQty);
+  if (!Number.isFinite(originalQuantity) || originalQuantity <= 0 ||
+      originalQuantity > event.requestedQty + Math.max(1e-12, event.requestedQty * 1e-12)) {
+    await deps.store.sellEvents.updateSellEvent({
+      ...event, status: "blocked", lastError: "Binance订单原始数量超过策略卖出事件授权数量，转人工复核", updatedAt: now(),
+    });
+    return "blocked";
+  }
   const tradePage = await deps.adapter.listOrderTrades(pair, order.orderId);
   if (!tradePage.complete) return "waiting";
   const reconciled = reconcileConfirmedSellFills({
@@ -136,6 +144,13 @@ async function reconcileSellEvent(
   });
   const terminal = status !== "reconcile_required";
   const timestamp = now();
+  if (terminal && Number(order.executedQty) === 0) {
+    await deps.store.sellEvents.updateSellEvent({
+      ...event, status: "blocked", filledQty: 0, exchangeOrderId: String(order.orderId),
+      lastError: `Binance订单终态${order.status}且无成交；不会自动重新提交该卖出事件`, updatedAt: timestamp,
+    });
+    return "blocked";
+  }
   await deps.store.sellEvents.updateSellEvent({
     ...event,
     status,
@@ -206,9 +221,12 @@ export async function runServerSellCycle(
         lockedQty: Number(baseBalance.locked),
         totalQty: Number(baseBalance.free) + Number(baseBalance.locked),
       });
+      const desiredQty = kind === "base_reduce"
+        ? Math.min(event.requestedQty, checked.protectedBaseQty * 0.5)
+        : event.requestedQty;
       const preflight = preflightMarketSell({
         rules,
-        desiredQty: event.requestedQty,
+        desiredQty,
         freeBaseQty: checked.freeBaseQty,
         totalPositionQty: checked.totalPositionQty,
         protectedBaseQty: checked.protectedBaseQty,
