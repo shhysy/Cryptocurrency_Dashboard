@@ -12,7 +12,7 @@ import {
   SCHEDULER_TASK_MAX_ATTEMPTS,
   validateSchedulerTaskInput,
 } from "../scheduler-task-core";
-import { buildTradeFillNotificationEvent, tradeNotificationRetryDelayMs, type TradeNotificationOutboxEvent } from "../notification-outbox";
+import { buildTradeFillNotificationEvent, tradeNotificationRetryDelayMs, type SystemAlertNotificationEvent, type TradeNotificationOutboxEvent } from "../notification-outbox";
 import type {
   CreateIntentResult,
   ExecutionLeaseInput,
@@ -231,6 +231,7 @@ export class SqliteExecutionStore implements LocalExecutionStore {
         this.bindSellEventToExchangeOrder(eventKey, exchangeOrderId, now),
     };
     this.notificationOutbox = {
+      enqueueSystemAlert: (event) => this.enqueueSystemAlert(event),
       claimDue: (input) => this.claimDueNotifications(input),
       markSent: (input) => this.markNotificationSent(input),
       markFailed: (input) => this.markNotificationFailed(input),
@@ -1232,8 +1233,33 @@ export class SqliteExecutionStore implements LocalExecutionStore {
     });
   }
 
+  private async enqueueSystemAlert(event: SystemAlertNotificationEvent): Promise<{ created: boolean }> {
+    if (!event || event.type !== "system_alert" || event.severity !== "critical" ||
+        !event.id.startsWith("trader-alert:") || !event.title.trim() ||
+        !event.message.trim() || event.message.length > 2_000 ||
+        !validTime(event.occurredAt) || !validTime(event.createdAt) ||
+        !validTime(event.updatedAt)) {
+      throw new Error("Trader系统告警Outbox事件无效");
+    }
+    const payload = JSON.stringify(event);
+    return this.transaction(() => {
+      const created = this.run(
+        `INSERT INTO notification_outbox(
+          id, payload_json, state, attempt, next_attempt_at, created_at, updated_at
+        ) VALUES (?, ?, 'pending', 0, 0, ?, ?)
+        ON CONFLICT(id) DO NOTHING`,
+        event.id, payload, event.createdAt, event.updatedAt,
+      );
+      const stored = this.get("SELECT payload_json FROM notification_outbox WHERE id = ?", event.id);
+      if (!stored || stored.payload_json !== payload) {
+        throw new Error("Trader系统告警Outbox幂等键冲突，拒绝覆盖");
+      }
+      return { created: created === 1 };
+    });
+  }
+
   private async claimDueNotifications(input: {
-    now: number; leaseMs: number; limit: number;
+    now: number; leaseMs: number; limit: number; eventTypes?: Array<TradeNotificationOutboxEvent["type"]>;
   }): Promise<NotificationOutboxLease[]> {
     if (!validTime(input.now) || !Number.isSafeInteger(input.leaseMs) ||
         input.leaseMs < 1_000 || input.leaseMs > 120_000 ||
@@ -1251,6 +1277,31 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       const leases: NotificationOutboxLease[] = [];
       for (const row of rows) {
         const id = String(row.id);
+        let payload: TradeNotificationOutboxEvent;
+        try {
+          payload = JSON.parse(String(row.payload_json)) as TradeNotificationOutboxEvent;
+        } catch {
+          this.run(
+            "UPDATE notification_outbox SET state = 'manual_review', lease_token = NULL, lease_until = NULL, last_error = ?, updated_at = ? WHERE id = ?",
+            "Outbox载荷JSON损坏", input.now, id,
+          );
+          continue;
+        }
+        const validFill = payload?.type === "confirmed_trade_fill" &&
+          (payload.side === "BUY" || payload.side === "SELL") &&
+          !!payload.symbol && !!payload.fillId && !!payload.exchangeOrderId;
+        const validAlert = payload?.type === "system_alert" &&
+          payload.severity === "critical" && !!payload.title?.trim() &&
+          !!payload.message?.trim() && payload.message.length <= 2_000 &&
+          validTime(payload.occurredAt ?? 0);
+        if (!payload || payload.id !== id || (!validFill && !validAlert)) {
+          this.run(
+            "UPDATE notification_outbox SET state = 'manual_review', lease_token = NULL, lease_until = NULL, last_error = ?, updated_at = ? WHERE id = ?",
+            "Outbox载荷身份字段无效", input.now, id,
+          );
+          continue;
+        }
+        if (input.eventTypes?.length && !input.eventTypes.includes(payload.type)) continue;
         const attempt = Number(row.attempt) + 1;
         const leaseToken = randomUUID();
         const leaseUntil = input.now + input.leaseMs;
@@ -1262,25 +1313,6 @@ export class SqliteExecutionStore implements LocalExecutionStore {
           attempt, leaseToken, leaseUntil, input.now, id, input.now, input.now,
         );
         if (changed !== 1) continue;
-        let payload: TradeNotificationOutboxEvent;
-        try {
-          payload = JSON.parse(String(row.payload_json)) as TradeNotificationOutboxEvent;
-        } catch {
-          this.run(
-            "UPDATE notification_outbox SET state = 'manual_review', lease_token = NULL, lease_until = NULL, last_error = ?, updated_at = ? WHERE id = ? AND lease_token = ?",
-            "Outbox载荷JSON损坏", input.now, id, leaseToken,
-          );
-          continue;
-        }
-        if (!payload || payload.id !== id || payload.type !== "confirmed_trade_fill" ||
-            (payload.side !== "BUY" && payload.side !== "SELL") ||
-            !payload.symbol || !payload.fillId || !payload.exchangeOrderId) {
-          this.run(
-            "UPDATE notification_outbox SET state = 'manual_review', lease_token = NULL, lease_until = NULL, last_error = ?, updated_at = ? WHERE id = ? AND lease_token = ?",
-            "Outbox载荷身份字段无效", input.now, id, leaseToken,
-          );
-          continue;
-        }
         leases.push({
           leaseToken,
           event: {
