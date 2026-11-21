@@ -7,6 +7,8 @@ describe("连续失败熔断", () => {
     expect(b.recordFailure()).toBe(false);
     expect(b.recordFailure()).toBe(false);
     expect(b.recordFailure()).toBe(true);
+    expect(b.recordFailure()).toBe(false);
+    expect(b.count).toBe(4);
     b.recordSuccess();
     expect(b.count).toBe(0);
   });
