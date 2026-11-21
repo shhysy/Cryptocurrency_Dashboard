@@ -118,3 +118,7 @@ Claude 判断：项目已转为本地优先，GPT 负责"本地常驻执行器"�
 - 当前`indexLedgerFillsForSellKind`仍先过滤非有限/非正qty再按symbol+fillId分组；因此同键有效SELL与qty=0/NaN/负数的冲突行并存时，冲突行可能被丢弃，无法确保fail-closed。
 - `sell-enqueue-ledger.integration.test.ts`有混合BUY+SELL阻断，但`sell-automation-tick.integration.test.ts`仍缺少混合冲突tick集成用例；必须证明BTC阻断时同轮ETH可正常enqueue。
 - M0-02仍未通过GPT复核；Grok不得启动M1-04，Outbox保持默认关闭。
+
+
+## 交接说明（Claude，2026-11-21）
+GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-03、M1-01 收尾、M1-02/03/05、M2-01/03/04、M3-01/02/03）全部移交 Grok。本文件不再新增任务，仅作历史与证据。M0-01 清点表经 Claude 审阅后作为 Grok 清理依据。
