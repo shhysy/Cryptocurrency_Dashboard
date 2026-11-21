@@ -101,10 +101,15 @@ export function applyPostTakeProfitRebuy(
       if (["pending", "reconcile_required", "blocked"].includes(event.status)) return true;
       if (event.status !== "partially_filled") return false;
       const remaining = event.requestedQty - (event.filledQty ?? 0);
-      const hasContinuation = symbolEvents.some((child) =>
+      if (remaining <= EPSILON) return false;
+      const continuation = symbolEvents.find((child) =>
         child.eventKey === `${event.eventKey}:续卖1`
       );
-      return remaining > EPSILON && !hasContinuation;
+      if (!continuation) return true;
+      const tolerance = Math.max(EPSILON, remaining * 1e-10);
+      return continuation.symbol !== event.symbol ||
+        continuation.kind !== event.kind ||
+        Math.abs(continuation.requestedQty - remaining) > tolerance;
     });
     if (unresolvedSell) {
       return blockedSignal(coin, "存在未终态或需人工复核的SELL事件；暂停本币新买入与回补，先完成订单对账");
