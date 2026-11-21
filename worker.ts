@@ -7,6 +7,10 @@ import {
   dispatchReconcileIntentTask,
   type ClaimedReconcileTask,
 } from "./lib/execution/reconcile-intent-dispatcher.server";
+import {
+  runTestnetStrategyIntentScan,
+  type TestnetIntentScanEnv,
+} from "./lib/execution/strategy-intent-cron.server";
 
 interface WorkerExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -22,7 +26,7 @@ interface DurableObjectNamespaceLike {
   get(id: DurableObjectIdLike): DurableObjectStubLike;
 }
 
-interface WorkerEnv {
+interface WorkerEnv extends TestnetIntentScanEnv {
   EXECUTION_ACCOUNT: DurableObjectNamespaceLike;
 }
 
@@ -50,6 +54,17 @@ export default {
         }),
       });
       if (!watchdog.ok) throw new Error(`DO watchdog failed: HTTP ${watchdog.status}`);
+
+      // 只有独立Testnet扫描开关、intent开关和至少一个方向开关开启时，
+      // 才通过Worker自引用Service Binding调用受保护的服务端策略计算入口。
+      try {
+        const scan = await runTestnetStrategyIntentScan(env);
+        if (scan.state === "scanned" && scan.created > 0) {
+          console.info("[strategy-intent-scan]", `created=${scan.created}`);
+        }
+      } catch (error) {
+        console.error("[strategy-intent-scan]", error instanceof Error ? error.message : "Testnet策略扫描失败");
+      }
 
       // Cron在页面关闭后持续领取并执行只读reconcile_intent任务。
       // 订单POST能力不在此调度器中；所有不确定状态只查原clientOrderId。
