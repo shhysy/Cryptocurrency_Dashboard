@@ -1237,7 +1237,8 @@ export class SqliteExecutionStore implements LocalExecutionStore {
     const row = this.get(
       `SELECT
         (SELECT COUNT(*) FROM order_intents WHERE state = 'manual_review') +
-        (SELECT COUNT(*) FROM sell_events WHERE status = 'blocked') AS total`,
+        (SELECT COUNT(*) FROM sell_events WHERE status = 'blocked') +
+        (SELECT COUNT(*) FROM reservations WHERE state = 'manual_review') AS total`,
     );
     const total = Number(row?.total ?? 0);
     if (!Number.isSafeInteger(total) || total < 0) {
