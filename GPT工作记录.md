@@ -824,3 +824,22 @@
 - 自动扫描只创建queued intent，不做claim/reservation、不提交订单；仍需完成信号时效证明、账户级原子预留和服务端Testnet执行器。
 - 扫描开关默认关闭，没有启用真实Testnet扫描，也没有发送任何订单。
 - 生产BUY/SELL、Simple Earn真实赎回和Outbox生产投递继续关闭。
+
+
+## Grok SELL 01A第二轮独立复核与Outbox顺序阻断（2026-11-21）
+
+### 已确认的进展
+- Grok已把真实`listTradeLedger()`接入`enqueueEligibleSellSignals`，新增错误symbol/side/kind、真实TradeLedgerEntry手续费字段、enqueue/tick集成与IndexedDB重复写入冲突测试。
+- 最新tick集成测试`sell-automation-tick.integration.test.ts`覆盖活动NEW订单旧终态证明清理、终态partial+合法台账可resume、终态partial无台账不resume。
+- Grok报告本地60 files / 488 tests通过；相关CI Run 44864201785 / 44864156906为先前绿CI。
+
+### GPT第二轮发现的阻断缺陷
+- 当前`verifiedTakeProfitEventFilledQty`在检查唯一键前先过滤`side !== SELL`和`sellKind !== take_profit`，所以同一symbol+fillId的有效记录与冲突BUY/base_reduce记录并存时，冲突记录被忽略，仍会返回有效qty。
+- `sell-take-profit-ledger.test.ts`的“同键混合冲突”用例明确断言混合冲突返回0.05（允许resume）；这与fail-closed验收要求相反。相同先过滤后判重模式也存在于`confirmedBaseReduceFilledQty`。
+- GPT已在Issue #2提交第二轮阻断意见，评论ID `7057379157`：要求先按规范化symbol+fillId收集全部记录，再检查唯一性；任何同键多记录/side/sellKind/qty冲突都拒绝；补enqueue/tick混合冲突测试，确认只阻断对应币。
+- 因此GROK-SELL-01A仍未通过独立验收，Issue #2保持打开。
+
+### Outbox依赖顺序
+- Grok已提前提交GROK-SELL-06 Outbox实现（`2f2f9638c07086faeae97cfce9830ebe18a08cdc`、`2abb2eee866a69ddc8167641f98b4c6f35ca70e3`），CI Run `44866922861`成功。
+- 该开发顺序违反总清单“SELL 01~05独立验收通过后才开始Outbox”的依赖。已在Issue #2要求暂停继续扩展/启用；现有Outbox开关默认关闭，GPT不把该项视为已验收。
+- Grok当前`Grok工作记录.md`只保留SELL-06内容，覆盖了此前01A提交、测试与CI证据；已要求恢复历史01A记录并追加06，不要覆盖历史。
