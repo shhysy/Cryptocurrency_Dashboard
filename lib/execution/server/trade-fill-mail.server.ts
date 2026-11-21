@@ -14,15 +14,36 @@ export type TradeFillMailPayload = {
   type?: string;
   side?: string;
   symbol?: string;
+  fillId?: string;
+  exchangeOrderId?: string;
   filledQty?: number;
   fillPrice?: number;
+  quoteQty?: number;
+  commission?: number;
+  commissionAsset?: string;
+  commissionUsdt?: number;
+  filledAt?: number;
 };
 
 export function buildTradeFillMailBody(events: TradeFillMailPayload[]): string {
-  const lines = events.map((event) =>
-    `- ${event.symbol ?? "?"} ${event.side ?? "?"} qty=${event.filledQty ?? "?"} @ ${event.fillPrice ?? "?"} id=${event.id}`,
-  );
-  return ["成交确认通知（仅包含已由Binance确认并入账的成交）", ...lines].join("\n");
+  const lines = events.flatMap((event) => {
+    const sideLabel = event.side === "BUY" ? "买入成交" : event.side === "SELL" ? "卖出成交" : "现货成交";
+    const time = Number.isSafeInteger(event.filledAt) && event.filledAt! > 0
+      ? new Date(event.filledAt!).toISOString()
+      : "时间未知";
+    return [
+      `【${sideLabel}】${event.symbol ?? "未知交易对"}`,
+      `成交数量：${event.filledQty ?? "未知"}`,
+      `实际成交价格：${event.fillPrice ?? "未知"}`,
+      `实际成交金额：${event.quoteQty ?? "未知"} USDT`,
+      `手续费：${event.commission ?? "未知"} ${event.commissionAsset ?? ""}（折合USDT：${event.commissionUsdt ?? "未知"}）`,
+      `Binance订单ID：${event.exchangeOrderId ?? "未知"}`,
+      `Binance成交ID：${event.fillId ?? event.id}`,
+      `成交时间：${time}`,
+      "",
+    ];
+  });
+  return ["成交确认通知（仅包含Binance已确认并写入SQLite台账的真实fill）", "", ...lines].join("\n");
 }
 
 export async function dispatchTradeFillMail(events: TradeFillMailPayload[]): Promise<{
