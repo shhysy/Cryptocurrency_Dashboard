@@ -25,3 +25,6 @@ data/*.db-*
 data/STOP
 data/trader.lock
 logs/
+
+# 本地Trader编译产物
+.trader/
