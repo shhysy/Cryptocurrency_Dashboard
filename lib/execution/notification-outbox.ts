@@ -2,18 +2,22 @@ import type { ExecutionFill } from "./types";
 
 export interface TradeNotificationOutboxEvent {
   id: string;
-  type: "confirmed_trade_fill";
-  side: "BUY" | "SELL";
-  symbol: string;
-  fillId: string;
-  exchangeOrderId: string;
-  filledQty: number;
-  fillPrice: number;
-  quoteQty: number;
-  commission: number;
-  commissionAsset: string;
-  commissionUsdt: number;
-  filledAt: number;
+  type: "confirmed_trade_fill" | "system_alert";
+  side?: "BUY" | "SELL";
+  symbol?: string;
+  fillId?: string;
+  exchangeOrderId?: string;
+  filledQty?: number;
+  fillPrice?: number;
+  quoteQty?: number;
+  commission?: number;
+  commissionAsset?: string;
+  commissionUsdt?: number;
+  filledAt?: number;
+  severity?: "critical";
+  title?: string;
+  message?: string;
+  occurredAt?: number;
   status: "pending" | "sending" | "sent" | "failed";
   /** 租约到期前，避免多标签页同时投递同一事件。 */
   leaseUntil: number | null;
@@ -25,6 +29,45 @@ export interface TradeNotificationOutboxEvent {
   updatedAt: number;
   lastError: string | null;
   sentAt: number | null;
+}
+
+export interface SystemAlertNotificationEvent extends TradeNotificationOutboxEvent {
+  type: "system_alert";
+  severity: "critical";
+  title: string;
+  message: string;
+  occurredAt: number;
+}
+
+/** 熔断/安全告警使用与成交通知相同的持久化Outbox，不在交易异常路径中直接发网络邮件。 */
+export function buildSystemAlertNotificationEvent(input: {
+  id: string;
+  title: string;
+  message: string;
+  occurredAt?: number;
+}, now = Date.now()): SystemAlertNotificationEvent {
+  if (!input.id.startsWith("trader-alert:") || !input.title.trim() ||
+      !input.message.trim() || input.message.length > 2_000 ||
+      !Number.isSafeInteger(now) || now <= 0) {
+    throw new Error("Trader系统告警事件字段无效");
+  }
+  return {
+    id: input.id,
+    type: "system_alert",
+    severity: "critical",
+    title: input.title.trim().slice(0, 120),
+    message: input.message.trim().slice(0, 2_000),
+    occurredAt: input.occurredAt ?? now,
+    status: "pending",
+    leaseUntil: null,
+    leaseToken: null,
+    nextAttemptAt: null,
+    attemptCount: 0,
+    createdAt: now,
+    updatedAt: now,
+    lastError: null,
+    sentAt: null,
+  };
 }
 
 /** 在给定时刻，调度器是否可以领取该 Outbox 事件。 */
