@@ -8,6 +8,7 @@ const fetchSpotOrderByClientId = vi.fn();
 const fetchSpotTradesForOrder = vi.fn();
 const fetchSpotSymbolFilters = vi.fn();
 const recordConfirmedSellFill = vi.fn();
+const listTradeLedger = vi.fn();
 
 vi.mock("./sell-store.browser", () => ({
   listSellEvents: (...args: unknown[]) => listSellEvents(...args),
@@ -27,6 +28,7 @@ vi.mock("../binance.browser", () => ({
 
 vi.mock("./store.browser", () => ({
   recordConfirmedSellFill: (...args: unknown[]) => recordConfirmedSellFill(...args),
+  listTradeLedger: (...args: unknown[]) => listTradeLedger(...args),
 }));
 
 vi.mock("./sell-order-submit.browser", () => ({
@@ -70,7 +72,7 @@ const sellSignal = {
 
 const data = (): DashboardData => ({
   source: "binance",
-  updatedAt: 1_800_000_000_000,
+  updatedAt: Date.now(),
   stale: false,
   staleReasons: [],
   notes: [],
@@ -95,27 +97,31 @@ const data = (): DashboardData => ({
 const legacyPartial = {
   eventKey: "sell:BTC:take_profit:2:止盈1",
   symbol: "BTC",
-  kind: "take_profit",
+  kind: "take_profit" as const,
   status: "partially_filled" as const,
   requestedQty: 0.15,
   filledQty: 0.05,
   createdAt: 1,
   updatedAt: 1,
   exchangeOrderId: "103",
+  clientOrderId: "c1",
   fillIds: ["BTC-4"],
   lastError: null as string | null,
+  exchangeTerminalStatus: "CANCELED" as string | undefined,
+  fillReconcileCompletedAt: 1_700_000_000_000 as number | undefined,
+  lotStepSize: 0.00001 as number | undefined,
 };
 
-describe("集成：旧 partial + Binance NEW → 冻结 → 同 tick 不 resume", () => {
+describe("sync/tick 集成：wait 冻结与不 resume", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    reserveSellEvent.mockImplementation(async (record: { eventKey: string }) => ({
-      record,
-      created: true,
-    }));
+    listTradeLedger.mockResolvedValue([]);
+    updateSellEvent.mockImplementation(async (e: unknown) => e);
+    listSellEvents.mockResolvedValue([]);
+    reserveSellEvent.mockResolvedValue({ created: false, record: {} });
   });
 
-  it("sync 将旧 partial 冻结为 reconcile_required", async () => {
+  it("NEW 活动单 + 旧终态证明：sync 降为 reconcile_required 并清证明", async () => {
     listSellEvents.mockResolvedValue([{ ...legacyPartial }]);
     fetchSpotOrderById.mockResolvedValue({
       symbol: "BTCUSDT",
@@ -198,5 +204,83 @@ describe("集成：旧 partial + Binance NEW → 冻结 → 同 tick 不 resume"
     listSellEvents.mockResolvedValue([{ ...saved }]);
     const tick = await runSellAutomationTick(data(), { attemptLiveSubmit: false });
     expect(tick.enqueued).toBe(0);
+  });
+
+  it("终态 partial + 合法 take_profit 台账：tick 可 enqueue resume", async () => {
+    const terminalPartial = {
+      eventKey: "sell:BTC:take_profit:2:止盈1",
+      symbol: "BTC",
+      kind: "take_profit" as const,
+      status: "partially_filled" as const,
+      requestedQty: 0.15,
+      filledQty: 0.05,
+      createdAt: 1,
+      updatedAt: 1,
+      exchangeOrderId: "103",
+      fillIds: ["tp1"],
+      lastError: null,
+      exchangeTerminalStatus: "CANCELED",
+      fillReconcileCompletedAt: 1_700_000_000_000,
+      lotStepSize: 0.00001,
+    };
+    listSellEvents.mockResolvedValue([terminalPartial]);
+    listTradeLedger.mockResolvedValue([{
+      symbol: "BTCUSDT", fillId: "tp1", qty: 0.05, side: "SELL", sellKind: "take_profit",
+      orderId: "103", time: 1, price: 1, quoteQty: 1, commission: 0, commissionAsset: "USDT",
+      commissionUsdt: 0, id: "x", realizedPnlUsdt: null,
+    }]);
+    reserveSellEvent.mockResolvedValue({ created: true, record: { eventKey: "resume" } });
+    fetchSpotOrderById.mockResolvedValue({
+      symbol: "BTCUSDT",
+      orderId: 103,
+      clientOrderId: "c1",
+      status: "CANCELED",
+      origQty: "0.15",
+      executedQty: "0.05",
+      cummulativeQuoteQty: "3000",
+      transactTime: Date.now(),
+    });
+    fetchSpotTradesForOrder.mockResolvedValue([]);
+    fetchSpotSymbolFilters.mockResolvedValue({
+      filters: [{ filterType: "LOT_SIZE", stepSize: "0.00001", minQty: "0.00001", maxQty: "1000" }],
+    });
+
+    const tick = await runSellAutomationTick(data(), { attemptLiveSubmit: false });
+    expect(tick.enqueued).toBeGreaterThanOrEqual(1);
+    const resumeCalls = reserveSellEvent.mock.calls.filter((call) => {
+      const record = call[0] as { eventKey?: string } | undefined;
+      return String(record?.eventKey || "").includes("resume");
+    });
+    expect(resumeCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("终态 partial 无台账：tick 不得 enqueue resume", async () => {
+    const terminalPartial = {
+      eventKey: "sell:BTC:take_profit:2:止盈1",
+      symbol: "BTC",
+      kind: "take_profit" as const,
+      status: "partially_filled" as const,
+      requestedQty: 0.15,
+      filledQty: 0.05,
+      createdAt: 1,
+      updatedAt: 1,
+      exchangeOrderId: "103",
+      fillIds: ["tp1"],
+      lastError: null,
+      exchangeTerminalStatus: "CANCELED",
+      fillReconcileCompletedAt: 1_700_000_000_000,
+      lotStepSize: 0.00001,
+    };
+    listSellEvents.mockResolvedValue([terminalPartial]);
+    listTradeLedger.mockResolvedValue([]);
+    reserveSellEvent.mockResolvedValue({ created: true, record: {} });
+
+    const tick = await runSellAutomationTick(data(), { attemptLiveSubmit: false });
+    expect(tick.enqueued).toBe(0);
+    const resumeCalls = reserveSellEvent.mock.calls.filter((call) => {
+      const record = call[0] as { eventKey?: string } | undefined;
+      return String(record?.eventKey || "").includes("resume");
+    });
+    expect(resumeCalls).toHaveLength(0);
   });
 });

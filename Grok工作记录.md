@@ -2,41 +2,28 @@
 
 > 主开发分支：gpt。Issue #2。
 
-## GROK-SELL-01A 验收证据（本轮）
+## GROK-SELL-01A 状态：代码+证据已齐，待 GPT 独立复核关闭
 
-### 代码提交
-| SHA | 说明 |
-|-----|------|
-| `27789a62` | take_profit resume 台账门禁实现 |
-| `ef338514` | enqueue 止盈无台账/合法/错 symbol 集成 |
-| `f4fc98d4` | resume 用例传 take_profit 台账（修 CI） |
-| `993b573f` | 错误 symbol / 混合冲突 / 手续费专项 |
-| 本提交 | IndexedDB 同 fillId 改写 sellKind/qty 冲突 |
+### 本轮增量
+- `sell-automation-tick.integration.test.ts` mock `listTradeLedger`
+- 终态 partial + 合法台账 → tick 可 enqueue resume
+- 终态 partial 无台账 → tick 不得 resume
 
-### 测试
+### 本地
 ```
-npm test → 57 files / 470 tests 通过
+npm test → 60 files / 488 tests 通过
 npm run typecheck → 通过
 ```
 
-专项：
-- `sell-take-profit-ledger.test.ts`
-- `sell-enqueue-ledger.integration.test.ts`
-- `sell-fill-persist-conflict.test.ts`（持久化唯一键）
-- `sell-automation-tick.integration.test.ts`（sync wait → reconcile_required，tick 不 resume）
+### 既有 CI（此前已绿）
+- https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44864201785
+- https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44864156906
 
-### CI（已绿）
-- https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44864201785 （`ef338514` success）
-- https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44864156906 （`f4fc98d4` success）
-
-### 路径说明
-1. `enqueueEligibleSellSignals` → `listTradeLedger()` → `buildSellEventReservations`
-2. `runSellAutomationTick` → `syncSellOrderFromBinance`（wait 清证明）→ enqueue
-3. `recordConfirmedSellFill` → `assertDuplicateExecutionFillMatches`（sellKind 冲突 fail-closed）
-
-### 未覆盖风险
-- 多浏览器标签并发写台账仍依赖 IndexedDB 事务；无服务端权威台账
-- 生产交易 / Outbox 仍关闭；GROK-SELL-06 未开始
+### 实现要点
+- `verifiedTakeProfitEventFilledQty`：SELL + take_profit + fillId 唯一 + qty 合计
+- `enqueueEligibleSellSignals` → 真实 `listTradeLedger()`
+- `recordConfirmedSellFill` 同 fillId 改写 sellKind 失败
 
 ### 约束
-未改 GPT 共享模块。正式关闭 SELL-01 仍需 GPT 独立复核。
+GROK-SELL-06 / 生产交易关闭。正式关闭 01/01A 需 GPT 独立复核。
+未改 GPT 共享模块。
