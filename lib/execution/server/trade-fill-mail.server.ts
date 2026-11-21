@@ -6,7 +6,8 @@ import { sendSmtpTextMail } from "@/lib/mail-notify";
 import { redactSecrets } from "./safe-log";
 
 export function isTradeFillMailEnabled(env: Record<string, string | undefined> = process.env): boolean {
-  return env.TRADE_FILL_MAIL_ENABLED === "1";
+  return env.TRADE_FILL_MAIL_ENABLED === "1" &&
+    Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS && (env.MAIL_TO || env.SMTP_USER));
 }
 
 export type TradeFillMailPayload = {
@@ -52,7 +53,7 @@ export async function dispatchTradeFillMail(events: TradeFillMailPayload[]): Pro
   reason?: string;
 }> {
   if (!isTradeFillMailEnabled()) {
-    return { ok: true, sent: false, reason: "TRADE_FILL_MAIL_ENABLED未启用" };
+    return { ok: true, sent: false, reason: "成交邮件未启用或SMTP尚未完整配置" };
   }
   if (!events.length) return { ok: true, sent: false, reason: "无事件" };
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS ||
