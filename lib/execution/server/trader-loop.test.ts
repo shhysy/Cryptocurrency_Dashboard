@@ -57,6 +57,7 @@ function mockStore(overrides: Record<string, unknown> = {}): LocalExecutionStore
     },
     tradeLedger: {
       listTradeLedger: vi.fn(async () => []),
+      recordConfirmedBuyFill: vi.fn(),
       recordConfirmedSellFill: vi.fn(),
     },
     ...overrides,
@@ -125,6 +126,129 @@ describe("本地Trader策略信号与执行循环", () => {
     expect(store.scheduler.recoverExpired).toHaveBeenCalledWith(1_800_000_000_100);
     expect(store.claimIntent).not.toHaveBeenCalled();
     expect(submitOrder).not.toHaveBeenCalled();
+  });
+
+  it("BUY开放GTC订单部分成交时逐笔写入真实fill并延后只读对账", async () => {
+    const now = 1_800_000_000_100;
+    const intent: ServerExecutionIntent = {
+      intentId: "v33:BTC:head:1700000000000",
+      strategyEventId: "BTC:head:1700000000000",
+      strategyVersion: "3.3",
+      strategyTier: "head",
+      symbol: "BTCUSDT",
+      side: "BUY",
+      quoteAsset: "USDT",
+      amount: "200",
+      baseRatioAtSignal: 0.4,
+      state: "reconciling",
+      attempt: 1,
+      createdAt: now - 10_000,
+      updatedAt: now - 1_000,
+      exchangeOrderId: "987",
+      clientOrderId: "gpt-buy-open-001",
+      exchangeTerminalAt: null,
+      fillsReconciledAt: null,
+      lastError: null,
+    };
+    const schedulerLease = {
+      taskId: `reconcile:${intent.intentId}`,
+      taskType: "reconcile_intent" as const,
+      dueAt: now - 1_000,
+      attempt: 2,
+      leaseToken: "scheduler-lease-token",
+      leaseUntil: now + 30_000,
+    };
+    const fills = [
+      {
+        id: 501, orderId: 987, symbol: "BTCUSDT", side: "BUY" as const,
+        price: "50000", qty: "0.001", quoteQty: "50",
+        commission: "0.000001", commissionAsset: "BTC", time: now - 800,
+      },
+      {
+        id: 502, orderId: 987, symbol: "BTCUSDT", side: "BUY" as const,
+        price: "50000", qty: "0.002", quoteQty: "100",
+        commission: "0.1", commissionAsset: "USDT", time: now - 700,
+      },
+    ];
+    const recordConfirmedBuyFill = vi.fn(async () => ({ recorded: true, ledger: {} }));
+    const defer = vi.fn(async () => true);
+    const store = mockStore({
+      getReconcileContext: vi.fn(async () => ({
+        intent,
+        lease: {
+          intentId: intent.intentId, attempt: 1,
+          token: "account-lease-token", leaseUntil: now + 30_000,
+        },
+        reservedAsset: "USDT",
+        reservedAmount: "200",
+      })),
+      renewExecutionLease: vi.fn(async () => true),
+      tradeLedger: {
+        listTradeLedger: vi.fn(async () => []),
+        recordConfirmedBuyFill,
+        recordConfirmedSellFill: vi.fn(),
+      },
+      scheduler: {
+        enqueue: vi.fn(async () => ({ created: true })),
+        claimDue: vi.fn(async () => [schedulerLease]),
+        renew: vi.fn(async () => true),
+        ack: vi.fn(async () => true),
+        retry: vi.fn(async () => "pending" as const),
+        defer,
+        recoverExpired: vi.fn(async () => 0),
+      },
+    });
+    const adapter = {
+      findOrderByClientOrderId: vi.fn(async () => ({
+        kind: "found" as const,
+        order: {
+          symbol: "BTCUSDT", orderId: 987, clientOrderId: intent.clientOrderId!,
+          side: "BUY" as const, status: "PARTIALLY_FILLED" as const,
+          origQty: "0.004", executedQty: "0.003", cummulativeQuoteQty: "150",
+          time: now - 2_000, updateTime: now - 500,
+        },
+      })),
+      listOrderTrades: vi.fn(async () => ({ trades: fills, complete: true, pagesRead: 1 })),
+      getSymbolRules: vi.fn(async () => ({
+        symbol: "BTCUSDT", status: "TRADING", baseAsset: "BTC", quoteAsset: "USDT",
+        quoteOrderQtyMarketAllowed: true, filters: [],
+      })),
+      getAccountBalances: vi.fn(async () => [{ asset: "USDT", free: "800", locked: "200" }]),
+    };
+    const getDashboard = vi.fn(async () => dashboard({ coins: [] }));
+
+    const result = await runTraderCycle({
+      mode: "testnet",
+      store,
+      getDashboard,
+      adapter: adapter as never,
+      submitOrder: vi.fn(),
+      now: () => now,
+    });
+
+    expect(result.manualReview).toBe(0);
+    expect(result.retried).toBe(0);
+    expect(recordConfirmedBuyFill).toHaveBeenCalledTimes(2);
+    expect(recordConfirmedBuyFill).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      fill: expect.objectContaining({ tradeId: "501", orderId: "987", qty: "0.001", quoteQty: "50" }),
+      intentId: intent.intentId,
+      attempt: 1,
+      leaseToken: "account-lease-token",
+      schedulerLease,
+    }));
+    expect(recordConfirmedBuyFill).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      fill: expect.objectContaining({ tradeId: "502", orderId: "987", qty: "0.002", quoteQty: "100" }),
+    }));
+    expect(defer).toHaveBeenCalledWith(
+      schedulerLease,
+      now,
+      15_000,
+      expect.stringContaining("PARTIALLY_FILLED"),
+    );
+    expect(store.finalizeReconciledOrder).not.toHaveBeenCalled();
+    expect(store.markSubmitting).not.toHaveBeenCalled();
+    expect(store.markUnknown).not.toHaveBeenCalled();
+    expect(getDashboard).toHaveBeenCalledTimes(1);
   });
 
   it("Testnet POST结果不明时持久化unknown并保留原clientOrderId，绝不盲目重发", async () => {
