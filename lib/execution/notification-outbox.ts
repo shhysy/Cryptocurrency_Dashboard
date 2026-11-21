@@ -15,6 +15,28 @@ interface NotificationOutboxBase {
   sentAt: number | null;
 }
 
+export type TradeFillBusinessSnapshot =
+  | {
+      side: "BUY";
+      strategyTier: "head" | "add" | "reserve";
+      plannedUsdt: string;
+      cumulativeFilledQty: string;
+      cumulativeQuoteQty: string;
+      cumulativeCommissionUsdt: string;
+      averageFillPrice: string;
+      remainingBudgetUsdt: string;
+    }
+  | {
+      side: "SELL";
+      sellKind: "take_profit" | "indicator_profit" | "trail_stop" | "base_reduce";
+      cumulativeFilledQty: string;
+      cumulativeQuoteQty: string;
+      cumulativeCommissionUsdt: string;
+      averageFillPrice: string;
+      realizedPnlUsdt: number;
+      remainingPositionQty: number;
+    };
+
 export interface ConfirmedTradeFillNotificationEvent extends NotificationOutboxBase {
   type: "confirmed_trade_fill";
   side: "BUY" | "SELL";
@@ -28,6 +50,8 @@ export interface ConfirmedTradeFillNotificationEvent extends NotificationOutboxB
   commissionAsset: string;
   commissionUsdt: number;
   filledAt: number;
+  /** 在成交入账同一事务内冻结的业务快照；重试邮件不得重新计算。 */
+  businessSnapshot?: TradeFillBusinessSnapshot;
 }
 
 export interface SystemAlertNotificationEvent extends NotificationOutboxBase {
@@ -92,6 +116,7 @@ export function isTradeNotificationClaimable(
 export function buildTradeFillNotificationEvent(
   fill: ExecutionFill,
   now = Date.now(),
+  businessSnapshot?: TradeFillBusinessSnapshot,
 ): ConfirmedTradeFillNotificationEvent {
   if (!fill.fillId || !fill.symbol || !fill.orderId) {
     throw new Error("成交通知缺少交易所成交标识");
@@ -128,6 +153,7 @@ export function buildTradeFillNotificationEvent(
     commissionAsset: fill.commissionAsset,
     commissionUsdt: fill.commissionUsdt,
     filledAt: fill.time,
+    ...(businessSnapshot ? { businessSnapshot } : {}),
     status: "pending",
     leaseUntil: null,
     leaseToken: null,
