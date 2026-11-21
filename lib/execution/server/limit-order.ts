@@ -30,7 +30,6 @@ export type LimitOrderSide = "BUY" | "SELL";
 
 export interface LimitOrderPrice {
   referencePrice: string;
-  limitPrice: string;
   side: LimitOrderSide;
   tickSize: string;
 }
