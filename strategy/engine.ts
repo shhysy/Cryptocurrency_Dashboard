@@ -106,10 +106,11 @@ export function findHead(buys: Trade[], price: number, cfg: StrategyConfig = str
 
 /** 计算单币评分（不读账户）。 */
 export function evaluateCoin(input: CoinInput, ctx: PortfolioContext, cfg: StrategyConfig = strategyConfig): CoinSignal {
-  const { price } = input;
   const group = isCore(input.symbol, cfg) ? "core" : "alt";
   const profile = cfg.profiles[group];
   const closedWeekly = closedWeeklyCandles(input.weekly, ctx.now);
+  // 策略3.3按最近一根已收盘周线决策；实时现价只用于账户估值和下单执行，不混入周线评分/触发。
+  const price = closedWeekly.at(-1)?.c ?? input.price;
   const closes = closedWeekly.map((candle) => candle.c);
   const weeklyRsi = rsi(closes, cfg.rsi.period);
   const ma200 = sma(closes, cfg.ma.weeklyPeriod);
@@ -150,7 +151,7 @@ export function evaluateCoin(input: CoinInput, ctx: PortfolioContext, cfg: Strat
   const stabilized = stableCount !== null && stableCount >= profile.stabilizeMin;
 
   const action = planAction({
-    input: { ...input, weekly: closedWeekly },
+    input: { ...input, price, weekly: closedWeekly },
     ctx, cfg, profile, group, score, stableCount, stabilized, overheat, overheatRsi, overheatFg, weeklyRsi, returnPct,
   });
   const { kind, tag } = classify(action, score, profile);
