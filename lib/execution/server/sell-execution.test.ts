@@ -313,6 +313,41 @@ describe("本地Trader服务端SELL执行", () => {
     expect(submitOrder).not.toHaveBeenCalled();
   });
 
+  it("同一SELL节拍最多提交一笔订单，其余pending事件留待下一轮", async () => {
+    const f = fixture();
+    f.setContinuation({
+      ...f.getEvent(),
+      eventKey: `${f.getEvent().eventKey}:续卖1`,
+      status: "pending",
+      requestedQty: 0.1,
+      filledQty: 0,
+      exchangeOrderId: null,
+      clientOrderId: undefined,
+      fillIds: [],
+    });
+    const submitOrder = vi.fn(async (input: SpotMarketOrderInput) => ({
+      symbol: input.symbol,
+      orderId: 126,
+      clientOrderId: input.clientOrderId,
+      status: "NEW" as const,
+      origQty: input.amount,
+      executedQty: "0",
+      cummulativeQuoteQty: "0",
+      transactTime: 1_800_000_000_003,
+    }));
+    const result = await runServerSellCycle({
+      mode: "testnet",
+      store: f.store,
+      adapter: f.adapter,
+      dashboard: f.dashboard,
+      submitOrder,
+      now: () => 1_800_000_000_002,
+    });
+    expect(result.submitted).toBe(1);
+    expect(submitOrder).toHaveBeenCalledTimes(1);
+    expect(f.store.sellEvents.claimSellEventForSubmission).toHaveBeenCalledTimes(1);
+  });
+
   it("dry-run只读，不领取SELL事件也不发送订单", async () => {
     const f = fixture();
     const submitOrder = vi.fn();
