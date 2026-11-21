@@ -56,7 +56,7 @@ export function buildTradeFillMailBody(events: TradeFillMailPayload[]): string {
       `Binance成交ID：${event.fillId ?? event.id}`,
       `成交时间：${time}`,
       ...(event.businessSnapshot?.side === "BUY" ? [
-        `策略档位：${event.businessSnapshot.strategyTier ?? "未知"}`,
+        `策略档位：${event.businessSnapshot.strategyTier ?? "旧订单档位未知"}`,
         `计划买入金额：${event.businessSnapshot.plannedUsdt ?? "未知"} USDT`,
         `本订单累计成交数量：${event.businessSnapshot.cumulativeFilledQty}`,
         `本订单累计成交金额：${event.businessSnapshot.cumulativeQuoteQty} USDT`,
