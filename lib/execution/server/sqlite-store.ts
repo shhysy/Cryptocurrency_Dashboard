@@ -788,8 +788,24 @@ export class SqliteExecutionStore implements LocalExecutionStore {
           "SELECT payload_json FROM notification_outbox WHERE id = ?",
           notification.id,
         );
-        if (!storedNotification || storedNotification.payload_json !== notificationPayload) {
-          throw new Error("成交Outbox事件ID已存在但载荷不同，拒绝覆盖");
+        let storedEvent: TradeNotificationOutboxEvent | null = null;
+        try {
+          storedEvent = storedNotification
+            ? JSON.parse(String(storedNotification.payload_json)) as TradeNotificationOutboxEvent
+            : null;
+        } catch {
+          storedEvent = null;
+        }
+        if (!storedEvent || storedEvent.id !== notification.id ||
+            storedEvent.type !== "confirmed_trade_fill" ||
+            storedEvent.side !== numericFill.side ||
+            storedEvent.symbol !== numericFill.symbol ||
+            storedEvent.fillId !== numericFill.fillId ||
+            storedEvent.exchangeOrderId !== numericFill.orderId ||
+            storedEvent.filledQty !== numericFill.qty ||
+            storedEvent.fillPrice !== numericFill.price ||
+            storedEvent.quoteQty !== numericFill.quoteQty) {
+          throw new Error("成交Outbox事件ID已存在但交易所成交事实不同，拒绝覆盖");
         }
       }
 
@@ -1281,7 +1297,13 @@ export class SqliteExecutionStore implements LocalExecutionStore {
         "SELECT * FROM trade_ledger WHERE symbol = ? ORDER BY time ASC, order_id ASC, fill_id ASC",
         fill.symbol,
       ).map(parseTradeLedger);
-      const position = replayPositionLedger(ledgerRows, "USDT");
+      let position: ReturnType<typeof replayPositionLedger> | null = null;
+      try {
+        position = replayPositionLedger(ledgerRows, "USDT");
+      } catch {
+        // 真实成交必须先入账；历史BUY缺失或仓位分类不一致时，不伪造盈亏/持仓数。
+        position = null;
+      }
       const businessSnapshot: TradeFillBusinessSnapshot = {
         side: "SELL",
         sellKind,
@@ -1289,8 +1311,9 @@ export class SqliteExecutionStore implements LocalExecutionStore {
         cumulativeQuoteQty: cumulativeQuote,
         cumulativeCommissionUsdt: cumulativeFees,
         averageFillPrice: divideDecimals(cumulativeQuote, cumulativeQty),
-        realizedPnlUsdt: position.realizedPnlUsdt,
-        remainingPositionQty: position.totalQty,
+        realizedPnlUsdt: position?.realizedPnlUsdt ?? null,
+        remainingPositionQty: position?.totalQty ?? null,
+        accountingAvailable: position !== null,
       };
       const notification = buildTradeFillNotificationEvent(fill, fill.time, businessSnapshot);
       this.run(
