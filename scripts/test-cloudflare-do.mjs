@@ -44,7 +44,7 @@ async function waitForWorker() {
   for (let attempt = 0; attempt < 80; attempt++) {
     if (child.exitCode !== null) throw new Error(`wrangler dev提前退出：\n${childLogs}`);
     try {
-      const response = await fetch(base + "/health");
+      const response = await fetch(base + "/health", { signal: AbortSignal.timeout(1_000) });
       if (response.ok) return;
     } catch {}
     await delay(500);
