@@ -97,12 +97,11 @@ export function applyPostTakeProfitRebuy(
     );
     const replay = replayAverageCost(coin, symbolSells);
     // 任何未终态或需人工复核的止盈事件都先冻结本币新动作，避免未知/部分写入订单与新BUY并发。
-    const unresolvedTp = symbolEvents.find((event) =>
-      event.kind === "take_profit" &&
+    const unresolvedSell = symbolEvents.find((event) =>
       ["pending", "reconcile_required", "blocked"].includes(event.status)
     );
-    if (unresolvedTp) {
-      return blockedSignal(coin, "存在未终态或需人工复核的止盈事件；暂停本币新买入与回补，先完成SELL对账");
+    if (unresolvedSell) {
+      return blockedSignal(coin, "存在未终态或需人工复核的SELL事件；暂停本币新买入与回补，先完成订单对账");
     }
 
     const tpEvents = symbolEvents.filter((event) =>
