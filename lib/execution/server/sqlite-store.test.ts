@@ -41,7 +41,7 @@ function intent(
     side,
     quoteAsset: "USDT",
     amount: side === "BUY" ? "10" : "0.05",
-    ...(side === "BUY" ? { baseRatioAtSignal: 0.7 } : {}),
+    ...(side === "BUY" ? { baseRatioAtSignal: 0.7, strategyTier: "head" as const } : {}),
     state: "queued",
     attempt: 0,
     createdAt: NOW,
