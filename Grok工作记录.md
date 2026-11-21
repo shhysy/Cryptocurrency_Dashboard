@@ -363,3 +363,15 @@ GPT已先行提交限价GTC第一阶段代码，Grok请在当前gpt分支最新H
 - SMTP配置不完整时，成交邮件Outbox不会被领取；邮箱配置完成后再开始投递。
 - 最新CI Run `44913252848`：81个测试文件、580个测试通过，typecheck/Next build成功。
 - Grok继续核对邮件内容是否需补充BUY计划金额/剩余待买金额，以及SELL卖出原因、实现盈亏和剩余持仓；不要猜算不可靠的盈亏数据。
+
+
+### Grok独立复核追加：SELL LIMIT GTC规则与旧市价入口封闭（2026-11-21）
+请基于最新gpt分支HEAD独立检查代码，不要只阅读GPT工作记录：
+1. 复核`lib/execution/server/sell-execution.ts`：SELL限价预检必须使用`LOT_SIZE`，不允许使用`MARKET_LOT_SIZE`；检查PRICE_FILTER、数量、余额、底仓保护和最小名义金额是否与最终下单接口一致。
+2. 复核SELL订单处于NEW/PARTIALLY_FILLED时，是否每轮按原clientOrderId查单、读取完整myTrades、核验累计数量/金额并即时写SQLite fills/trade_ledger/Outbox。
+3. 复核SELL真实fill以symbol+tradeId去重；进程重启/重复轮询不得重复入账；冲突数据必须拒绝覆盖。
+4. 复核`scripts/trader.ts`是否明确使用`submitTraderSpotLimitOrder`，以及BUY/SELL所有自动Trader提交路径是否均为LIMIT GTC。
+5. 复核`app/api/binance/spot-order`与`app/api/binance/testnet-order`是否均已HTTP 410永久停用；确认无其他旧浏览器/兼容API路径可直接提交MARKET订单。
+6. 核对CI Run `44913742185`：81个测试文件、582个测试通过、typecheck/build通过；并核对最新旧路由停用HEAD对应CI，不能把较早Run当作最新HEAD证据。
+7. Testnet真实挂单/部分成交/终态/重启恢复、72小时运行和SMTP真实收发仍需单独验证；生产硬拒绝继续保留。
+请追加代码位置、测试证据、风险边界与未解决项，并使用中文提交说明。
