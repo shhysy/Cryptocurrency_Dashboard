@@ -72,4 +72,51 @@ describe("SQLite 双连接并发", () => {
       b.close();
     }
   });
+
+  it("双独立SQLite连接竞争同一成交Outbox，只允许一个领取者并可围栏确认", async () => {
+    const path = await tempDbPath();
+    const a = await openLocalExecutionStore({ path });
+    const b = await openLocalExecutionStore({ path });
+    try {
+      await a.tradeLedger.recordConfirmedSellFill({
+        fillId: "outbox-fill-1",
+        orderId: "9001",
+        symbol: "BTCUSDT",
+        side: "SELL",
+        time: NOW,
+        price: 100,
+        qty: 0.1,
+        quoteQty: 10,
+        commission: 0,
+        commissionAsset: "USDT",
+        commissionUsdt: 0,
+      }, "take_profit");
+
+      const [left, right] = await Promise.all([
+        a.notificationOutbox.claimDue({ now: NOW + 1, leaseMs: 30_000, limit: 10 }),
+        b.notificationOutbox.claimDue({ now: NOW + 1, leaseMs: 30_000, limit: 10 }),
+      ]);
+      expect(left.length + right.length).toBe(1);
+      const lease = left[0] ?? right[0]!;
+      expect(lease.event.id).toBe("trade-fill:BTCUSDT:outbox-fill-1");
+      expect(lease.event.status).toBe("sending");
+      const owner = left.length ? a : b;
+      const other = left.length ? b : a;
+      expect(await other.notificationOutbox.claimDue({
+        now: NOW + 2, leaseMs: 30_000, limit: 10,
+      })).toHaveLength(0);
+      expect(await owner.notificationOutbox.markSent({
+        id: lease.event.id,
+        leaseToken: lease.leaseToken,
+        now: NOW + 3,
+      })).toBe(true);
+      expect(await owner.notificationOutbox.claimDue({
+        now: NOW + 4, leaseMs: 30_000, limit: 10,
+      })).toHaveLength(0);
+    } finally {
+      a.close();
+      b.close();
+    }
+  });
+
 });
