@@ -92,7 +92,7 @@ export function isTradeNotificationClaimable(
 export function buildTradeFillNotificationEvent(
   fill: ExecutionFill,
   now = Date.now(),
-): TradeNotificationOutboxEvent {
+): ConfirmedTradeFillNotificationEvent {
   if (!fill.fillId || !fill.symbol || !fill.orderId) {
     throw new Error("成交通知缺少交易所成交标识");
   }
