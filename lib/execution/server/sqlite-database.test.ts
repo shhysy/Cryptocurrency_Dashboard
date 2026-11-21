@@ -91,6 +91,21 @@ describe("本地执行SQLite数据库基础设施", () => {
         fills_reconciled_at INTEGER,
         last_error TEXT
       );
+      CREATE TABLE exchange_orders (
+        exchange_order_id TEXT PRIMARY KEY,
+        intent_id TEXT NOT NULL,
+        attempt INTEGER NOT NULL,
+        client_order_id TEXT NOT NULL UNIQUE,
+        symbol TEXT NOT NULL,
+        side TEXT NOT NULL,
+        status TEXT NOT NULL,
+        orig_qty TEXT NOT NULL,
+        executed_qty TEXT NOT NULL,
+        cumulative_quote_qty TEXT NOT NULL,
+        exchange_time INTEGER,
+        exchange_update_time INTEGER,
+        reconciled_at INTEGER NOT NULL
+      );
       INSERT INTO order_intents(
         intent_id, strategy_event_id, strategy_version, symbol, side, quote_asset,
         amount, state, attempt, created_at, updated_at
