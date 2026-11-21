@@ -108,3 +108,11 @@
 - 新增本地SMTP直发，只有`TRADE_FILL_MAIL_ENABLED=1`才发送；SMTP主机/端口/邮箱地址校验，15秒响应超时。Outbox dispatcher已接入Trader。
 - 最新CI Run `44880232514`：74 files / 521 tests、typecheck、build全部通过。
 - Mock测试覆盖Outbox并发领取、SMTP发送适配调用、发送失败退避和关闭开关；没有使用用户真实SMTP账号，不能声称真实邮件送达。
+
+
+### M3-06日志轮转继续开发（2026-11-21）
+
+- Trader日志已从仅控制台输出升级为脱敏后按UTC日期落盘：`data/logs/trader-YYYY-MM-DD.log`。
+- 日志目录0700、日志文件0600；默认目录已加入.gitignore，支持`TRADER_LOG_DIR`配置。
+- 测试覆盖文件落盘和API Key/签名脱敏；CI Run `44880508488` 74 files / 522 tests、typecheck/build通过。
+- 尚未验证用户机器磁盘空间和日志保留策略；未做自动清理旧日志，避免擅自删除审计记录。
