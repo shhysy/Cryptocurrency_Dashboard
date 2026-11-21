@@ -97,6 +97,16 @@ async function claimAndSubmit(
 }
 
 describe("本地SQLite执行存储", () => {
+  it("拒绝创建缺少显式策略档位的新BUY意图", async () => {
+    const store = await openLocalExecutionStore({ path: await tempDbPath() });
+    try {
+      const value = intent("BUY", { strategyTier: undefined });
+      await expect(store.createIntent(value)).rejects.toThrow("缺少有效的策略执行档位");
+    } finally {
+      store.close();
+    }
+  });
+
   it("持久化并读取BUY策略执行档位，不依赖事件ID解析", async () => {
     const store = await openLocalExecutionStore({ path: await tempDbPath() });
     try {
