@@ -1,4 +1,4 @@
-import { access } from "node:fs/promises";
+import { access, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { getServerBinanceSpotMode, hasCredentials, submitSpotMarketOrder } from "@/lib/binance";
 import { getDashboard } from "@/lib/service";
@@ -6,14 +6,10 @@ import { binanceReconcileAdapter } from "@/lib/execution/binance-reconcile.serve
 import { openLocalExecutionStore } from "@/lib/execution/server/sqlite-store";
 import { acquireTraderLock } from "@/lib/execution/server/trader-lock";
 import { runTraderCycle, type TraderMode } from "@/lib/execution/server/trader-loop";
-
-function readMode(): TraderMode {
-  const value = process.env.AUTO_TRADE_MODE ?? "off";
-  if (value !== "off" && value !== "dry-run" && value !== "testnet" && value !== "production") {
-    throw new Error("AUTO_TRADE_MODE只允许off、dry-run、testnet、production");
-  }
-  return value;
-}
+import { parseAutoTradeMode, assertProductionAuthorized } from "@/lib/execution/server/auto-trade-mode";
+import { runStartupSelfCheck } from "@/lib/execution/server/startup-self-check";
+import { ConsecutiveFailureBreaker } from "@/lib/execution/server/circuit-breaker";
+import { safeError, safeLog } from "@/lib/execution/server/safe-log";
 
 function readPollInterval(): number {
   const value = Number(process.env.TRADER_POLL_INTERVAL_MS ?? "15000");
@@ -32,6 +28,11 @@ async function stopFileExists(): Promise<boolean> {
   }
 }
 
+async function writeStopFile(reason: string): Promise<void> {
+  await mkdir(join(process.cwd(), "data"), { recursive: true });
+  await writeFile(join(process.cwd(), "data", "STOP"), `${new Date().toISOString()} ${reason}\n`, "utf8");
+}
+
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return Promise.resolve();
   return new Promise((resolveSleep) => {
@@ -46,10 +47,16 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const mode = readMode();
+  const mode = parseAutoTradeMode(process.env.AUTO_TRADE_MODE) as TraderMode;
+  assertProductionAuthorized();
   const pollInterval = readPollInterval();
+  const failThreshold = Number(process.env.TRADER_CIRCUIT_FAILURES ?? "5");
+  const breaker = new ConsecutiveFailureBreaker(
+    Number.isSafeInteger(failThreshold) && failThreshold > 0 ? failThreshold : 5,
+  );
+
   if (mode === "production") {
-    throw new Error("生产模式尚未完成M3-01/02/03独立验收；当前明确拒绝真实资金交易");
+    throw new Error("生产模式尚未完成独立验收；当前明确拒绝真实资金交易");
   }
   if (mode === "testnet") {
     if (getServerBinanceSpotMode() !== "testnet") {
@@ -61,6 +68,15 @@ async function main(): Promise<void> {
     if (process.env.ENABLE_ACCOUNT === "0" || !hasCredentials()) {
       throw new Error("Testnet自动交易需要启用账户读取并配置专用Testnet Key/Secret");
     }
+  }
+
+  const selfCheck = await runStartupSelfCheck({
+    mode,
+    dbPath: process.env.TRADER_DB_PATH ?? "data/trader.db",
+    dataDir: "data",
+  });
+  if (!selfCheck.ok) {
+    throw new Error(`启动自检失败：${selfCheck.reasons.join("；")}`);
   }
 
   const lock = await acquireTraderLock({
@@ -78,13 +94,12 @@ async function main(): Promise<void> {
     store = await openLocalExecutionStore({
       path: process.env.TRADER_DB_PATH ?? "data/trader.db",
     });
-    console.log(`[Trader] 已启动 mode=${mode}；数据库=${process.env.TRADER_DB_PATH ?? "data/trader.db"}；单实例锁已获取`);
-    console.log("[Trader] 当前阶段只接入BUY自动执行；SELL等待Grok完成M1-04服务端适配；生产模式强制关闭");
+    safeLog(`[Trader] 已启动 mode=${mode}；单实例锁已获取`);
 
     while (!controller.signal.aborted) {
       const stopped = await stopFileExists();
       const effectiveMode: TraderMode = stopped ? "off" : mode;
-      if (stopped) console.error("[Trader] 检测到data/STOP：暂停新信号和新订单，只继续只读对账");
+      if (stopped) safeError("[Trader] 检测到data/STOP：暂停新信号和新订单，只继续只读对账");
       try {
         const result = await runTraderCycle({
           mode: effectiveMode,
@@ -92,12 +107,16 @@ async function main(): Promise<void> {
           getDashboard,
           adapter: binanceReconcileAdapter,
           submitOrder: submitSpotMarketOrder,
-          log: (message) => console.log(`[Trader] ${message}`),
+          log: (message) => safeLog(`[Trader] ${message}`),
         });
-        console.log("[Trader] 本轮结果", JSON.stringify(result));
+        breaker.recordSuccess();
+        safeLog("[Trader] 本轮结果", result);
       } catch (error) {
-        console.error("[Trader] 本轮失败；不会自动重发任何未知订单：",
-          error instanceof Error ? error.message : "未知错误");
+        safeError("[Trader] 本轮失败；不会自动重发任何未知订单：", error);
+        if (breaker.recordFailure()) {
+          await writeStopFile(`连续失败达到阈值 ${breaker.count}`);
+          safeError("[Trader] 已触发熔断并写入 data/STOP");
+        }
       }
       await sleep(pollInterval, controller.signal);
     }
@@ -109,11 +128,11 @@ async function main(): Promise<void> {
     } finally {
       await lock.release();
     }
-    console.log("[Trader] 已停止，SQLite连接和单实例锁已释放");
+    safeLog("[Trader] 已停止，SQLite连接和单实例锁已释放");
   }
 }
 
 main().catch((error) => {
-  console.error("[Trader] 启动失败：", error instanceof Error ? error.message : "未知错误");
+  safeError("[Trader] 启动失败：", error);
   process.exitCode = 1;
 });
