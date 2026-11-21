@@ -31,6 +31,12 @@ const event: TradeNotificationOutboxEvent = {
   commissionAsset: "USDT",
   commissionUsdt: 0,
   filledAt: 1_800_000_000_000,
+  businessSnapshot: {
+    side: "SELL", sellKind: "take_profit", cumulativeFilledQty: "0.1",
+    cumulativeQuoteQty: "6000", cumulativeCommissionUsdt: "0",
+    averageFillPrice: "60000", realizedPnlUsdt: 123, remainingPositionQty: 0.4,
+    accountingAvailable: true,
+  },
   status: "sending",
   leaseUntil: 1_800_000_030_000,
   leaseToken: "lease-1",
@@ -72,6 +78,7 @@ describe("本地成交Outbox投递器", () => {
       id: event.id,
       side: "SELL",
       symbol: "BTCUSDT",
+      businessSnapshot: event.businessSnapshot,
     })]);
     expect(repo.notificationOutbox.markSent).toHaveBeenCalledWith(expect.objectContaining({
       id: event.id,
