@@ -681,3 +681,58 @@ describe("本地SQLite执行存储", () => {
     expect(recovered.expectedClientOrderId).toBe(marker.clientOrderId);
   }, 45_000);
 
+
+
+describe("BUY GTC开放订单增量成交", () => {
+  it("按tradeId幂等写入真实fill、持仓台账和成交邮件事件，并保留资金锁", async () => {
+    const path = await tempDbPath();
+    const store = await openLocalExecutionStore({ path });
+    const value = intent("BUY");
+    try {
+      const { claim, lease } = await claimAndSubmit(store, value);
+      const tasks = await store.scheduler.claimDue({
+        now: NOW + 31_000, leaseMs: 30_000, limit: 1, taskType: "reconcile_intent",
+      });
+      expect(tasks).toHaveLength(1);
+      const schedulerLease = tasks[0]!;
+      const input = {
+        fill: {
+          tradeId: "90001", orderId: "12345", symbol: "BTCUSDT",
+          price: "50000.00", qty: "0.00010000", quoteQty: "5.00000000",
+          commission: "0.01000000", commissionUsdt: "0.01000000",
+          commissionAsset: "USDT", filledAt: NOW + 30_900,
+        },
+        intentId: value.intentId,
+        attempt: claim.lease.attempt,
+        leaseToken: lease.token,
+        schedulerLease,
+        now: NOW + 31_001,
+      };
+      const first = await store.tradeLedger.recordConfirmedBuyFill(input);
+      expect(first.recorded).toBe(true);
+      expect(first.ledger.side).toBe("BUY");
+      expect(first.ledger.baseRatioAtBuy).toBe(0.7);
+      const duplicate = await store.tradeLedger.recordConfirmedBuyFill(input);
+      expect(duplicate.recorded).toBe(false);
+      expect((await store.tradeLedger.listTradeLedger())).toHaveLength(1);
+      const context = await store.getReconcileContext(value.intentId);
+      expect(context?.reservedAmount).toBe("10");
+      expect(context?.lease?.token).toBe(lease.token);
+      expect(await store.scheduler.defer(
+        schedulerLease, NOW + 31_002, 15_000, "订单仍为PARTIALLY_FILLED",
+      )).toBe(true);
+    } finally {
+      store.close();
+    }
+    const db = await openLocalExecutionDatabase({ path });
+    try {
+      expect((db.prepare("SELECT COUNT(*) AS total FROM fills").get() as { total: number }).total).toBe(1);
+      expect((db.prepare("SELECT COUNT(*) AS total FROM trade_ledger").get() as { total: number }).total).toBe(1);
+      expect((db.prepare("SELECT COUNT(*) AS total FROM notification_outbox WHERE id LIKE 'trade-fill:%'").get() as { total: number }).total).toBe(1);
+      expect((db.prepare("SELECT state FROM reservations").get() as { state: string }).state).toBe("reserved");
+      expect((db.prepare("SELECT state, attempt FROM scheduler_tasks WHERE task_id = ?").get("reconcile:" + value.intentId) as { state: string; attempt: number }).state).toBe("pending");
+    } finally {
+      db.close();
+    }
+  });
+});
