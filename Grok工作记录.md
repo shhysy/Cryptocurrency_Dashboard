@@ -508,3 +508,15 @@ CI HEAD `524b360cf86d198ca4b1325fda9a40e77a51cb45` / Run `44917968577`成功：8
 HEAD `c1be2e818a52a88a3b6a26bc18e1932f71aa84e7`，Run `44919199265`成功：81 files / 581 tests，typecheck/build通过。
 
 请核对六项风险字段是否与Excel逐字语义一致、资产状态是否映射正确、SELL是否完全不受影响。未经用户更新审核配置，不得将ETH/BNB/UNI擅自标为approved。
+
+
+## GPT追加：用户确认五种资产全部开放自动买入（2026-11-21）
+
+用户已明确覆盖此前工作簿审核状态限制：BTC、PAXG、ETH、BNB、UNI五种资产全部允许策略3.3自动新增现货买入。请独立复核最新代码时以此用户决定为准，不再要求ETH/BNB/UNI通过旧的白名单审核状态或六项基本面状态才能买入。
+
+- `watchlist.config.ts`：五种资产显式`buyEnabled: true`。
+- `lib/execution/server/trader-loop.ts`：服务端BUY intent入口继续独立检查`isBuyAssetEligible`。
+- CL仍为signal-only；未列入资产池的未知资产仍默认拒绝；SELL/止盈/止损不受影响。
+- 最新代码HEAD `2f3e19f12390d2e363c8244be0645e82cf020023`，CI Run `44919942379`成功：81个测试文件、581项测试通过，typecheck/build通过。
+- 请复核Dashboard是否还存在旧的六项基本面blocked逻辑导致五种资产显示或上游动作仍被拦截；如有，按用户最新决定同步修正并补测试。不要只复核watchlist函数。
+- Testnet真实BUY/SELL、部分成交/重启恢复、SMTP真实收件仍待实测；生产模式保持硬拒绝；用户不要求72小时连续运行。
