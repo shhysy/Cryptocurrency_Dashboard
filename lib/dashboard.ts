@@ -1,5 +1,5 @@
 import { strategyConfig } from "@/strategy.config";
-import { isSignalOnly, quote, watchlist } from "@/watchlist.config";
+import { isBuyAssetEligible, isSignalOnly, quote, watchlist } from "@/watchlist.config";
 import { computeCost } from "@/strategy/cost";
 import { btcMarketState, buildVerdict, evaluateCoin, isCore } from "@/strategy/engine";
 import type { Candle, Trade } from "@/strategy/types";
@@ -80,11 +80,23 @@ export function buildDashboard(
   const coins: CoinCard[] = base.map(({ w, trades, cost, price, qty, marketValue }) => {
     const weekly = raw.weekly[w.symbol] ?? [];
     const avgCost = qty > 0 ? cost.avgCost : null;
-    const signal = evaluateCoin(
+    let signal = evaluateCoin(
       { symbol: w.symbol, price, weekly, qty, avgCost, invested: cost.invested, marketValue, buys: trades, signalOnly: isSignalOnly(w) },
       ctx,
       cfg,
     );
+    // 白名单/六项基本面审核只限制新增买入，不影响任何卖出动作。
+    if (signal.action.side === "buy" && !isBuyAssetEligible(w.symbol)) {
+      const reason = "资产未通过策略3.3白名单与六项基本面审核，禁止新增买入";
+      signal = {
+        ...signal,
+        action: {
+          ...signal.action,
+          blocked: [...signal.action.blocked, reason],
+          notes: [...signal.action.notes, reason],
+        },
+      };
+    }
     const returnPct = avgCost ? price / avgCost - 1 : null;
     const target = cfg.sell.levels[0].ret;
     return {
