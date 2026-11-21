@@ -3,7 +3,7 @@ import { createBinanceReconcileAdapter } from "./binance-reconcile.server";
 import { dispatchReconcileIntentTask, type InternalCoordinator } from "./reconcile-intent-dispatcher.server";
 
 const task = {
-  taskId: "v33:event-55", taskType: "reconcile_intent" as const,
+  taskId: "reconcile:v33:event-55", taskType: "reconcile_intent" as const,
   dueAt: 1, attempt: 1, leaseToken: "scheduler-token-123456", leaseUntil: 999999,
 };
 const order = {
@@ -33,7 +33,7 @@ function makeCoordinator(options: {
       calls.push({ path: url.pathname, body });
       if (url.pathname === "/internal/reconcile-context") {
         return Response.json(options.context ?? {
-          intentId: task.taskId, state: "unknown", symbol: "BTCUSDT", side: "SELL",
+          intentId: "v33:event-55", state: "unknown", symbol: "BTCUSDT", side: "SELL",
           clientOrderId: "client-55", attempt: 1, leaseToken: "account-token-123456",
           leaseUntil: options.expired ? 1 : 999999, terminal: false,
         }, { status: options.status ?? 200 });
@@ -89,7 +89,7 @@ describe("reconcile_intent后台只读任务分发", () => {
 
   it("订单已终态时只ack任务，不再访问Binance或finalize", async () => {
     const { coordinator, calls } = makeCoordinator({
-      context: { intentId: task.taskId, terminal: true },
+      context: { intentId: "v33:event-55", terminal: true },
     });
     await expect(dispatchReconcileIntentTask(coordinator, task, makeAdapter(), 10))
       .resolves.toBe("completed");
