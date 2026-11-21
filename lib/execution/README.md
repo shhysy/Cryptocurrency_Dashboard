@@ -5,7 +5,7 @@
 ## 当前架构
 
 1. **行情与账户数据：** Dashboard 通过同源 `/api/dashboard` 获取服务端数据；需要签名的 Binance 只读请求由 `/api/binance/signed-read` 代理。后台对账使用 `binance-reconcile.server.ts`，直接复用服务端签名GET allowlist，提供clientOrderId查单、按订单分页读取成交、账户余额和交易规则解析。API Key/Secret 仅由服务端环境变量读取，不进入浏览器包。
-2. **执行编排：** 浏览器侧 `ExecutionBackground` 在看板打开且标签页可见时运行周期任务；待买队列、待卖事件、资金预留和成交 Outbox 使用 IndexedDB。页面关闭后不会有常驻后台执行。
+2. **执行编排：** 浏览器侧 `ExecutionBackground` 在看板打开且标签页可见时运行策略信号与本地队列任务；服务端 Durable Object SQLite保存intent/attempt/reservation/scheduler任务。Worker Cron每分钟领取`reconcile_intent`任务，按原`clientOrderId`只读查单并核对逐笔成交；页面关闭后可继续恢复已经持久化的订单，但策略信号生成和新订单提交尚未迁移为完整服务端后台流程。
 3. **订单边界：** BUY/SELL统一通过同源服务端 `/api/binance/spot-order` 路由；服务端按 `BINANCE_SPOT_ENVIRONMENT` 选择Spot Testnet或Production端点，并分别校验 `BINANCE_TESTNET_BUY_ENABLED`、`BINANCE_TESTNET_SELL_ENABLED`、`BINANCE_PRODUCTION_BUY_ENABLED`、`BINANCE_PRODUCTION_SELL_ENABLED`。四路授权相互隔离，生产BUY/SELL开关默认关闭；生产路径虽然已有服务端适配器，但尚未完成账户级持久化协调、后台调度和最终生产验收，不能视为可直接实盘。旧 `/api/binance/testnet-order` 仅作为测试网兼容入口。
 4. **邮件通知：** 浏览器 Outbox 通过同源 `/api/trade-fill-notifications` 提交，服务端验证 Cloudflare Access 后使用 HMAC 转发到独立 Worker。Worker 只发送已确认成交邮件，不访问 Binance、不计算策略、不下单。
 
@@ -23,6 +23,7 @@
 | `sync-buy-order.browser.ts` / `sync-sell-order.browser.ts` | 只读查单、成交核对与状态恢复 |
 | `fill-reconcile.ts` / `position-accounting.ts` | 成交事实校验、加权平均成本、底仓/周期仓及实现盈亏回放 |
 | `binance-reconcile.server.ts` / `binance-reconcile-plan.server.ts` | 服务端只读订单查单、成交分页、余额与交易规则解析；严格生成终态核对计划；不具备POST/下单能力 |
+| `reconcile-intent-dispatcher.server.ts` | 消费DO调度租约，续期账户/任务租约，按原clientOrderId只读对账，终态核验后调用DO finalize并ack |
 | `earn-redemption.browser.ts` / `wallet-funds.ts` | Spot与Simple Earn Flexible资金规划及受控赎回适配 |
 | `notification-outbox.ts` / `notification-dispatch.browser.ts` | 已确认成交事件持久化、幂等投递与失败重试 |
 
@@ -59,3 +60,15 @@
 - 当前只完成适配器与单元测试，尚未接入DO `reconcile_intent`消费器、账户级预留结算和真实Cloudflare运行时；不得将本阶段称为完整自动交易。
 
 - `binance-reconcile-plan.server.ts` 只输出 `wait/not_found/manual_review/finalize` 决策；只有完整逐笔成交数量和金额精确匹配交易所终态累计值时才生成finalize数据，不负责调用DO或释放资金。
+
+
+## DO只读对账任务消费（阶段性交付）
+
+- DO在订单进入`submitting`前即以intentId为稳定taskId持久化`reconcile_intent`任务；进入`unknown`时幂等补入队。
+- Worker Cron每分钟执行watchdog后，领取最多5个`reconcile_intent`任务。dispatcher读取DO内部对账上下文，账户租约过期时只允许reconcile-only takeover；租约未过期时先续租。
+- 只读适配器按原symbol/clientOrderId查单；not_found、活动单、限流/网络错误、不完整成交分页均只安排重试，不触发订单POST。
+- 只有交易所终态、完整逐笔成交分页、成交方向/订单归属/时间匹配、qty与quoteQty精确合计一致，且没有无法换算的第三资产手续费，才生成DO finalize输入。
+- DO finalize在SQLite事务内再次核对账户leaseToken，并对Cron任务调用额外核对scheduler taskId/attempt/leaseToken/leaseUntil；失效任务不能结算或释放资金。
+- 调度任务与账户租约分别续期；过期租约由Alarm恢复。Cron/Alarm重复唤醒按幂等任务与双重fencing处理。
+- 本阶段不执行任何Binance订单POST；订单不存在也不会自动重发。达到最大重试次数转scheduler manual_review并保留资金锁，等待人工处理。
+- 当前仍需真实Cloudflare Durable Object SQLite并发/重启测试和部署后的Testnet只读恢复演练；本地Fake SQL与CI不能替代真实运行时验收。
