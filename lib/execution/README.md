@@ -24,6 +24,7 @@
 | `fill-reconcile.ts` / `position-accounting.ts` | 成交事实校验、加权平均成本、底仓/周期仓及实现盈亏回放 |
 | `binance-reconcile.server.ts` / `binance-reconcile-plan.server.ts` | 服务端只读订单查单、成交分页、余额与交易规则解析；严格生成终态核对计划；不具备POST/下单能力 |
 | `reconcile-intent-dispatcher.server.ts` | 消费DO调度租约，续期账户/任务租约，按原clientOrderId只读对账，终态核验后调用DO finalize并ack |
+| `app/api/execution/intents/route.ts` | 服务端重新计算策略3.3信号，仅在显式Testnet开关下创建DO intent；不提交订单 |
 | `earn-redemption.browser.ts` / `wallet-funds.ts` | Spot与Simple Earn Flexible资金规划及受控赎回适配 |
 | `notification-outbox.ts` / `notification-dispatch.browser.ts` | 已确认成交事件持久化、幂等投递与失败重试 |
 
@@ -42,7 +43,7 @@
 
 - 单元测试：`npm test`；类型检查：`npm run typecheck`。
 - 测试通过不代表已完成真实浏览器多标签页验证、Spot Testnet端到端演练、历史回测或样本外验收。
-- 页面关闭后浏览器侧不再生成新策略信号；Cloudflare Cron每分钟可继续对已持久化的submitting/unknown/reconciling订单执行只读恢复。IndexedDB仍只在同一浏览器配置内协调，不是交易所资金锁，也不保证跨设备同步。
+- 页面关闭后浏览器侧不再生成新策略信号；受控POST /api/execution/intents可由服务端重算信号并创建DO intent（Testnet独立开关默认关闭），Cloudflare Cron每分钟可继续对已持久化的submitting/unknown/reconciling订单执行只读恢复。Cron尚未自动生成新的策略intent。IndexedDB仍只在同一浏览器配置内协调，不是交易所资金锁，也不保证跨设备同步。
 - 第三资产手续费、外部转入/转出或本地成交账本不一致时，必须暂停自动记账/执行并人工复核。
 - 生产交易上线前必须完成回测、样本外、测试网全链路和独立风险验收，并另行获得用户明确授权。
 
@@ -72,3 +73,13 @@
 - 调度任务与账户租约分别续期；过期租约由Alarm恢复。Cron/Alarm重复唤醒按幂等任务与双重fencing处理。
 - 本阶段不执行任何Binance订单POST；订单不存在也不会自动重发。达到最大重试次数转scheduler manual_review并保留资金锁，等待人工处理。
 - 当前仍需真实Cloudflare Durable Object SQLite并发/重启测试和部署后的Testnet只读恢复演练；本地Fake SQL与CI不能替代真实运行时验收。
+
+
+## 服务端策略意图入口（第一阶段）
+
+- `POST /api/execution/intents` 只接受Dashboard Basic Auth与同源请求，不接受客户端提供的价格、评分、方向或金额；服务端重新调用`getDashboard()`计算策略3.3信号。
+- 仅当`BINANCE_SPOT_ENVIRONMENT=testnet`且`BINANCE_TESTNET_INTENT_CREATION_ENABLED=true`时开放；环境模板默认关闭，生产环境硬拒绝。
+- 拒绝Mock/STALE/过期/未知账户数据；BUY按USDT free余额核对，SELL按基础资产free余额核对；locked不视为可用。
+- 交易对需处于TRADING、报价为USDT，并具有有效LOT_SIZE、PRICE_FILTER、MIN_NOTIONAL/NOTIONAL；BUY另需允许quoteOrderQty市价单。
+- strategyEventId按symbol+action.kind+ISO周生成，DO按事件ID幂等。该入口只创建intent，返回`orderSubmitted=false`；不调用Binance订单POST。
+- 仍待Cron自动策略扫描、逐币signalAsOf/事件过期证明、DO原子claim/reservation接线及真实Cloudflare/Testnet验收。
