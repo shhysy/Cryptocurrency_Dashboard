@@ -219,6 +219,7 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       renew: (lease, now, leaseMs) => this.renewTaskLease(lease, now, leaseMs),
       ack: (lease, now) => this.ackTask(lease, now),
       retry: (lease, now, reason) => this.retryTask(lease, now, reason),
+      defer: (lease, now, delayMs, reason) => this.deferTask(lease, now, delayMs, reason),
       recoverExpired: (now) => this.recoverExpiredTasks(now),
     };
     this.sellEvents = {
@@ -239,6 +240,7 @@ export class SqliteExecutionStore implements LocalExecutionStore {
     this.tradeLedger = {
       listTradeLedger: () => this.listTradeLedger(),
       recordConfirmedSellFill: (fill, sellKind) => this.recordConfirmedSellFill(fill, sellKind),
+      recordConfirmedBuyFill: (input) => this.recordConfirmedBuyFill(input),
     };
   }
 
@@ -994,6 +996,25 @@ export class SqliteExecutionStore implements LocalExecutionStore {
     });
   }
 
+  private async deferTask(
+    lease: SchedulerTaskLease,
+    now: number,
+    delayMs: number,
+    reason: string,
+  ): Promise<boolean> {
+    if (!validTime(now) || !Number.isSafeInteger(delayMs) || delayMs < 5_000 || delayMs > 300_000 ||
+        !reason.trim()) throw new Error("开放订单调度延后参数无效");
+    return this.transaction(() => {
+      const changed = this.run(
+        \`UPDATE scheduler_tasks SET state = 'pending', attempt = 0, lease_token = NULL,
+         lease_until = NULL, next_attempt_at = ?, last_error = ?, updated_at = ?
+         WHERE task_id = ? AND state = 'leased' AND attempt = ? AND lease_token = ? AND lease_until > ?\`,
+        now + delayMs, reason.slice(0, 500), now, lease.taskId, lease.attempt, lease.leaseToken, now,
+      );
+      return changed === 1;
+    });
+  }
+
   private async recoverExpiredTasks(now: number): Promise<number> {
     if (!validTime(now)) throw new Error("过期调度租约恢复时间无效");
     return this.transaction(() => {
@@ -1230,6 +1251,130 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       const ledger = this.get("SELECT * FROM trade_ledger WHERE id = ?", id);
       if (!ledger) throw new Error("卖出成交写入后无法读取台账");
       return { recorded: true, ledger: parseTradeLedger(ledger) };
+    });
+  }
+
+  private async recordConfirmedBuyFill(input: {
+    fill: ExecutionFill;
+    intentId: string;
+    attempt: number;
+    leaseToken: string;
+    schedulerLease: SchedulerTaskLease;
+    now: number;
+  }): Promise<{ recorded: boolean; ledger: TradeLedgerEntry }> {
+    const fill = input.fill;
+    if (fill.side !== "BUY" || !/^[0-9]{1,32}$/.test(fill.fillId) ||
+        !/^[0-9]{1,32}$/.test(fill.orderId) || !/^[A-Z0-9]{5,24}$/.test(fill.symbol) ||
+        !/^[A-Z0-9]{2,12}$/.test(fill.commissionAsset) ||
+        ![fill.time, fill.price, fill.qty, fill.quoteQty, fill.commission, fill.commissionUsdt].every(Number.isFinite) ||
+        fill.time <= 0 || fill.price <= 0 || fill.qty <= 0 || fill.quoteQty <= 0 ||
+        fill.commission < 0 || fill.commissionUsdt < 0 || !validTime(input.now) ||
+        !input.intentId || !Number.isSafeInteger(input.attempt) || input.attempt <= 0 ||
+        !input.leaseToken) {
+      throw new Error("开放BUY订单真实成交字段无效");
+    }
+    return this.transaction(() => {
+      const lock = this.get(
+        "SELECT * FROM account_lock WHERE singleton = 1 AND intent_id = ? AND attempt = ? AND lease_token = ?",
+        input.intentId, input.attempt, input.leaseToken,
+      );
+      if (!lock || Number(lock.lease_until) <= input.now) throw new Error("BUY成交入账账户租约不匹配或已过期");
+      const task = this.get("SELECT * FROM scheduler_tasks WHERE task_id = ?", input.schedulerLease.taskId);
+      if (!task || input.schedulerLease.taskType !== "reconcile_intent" ||
+          input.schedulerLease.taskId !== "reconcile:" + input.intentId ||
+          task.state !== "leased" || Number(task.attempt) !== input.schedulerLease.attempt ||
+          task.lease_token !== input.schedulerLease.leaseToken ||
+          Number(task.lease_until) <= input.now) {
+        throw new Error("BUY成交入账调度租约fencing校验失败");
+      }
+      const intentRow = this.get(
+        "SELECT * FROM order_intents WHERE intent_id = ? AND attempt = ?",
+        input.intentId, input.attempt,
+      );
+      if (!intentRow || intentRow.side !== "BUY" ||
+          !["submitting", "unknown", "reconciling"].includes(String(intentRow.state)) ||
+          !intentRow.client_order_id || intentRow.symbol !== fill.symbol) {
+        throw new Error("BUY成交与本地订单意图不匹配");
+      }
+      const intent = parseIntent(intentRow);
+      if (intent.exchangeOrderId && intent.exchangeOrderId !== fill.orderId) {
+        throw new Error("同一BUY clientOrderId关联了不同Binance订单ID");
+      }
+      if (!Number.isFinite(intent.baseRatioAtSignal) ||
+          (intent.baseRatioAtSignal as number) < 0 || (intent.baseRatioAtSignal as number) > 1) {
+        throw new Error("BUY订单缺少冻结的策略底仓比例，拒绝成交入账");
+      }
+      const reservation = this.get(
+        "SELECT * FROM reservations WHERE intent_id = ? AND attempt = ?",
+        input.intentId, input.attempt,
+      );
+      if (!reservation || reservation.state !== "reserved" || reservation.asset !== "USDT" ||
+          lock.asset !== "USDT" ||
+          compareDecimal(String(reservation.amount), intent.amount) !== 0 ||
+          compareDecimal(String(lock.reserved_amount), String(reservation.amount)) !== 0) {
+        throw new Error("BUY资金预留与订单意图不一致，拒绝成交入账");
+      }
+      const existingFill = this.get(
+        "SELECT * FROM fills WHERE symbol = ? AND trade_id = ?",
+        fill.symbol, fill.fillId,
+      );
+      const existingLedgerRow = this.get(
+        "SELECT * FROM trade_ledger WHERE symbol = ? AND fill_id = ?",
+        fill.symbol, fill.fillId,
+      );
+      if (existingFill || existingLedgerRow) {
+        if (!existingFill || !existingLedgerRow) throw new Error("BUY成交fill与台账存在不一致孤儿记录");
+        const existingLedger = parseTradeLedger(existingLedgerRow);
+        if (!sameFill(existingLedger, fill, null) ||
+            existingFill.intent_id !== input.intentId ||
+            Number(existingFill.attempt) !== input.attempt ||
+            existingFill.order_id !== fill.orderId || existingFill.side !== "BUY" ||
+            existingFill.commission_usdt !== String(fill.commissionUsdt) ||
+            existingLedger.baseRatioAtBuy !== intent.baseRatioAtSignal) {
+          throw new Error("重复BUY tradeId返回冲突数据，拒绝覆盖");
+        }
+        return { recorded: false, ledger: existingLedger };
+      }
+
+      this.run(
+        "UPDATE order_intents SET exchange_order_id = ?, updated_at = ? WHERE intent_id = ? AND attempt = ?",
+        fill.orderId, input.now, input.intentId, input.attempt,
+      );
+      this.run(
+        \`INSERT INTO fills(
+          symbol, trade_id, intent_id, attempt, order_id, side, price, qty, quote_qty,
+          commission, commission_asset, commission_usdt, filled_at, sell_kind
+        ) VALUES (?, ?, ?, ?, ?, 'BUY', ?, ?, ?, ?, ?, ?, ?, NULL)\`,
+        fill.symbol, fill.fillId, input.intentId, input.attempt, fill.orderId,
+        String(fill.price), String(fill.qty), String(fill.quoteQty), String(fill.commission),
+        fill.commissionAsset, String(fill.commissionUsdt), fill.time,
+      );
+      const id = fill.symbol + ":" + fill.fillId;
+      this.run(
+        \`INSERT INTO trade_ledger(
+          id, symbol, fill_id, order_id, side, time, price, qty, quote_qty,
+          commission, commission_asset, commission_usdt, realized_pnl_usdt,
+          sell_kind, base_ratio_at_buy
+        ) VALUES (?, ?, ?, ?, 'BUY', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)\`,
+        id, fill.symbol, fill.fillId, fill.orderId, fill.time, fill.price, fill.qty,
+        fill.quoteQty, fill.commission, fill.commissionAsset, fill.commissionUsdt,
+        intent.baseRatioAtSignal as number,
+      );
+      const notification = buildTradeFillNotificationEvent(fill, input.now);
+      const payload = JSON.stringify(notification);
+      this.run(
+        \`INSERT INTO notification_outbox(
+          id, payload_json, state, attempt, next_attempt_at, created_at, updated_at
+        ) VALUES (?, ?, 'pending', 0, 0, ?, ?)\`,
+        notification.id, payload, input.now, input.now,
+      );
+      const stored = this.get("SELECT * FROM trade_ledger WHERE id = ?", id);
+      if (!stored) throw new Error("BUY成交台账写入后无法读取");
+      const ledger = parseTradeLedger(stored);
+      if (!sameFill(ledger, fill, null) || ledger.baseRatioAtBuy !== intent.baseRatioAtSignal) {
+        throw new Error("BUY成交台账写入后校验失败");
+      }
+      return { recorded: true, ledger };
     });
   }
 
