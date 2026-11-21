@@ -44,6 +44,7 @@ describe("本地Trader只读状态快照", () => {
         intentId: "v33:BTC:head:1800000000000",
         strategyEventId: "BTC:head:1800000000000",
         strategyVersion: "3.3",
+        strategyTier: "head",
         symbol: "BTCUSDT",
         side: "BUY",
         quoteAsset: "USDT",
