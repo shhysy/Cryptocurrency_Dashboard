@@ -57,6 +57,31 @@ describe("post-take-profit average-cost rebuy", () => {
     expect(result.coins[0].signal.action.notes[0]).toContain("下跌 15%");
   });
 
+  it("SELL成交已写入SQLite但事件fillIds尚未更新时必须阻断回补", () => {
+    const interrupted = {
+      ...event,
+      status: "reconcile_required" as const,
+      exchangeOrderId: "11",
+      fillIds: [],
+      filledQty: 0,
+    };
+    const result = applyPostTakeProfitRebuy(data(), [interrupted], [sell]);
+    expect(result.coins[0].signal.tag).toBe("暂缓");
+    expect(result.coins[0].signal.action.blocked.join()).toContain("索引与SQLite确认成交不一致");
+  });
+
+  it("SELL事件仍在对账状态但订单身份和全部成交索引已持久化时可进入均价回补", () => {
+    const interrupted = {
+      ...event,
+      status: "reconcile_required" as const,
+      exchangeOrderId: "11",
+      fillIds: ["sell-1"],
+    };
+    const result = applyPostTakeProfitRebuy(data(), [interrupted], [sell]);
+    expect(result.coins[0].signal.action.label).toBe("均价回补第 1 档");
+    expect(result.coins[0].signal.action.side).toBe("buy");
+  });
+
   it("does not switch modes for a pending or unfilled take-profit event", () => {
     const pending = { ...event, status: "pending" as const, filledQty: 0 };
     const result = applyPostTakeProfitRebuy(data(), [pending], [sell]);
