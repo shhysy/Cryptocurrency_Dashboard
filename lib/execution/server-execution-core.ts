@@ -14,6 +14,8 @@ export interface ServerExecutionIntent {
   quoteAsset: "USDT";
   /** BUY使用USDT金额；SELL使用基础资产数量，均以十进制字符串保存。 */
   amount: string;
+  /** BUY信号入队时冻结的策略3.3底仓比例；成交入账不得使用当前参数回填历史值。 */
+  baseRatioAtSignal?: number;
   state: ServerExecutionState;
   attempt: number;
   createdAt: number;
@@ -55,7 +57,7 @@ const TRANSITIONS: Record<ServerExecutionState, readonly ServerExecutionState[]>
 };
 
 export function validateServerExecutionIntent(
-  input: Pick<ServerExecutionIntent, "intentId" | "strategyEventId" | "strategyVersion" | "symbol" | "side" | "quoteAsset" | "amount" | "createdAt">,
+  input: Pick<ServerExecutionIntent, "intentId" | "strategyEventId" | "strategyVersion" | "symbol" | "side" | "quoteAsset" | "amount" | "createdAt" | "baseRatioAtSignal">,
 ): string | null {
   if (!/^[A-Za-z0-9:_-]{1,156}$/.test(input.strategyEventId)) return "策略事件 ID 格式无效";
   if (input.intentId !== serverExecutionIntentId(input.strategyEventId)) return "订单意图 ID 与策略事件幂等键不匹配";
@@ -63,6 +65,10 @@ export function validateServerExecutionIntent(
   if (!/^[A-Z0-9]{5,24}$/.test(input.symbol) || !input.symbol.endsWith("USDT")) return "交易对必须为USDT报价现货格式";
   if (input.side !== "BUY" && input.side !== "SELL") return "订单方向无效";
   if (input.quoteAsset !== "USDT") return "当前执行层只允许 USDT 报价资产";
+  if (input.baseRatioAtSignal !== undefined &&
+      (!Number.isFinite(input.baseRatioAtSignal) || input.baseRatioAtSignal < 0 || input.baseRatioAtSignal > 1)) {
+    return "订单意图冻结的底仓比例无效";
+  }
   if (typeof input.amount !== "string" || !DECIMAL_AMOUNT.test(input.amount) ||
       !Number.isFinite(Number(input.amount)) || Number(input.amount) <= 0) {
     return "订单金额或数量必须是正数十进制字符串";
