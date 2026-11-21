@@ -764,7 +764,9 @@ describe("BUY GTC开放订单增量成交", () => {
         eventTypes: ["confirmed_trade_fill"],
       });
       expect(mailLeases).toHaveLength(1);
-      originalMailSnapshot = mailLeases[0]!.event.businessSnapshot;
+      const firstMailEvent = mailLeases[0]!.event;
+      if (firstMailEvent.type !== "confirmed_trade_fill") throw new Error("Outbox事件类型错误");
+      originalMailSnapshot = firstMailEvent.businessSnapshot;
       expect(mailLeases[0]!.event).toMatchObject({
         side: "BUY",
         businessSnapshot: {
@@ -822,7 +824,9 @@ describe("BUY GTC开放订单增量成交", () => {
         eventTypes: ["confirmed_trade_fill"],
       });
       expect(retryLeases).toHaveLength(1);
-      expect(retryLeases[0]!.event.businessSnapshot).toEqual(originalMailSnapshot);
+      const retryEvent = retryLeases[0]!.event;
+      if (retryEvent.type !== "confirmed_trade_fill") throw new Error("Outbox重试事件类型错误");
+      expect(retryEvent.businessSnapshot).toEqual(originalMailSnapshot);
     } finally {
       restartedStore.close();
     }
