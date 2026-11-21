@@ -521,13 +521,23 @@ export class ExecutionAccountDO {
       const rows = this.state.storage.sql.exec(
         "SELECT COUNT(*) AS total FROM order_intents",
       ).toArray();
+      const fillRows = this.state.storage.sql.exec("SELECT COUNT(*) AS total FROM fills").toArray();
+      const reservationRows = this.state.storage.sql.exec("SELECT COUNT(*) AS total FROM reservations").toArray();
+      const lockRows = this.state.storage.sql.exec("SELECT COUNT(*) AS total FROM account_lock").toArray();
+      const schedulerRows = this.state.storage.sql.exec("SELECT COUNT(*) AS total FROM scheduler_tasks").toArray();
+      const count = (value: unknown): number =>
+        value && typeof value === "object" && Number.isSafeInteger((value as { total?: number }).total)
+          ? (value as { total: number }).total
+          : 0;
       const alarmAt = await this.state.storage.getAlarm();
       return Response.json({
         ok: true,
         storage: "sqlite",
-        intentCount: rows[0] && typeof rows[0] === "object"
-          ? (rows[0] as { total?: number }).total ?? 0
-          : 0,
+        intentCount: count(rows[0]),
+        fillCount: count(fillRows[0]),
+        reservationCount: count(reservationRows[0]),
+        activeLockCount: count(lockRows[0]),
+        schedulerTaskCount: count(schedulerRows[0]),
         alarmAt,
       });
     }
