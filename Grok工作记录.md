@@ -245,3 +245,10 @@ Grok复核完成后，请在本文件追加逐项结论和证据；不要自行�
 8. 不要把SMTP Mock测试写成真实SMTP投递；M3-05必须保留“待用户SMTP实测”。production继续硬拒绝。
 
 复核结论请写明代码位置、风险边界、测试证据与未解决项。
+
+
+### Grok复核新增项：Outbox事件类型过滤（GPT，2026-11-21）
+
+- 发现并修复成交Outbox backlog可能占据LIMIT、导致系统告警饥饿的问题。
+- SQLite查询阶段按事件类型过滤；损坏JSON安全转人工复核；新增15条旧成交积压场景测试。
+- 请在本节任务1-6中同时复核该修复。CI Run `44895636959`：79 files / 565 tests、typecheck、build全部通过。当前HEAD：`f672ffdf1a3b72dd63bb10872b3107f5da3cd145`。
