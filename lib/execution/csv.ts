@@ -38,9 +38,14 @@ const tradeLedgerColumns: (keyof TradeLedgerEntry)[] = [
 ];
 
 /** 只导出Binance已确认的逐笔成交，不包含挂单、限价估算或未成交数量。 */
-function tradeLedgerCell(value: unknown): string {\n  if (typeof value === "number" && Number.isFinite(value)) return `"${value}"`;\n  return csvCell(value);\n}\n\nexport function tradeLedgerToCsv(entries: TradeLedgerEntry[]): string {
+function tradeLedgerCell(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) return \`"\${value}"\`;
+  return csvCell(value);
+}
+
+export function tradeLedgerToCsv(entries: TradeLedgerEntry[]): string {
   return [
     tradeLedgerColumns.join(","),
     ...entries.map((entry) => tradeLedgerColumns.map((key) => tradeLedgerCell(entry[key])).join(",")),
-  ].join("\r\n") + "\\r\\n";
+  ].join("\r\n") + "\r\n";
 }
