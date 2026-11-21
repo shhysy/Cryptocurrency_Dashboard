@@ -715,14 +715,33 @@ export class SqliteExecutionStore implements LocalExecutionStore {
           ledger.commissionAsset, ledger.commissionUsdt, ledger.sellKind ?? null,
           ledger.baseRatioAtBuy ?? null,
         );
+        const storedLedgerRow = this.get(
+          "SELECT * FROM trade_ledger WHERE symbol = ? AND fill_id = ?",
+          ledger.symbol, ledger.fillId,
+        );
+        if (!storedLedgerRow) throw new Error("成交台账写入后无法读取");
+        const storedLedger = parseTradeLedger(storedLedgerRow);
+        if (!sameFill(storedLedger, numericFill, sellKind) ||
+            storedLedger.baseRatioAtBuy !== ledger.baseRatioAtBuy) {
+          throw new Error("成交台账已存在冲突内容，拒绝覆盖");
+        }
+
         const notification = buildTradeFillNotificationEvent(numericFill, now);
+        const notificationPayload = JSON.stringify(notification);
         this.run(
           `INSERT INTO notification_outbox(
             id, payload_json, state, attempt, next_attempt_at, created_at, updated_at
           ) VALUES (?, ?, 'pending', 0, 0, ?, ?)
           ON CONFLICT(id) DO NOTHING`,
-          notification.id, JSON.stringify(notification), now, now,
+          notification.id, notificationPayload, now, now,
         );
+        const storedNotification = this.get(
+          "SELECT payload_json FROM notification_outbox WHERE id = ?",
+          notification.id,
+        );
+        if (!storedNotification || storedNotification.payload_json !== notificationPayload) {
+          throw new Error("成交Outbox事件ID已存在但载荷不同，拒绝覆盖");
+        }
       }
 
       const expectedCount = this.get(
@@ -754,7 +773,7 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       this.run(
         `INSERT INTO exchange_orders(
           exchange_order_id, intent_id, attempt, client_order_id, symbol, side, status,
-          orig_qty, executed_qty, cumulative_quote_qty, exchange_time, exchange_update_time, reconciled_at
+          requested_amount, executed_qty, cumulative_quote_qty, exchange_time, exchange_update_time, reconciled_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
         ON CONFLICT(exchange_order_id) DO NOTHING`,
         input.exchangeOrderId, input.intentId, input.attempt, intent.clientOrderId,
@@ -765,8 +784,11 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       if (!storedOrder || storedOrder.intent_id !== input.intentId ||
           Number(storedOrder.attempt) !== input.attempt || storedOrder.client_order_id !== intent.clientOrderId ||
           storedOrder.symbol !== intent.symbol || storedOrder.side !== intent.side ||
-          storedOrder.status !== input.exchangeStatus || storedOrder.executed_qty !== input.executedQty ||
-          storedOrder.cumulative_quote_qty !== input.cumulativeQuoteQty) {
+          storedOrder.status !== input.exchangeStatus ||
+          storedOrder.requested_amount !== intent.amount ||
+          storedOrder.executed_qty !== input.executedQty ||
+          storedOrder.cumulative_quote_qty !== input.cumulativeQuoteQty ||
+          Number(storedOrder.exchange_update_time) !== input.exchangeTerminalAt) {
         throw new Error("交易所订单ID已存在但订单事实冲突");
       }
 
