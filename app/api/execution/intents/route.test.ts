@@ -56,7 +56,12 @@ describe("Testnet服务端策略意图入口", () => {
     balancesMock.mockResolvedValue([{ asset: "USDT", free: "1000", locked: "0" }] as never);
     rulesMock.mockResolvedValue({
       symbol: "BTCUSDT", status: "TRADING", baseAsset: "BTC", quoteAsset: "USDT",
-      quoteOrderQtyMarketAllowed: true, filters: [],
+      quoteOrderQtyMarketAllowed: true,
+      filters: [
+        { filterType: "LOT_SIZE", minQty: "0.00001", maxQty: "100", stepSize: "0.00001" },
+        { filterType: "PRICE_FILTER", minPrice: "0.01", maxPrice: "1000000", tickSize: "0.01" },
+        { filterType: "MIN_NOTIONAL", minNotional: "5", applyToMarket: true },
+      ],
     } as never);
   });
 
