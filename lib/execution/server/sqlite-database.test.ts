@@ -123,7 +123,7 @@ describe("本地执行SQLite数据库基础设施", () => {
         .get("v33:BTC:head:2026W47") as { amount: string };
       expect(intent.amount).toBe("100");
       const version = upgraded.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number };
-      expect(version.version).toBe(3);
+      expect(version.version).toBe(4);
     } finally {
       upgraded.close();
     }
