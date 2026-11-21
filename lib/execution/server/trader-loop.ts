@@ -181,6 +181,36 @@ async function reconcileDueTasks(
       manualReview += 1;
       continue;
     }
+    if (plan.kind === "open_fills") {
+      if (context.intent.side !== "BUY") {
+        await deps.store.markManualReview({
+          intentId, attempt: accountLease.attempt, leaseToken: accountLease.token,
+          now: now(), reason: "BUY意图对账返回了非BUY开放订单计划",
+        });
+        await deps.store.scheduler.ack(task, now());
+        manualReview += 1;
+        continue;
+      }
+      for (const fill of plan.fills) {
+        await deps.store.tradeLedger.recordConfirmedBuyFill({
+          fill,
+          intentId,
+          attempt: accountLease.attempt,
+          leaseToken: accountLease.token,
+          schedulerLease: task,
+          now: now(),
+        });
+      }
+      const deferred = await deps.store.scheduler.defer(
+        task,
+        now(),
+        15_000,
+        `Binance订单仍处于${plan.status}，已核验${plan.fills.length}笔逐笔成交，保留资金预留并继续只读跟踪`,
+      );
+      if (!deferred) retried += 1;
+      continue;
+    }
+
     if (plan.kind !== "finalize") {
       const retry = await deps.store.scheduler.retry(task, now(), plan.reason);
       if (retry === "manual_review") {
