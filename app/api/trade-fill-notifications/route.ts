@@ -48,10 +48,10 @@ function validateEvent(value: unknown): value is ConfirmedFillEvent {
 }
 
 /**
- * 同源已认证中转：
- * Cloudflare Access 校验私有看板用户身份；本路由用仅服务端持有的 HMAC
- * 对已校验的 Outbox 批次签名后再转发。
- * 浏览器拿不到 HMAC 密钥，也拿不到 Worker 邮件凭证。
+ * 同源成交通知中转（本地优先）：
+ * - 未配置 Cloudflare Access 时：视为本地模式，跳过 Access JWT。
+ * - 未配置 Worker URL 时：本地仅校验事件并返回 accepted（不外发）。
+ * - 若配置了 Worker + HMAC，则签名后转发（可选，非本地必需）。
  */
 export async function POST(request: Request): Promise<Response> {
   const configuredOrigin = process.env.APP_ORIGIN ?? "";
@@ -63,35 +63,40 @@ export async function POST(request: Request): Promise<Response> {
     return json({ ok: false, error: "APP_ORIGIN 配置无效" }, 503);
   }
   if (request.headers.get("Origin") !== expectedOrigin) {
-    return json({ ok: false, error: "请求来源不受允许" }, 403);
+    return json({ ok: false, error: "跨站请求已拒绝" }, 403);
   }
 
-  const allowedEmail = process.env.CF_ACCESS_ALLOWED_EMAIL ?? "";
-  if (!allowedEmail) {
-    return json({ ok: false, error: "CF_ACCESS_ALLOWED_EMAIL 必须配置为唯一允许登录的邮箱" }, 503);
+  let identityEmail = "local";
+  const teamDomain = process.env.CF_ACCESS_TEAM_DOMAIN ?? "";
+  if (teamDomain) {
+    const allowedEmail = process.env.CF_ACCESS_ALLOWED_EMAIL ?? "";
+    if (!allowedEmail) {
+      return json({ ok: false, error: "已启用 CF Access 时必须配置 CF_ACCESS_ALLOWED_EMAIL" }, 503);
+    }
+    const identity = await verifyCloudflareAccessJwt(
+      request.headers.get("Cf-Access-Jwt-Assertion"),
+      {
+        teamDomain,
+        audience: process.env.CF_ACCESS_AUD ?? "",
+        allowedEmail,
+      },
+    );
+    if (!identity.ok) return json({ ok: false, error: "需要有效的 Cloudflare Access 登录" }, 401);
+    identityEmail = identity.email ?? "verified";
   }
-  const identity = await verifyCloudflareAccessJwt(
-    request.headers.get("Cf-Access-Jwt-Assertion"),
-    {
-      teamDomain: process.env.CF_ACCESS_TEAM_DOMAIN ?? "",
-      audience: process.env.CF_ACCESS_AUD ?? "",
-      allowedEmail,
-    },
-  );
-  if (!identity.ok) return json({ ok: false, error: "需要有效的 Cloudflare Access 登录" }, 401);
 
   const workerUrl = process.env.TRADE_FILL_NOTIFY_URL ?? "";
   const hmacSecret = process.env.TRADE_NOTIFY_HMAC_SECRET ?? "";
-  if (!workerUrl || hmacSecret.length < 32) {
-    return json({ ok: false, error: "成交通知 Worker 或 HMAC Secret 尚未配置" }, 503);
-  }
-  try {
-    const parsedUrl = new URL(workerUrl);
-    if (parsedUrl.protocol !== "https:" || parsedUrl.username || parsedUrl.password) {
-      return json({ ok: false, error: "成交通知 Worker URL 必须是 HTTPS 地址" }, 503);
+  const localNoWorker = !workerUrl || hmacSecret.length < 32;
+  if (!localNoWorker) {
+    try {
+      const parsedUrl = new URL(workerUrl);
+      if (parsedUrl.protocol !== "https:" || parsedUrl.username || parsedUrl.password) {
+        return json({ ok: false, error: "成交通知 Worker URL 必须是 HTTPS 地址" }, 503);
+      }
+    } catch {
+      return json({ ok: false, error: "成交通知 Worker URL 无效" }, 503);
     }
-  } catch {
-    return json({ ok: false, error: "成交通知 Worker URL 无效" }, 503);
   }
 
   const rawRequest = await request.text();
@@ -113,7 +118,10 @@ export async function POST(request: Request): Promise<Response> {
       return json({ ok: false, error: "批次中存在重复成交事件 ID" }, 400);
     }
 
-    // 重建最小规范载荷；绝不转发浏览器带来的状态字段。
+    if (localNoWorker) {
+      return json({ ok: true, accepted: events.length, duplicate: 0, local: true });
+    }
+
     const payload = JSON.stringify({ events });
     if (new TextEncoder().encode(payload).byteLength > MAX_BODY_BYTES) {
       return json({ ok: false, error: "规范化请求体过大" }, 413);
@@ -143,7 +151,7 @@ export async function POST(request: Request): Promise<Response> {
       accepted: result.accepted,
       duplicate: result.duplicate,
       count: events.length,
-      identity: identity.email ?? "verified",
+      identity: identityEmail,
     });
   } catch (error) {
     console.error("[trade-fill-notify] relay failed", error instanceof Error ? error.message : String(error));
