@@ -74,7 +74,7 @@ export function buildServerBuyIntents(
       intentId: serverExecutionIntentId(strategyEventId),
       strategyEventId,
       strategyVersion: "3.3",
-      strategyTier: action.kind,
+      strategyTier: action.kind as "head" | "add" | "reserve",
       symbol: `${coin.symbol}USDT`,
       side: "BUY",
       quoteAsset: "USDT",
