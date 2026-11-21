@@ -15,9 +15,12 @@ function noAction(label: string, over: Partial<Action> = {}): Action {
   };
 }
 
-function confirmed(event: SellEventRecord): boolean {
+function confirmed(event: SellEventRecord, symbolSells: TradeLedgerEntry[]): boolean {
   return event.status === "executed" ||
-    (event.status === "partially_filled" && (event.filledQty ?? 0) > EPSILON);
+    (event.status === "partially_filled" && (event.filledQty ?? 0) > EPSILON) ||
+    Boolean(event.exchangeOrderId && symbolSells.some((fill) =>
+      fill.orderId === event.exchangeOrderId && fill.sellKind === "take_profit"
+    ));
 }
 
 function tierOf(event: SellEventRecord): number | null {
@@ -96,14 +99,28 @@ export function applyPostTakeProfitRebuy(
       fill.symbol === pair && fill.side === "SELL"
     );
     const replay = replayAverageCost(coin, symbolSells);
-    const tpEvents = symbolEvents.filter((event) => event.kind === "take_profit" && confirmed(event));
+    const tpEvents = symbolEvents.filter((event) =>
+      event.kind === "take_profit" && confirmed(event, symbolSells)
+    );
     const tpIds = new Set(tpEvents.flatMap((event) => event.fillIds));
     const tpFills = symbolSells.filter((fill) =>
       fill.sellKind === "take_profit" && tpIds.has(fill.fillId)
     );
+    const unindexedTpFills = tpEvents.flatMap((event) => event.exchangeOrderId
+      ? symbolSells.filter((fill) =>
+          fill.sellKind === "take_profit" &&
+          fill.orderId === event.exchangeOrderId &&
+          !tpIds.has(fill.fillId)
+        )
+      : []
+    );
 
-    if (tpEvents.length && (tpFills.length === 0 || tpFills.length !== tpIds.size)) {
-      return blockedSignal(coin, "已记录止盈，但止盈成交明细不完整；暂停回补，先恢复成交台账");
+    if (tpEvents.length && (
+      tpFills.length === 0 ||
+      tpFills.length !== tpIds.size ||
+      unindexedTpFills.length > 0
+    )) {
+      return blockedSignal(coin, "已记录止盈，但事件索引与SQLite确认成交不一致；暂停回补，先恢复完整对账");
     }
     if (tpEvents.length && !replay) {
       return blockedSignal(coin, "买卖成交无法与当前持仓数量核对；暂停止盈后回补，先核对持仓台账");
