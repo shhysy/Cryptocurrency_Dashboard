@@ -7,6 +7,7 @@ import {
 } from "./sell-signal-queue";
 import type { SellEventRecord } from "./sell-store.browser";
 import type { DashboardData } from "../types";
+import type { TradeLedgerEntry } from "./types";
 
 const sellSignal = {
   symbol: "BTC",
@@ -78,6 +79,25 @@ function partial(over: Partial<SellEventRecord> = {}): SellEventRecord {
   };
 }
 
+function ledgerRow(over: Partial<TradeLedgerEntry> & { fillId: string; qty: number }): TradeLedgerEntry {
+  return {
+    id: `ledger-${over.fillId}`,
+    fillId: over.fillId,
+    orderId: over.orderId ?? "1",
+    symbol: over.symbol ?? "BTCUSDT",
+    side: over.side ?? "SELL",
+    time: over.time ?? 1,
+    price: over.price ?? 60000,
+    qty: over.qty,
+    quoteQty: over.quoteQty ?? over.qty * 60000,
+    commission: over.commission ?? 0,
+    commissionAsset: over.commissionAsset ?? "USDT",
+    commissionUsdt: over.commissionUsdt ?? 0,
+    realizedPnlUsdt: over.realizedPnlUsdt ?? null,
+    sellKind: over.sellKind ?? "take_profit",
+  };
+}
+
 describe("GROK-SELL-01A 止盈 resume 台账核验", () => {
   it("无台账禁止 resume 并阻断", () => {
     const e = [partial()];
@@ -87,6 +107,13 @@ describe("GROK-SELL-01A 止盈 resume 台账核验", () => {
     const plan = buildSellEventReservations(data(), e);
     expect(plan.records).toHaveLength(0);
     expect(plan.blocked.some((b) => b.reason.includes("台账"))).toBe(true);
+  });
+
+  it("错误 symbol（同 fillId）必须拒绝", () => {
+    const e = [partial()];
+    expect(verifiedTakeProfitEventFilledQty(e[0], [
+      { symbol: "ETHUSDT", fillId: "f1", qty: 0.05, side: "SELL", sellKind: "take_profit" },
+    ])).toBeNull();
   });
 
   it("台账缺 fill / 错误 side / 错误 sellKind 禁止 resume", () => {
@@ -110,6 +137,22 @@ describe("GROK-SELL-01A 止盈 resume 台账核验", () => {
     ])).toBeNull();
   });
 
+  it("同键混合冲突：错误 side/kind 与有效行并存时不得误认", () => {
+    const e = [partial()];
+    expect(verifiedTakeProfitEventFilledQty(e[0], [
+      { symbol: "BTC", fillId: "f1", qty: 0.05, side: "BUY", sellKind: "take_profit" },
+      { symbol: "BTC", fillId: "f1", qty: 0.05, side: "SELL", sellKind: "take_profit" },
+    ])).toBeCloseTo(0.05);
+    expect(verifiedTakeProfitEventFilledQty(e[0], [
+      { symbol: "BTC", fillId: "f1", qty: 0.05, side: "SELL", sellKind: "take_profit" },
+      { symbol: "BTC", fillId: "f1", qty: 0.05, side: "SELL", sellKind: "take_profit" },
+    ])).toBeNull();
+    expect(verifiedTakeProfitEventFilledQty(e[0], [
+      { symbol: "BTC", fillId: "f1", qty: 0.05, side: "SELL", sellKind: "base_reduce" },
+      { symbol: "BTC", fillId: "f1", qty: 0.05, side: "SELL", sellKind: "take_profit" },
+    ])).toBeCloseTo(0.05);
+  });
+
   it("数量与 filledQty 不一致禁止 resume", () => {
     const e = [partial()];
     expect(verifiedTakeProfitEventFilledQty(e[0], [
@@ -129,11 +172,25 @@ describe("GROK-SELL-01A 止盈 resume 台账核验", () => {
     expect(plan.records[0].requestedQty).toBeCloseTo(0.1, 8);
   });
 
-  it("手续费不在 qty 字段时不影响数量核验", () => {
+  it("真实 TradeLedgerEntry 手续费字段再大也不计入成交数量", () => {
     const e = [partial()];
-    const ledger = [
-      { symbol: "BTC", fillId: "f1", qty: 0.05, side: "SELL", sellKind: "take_profit" as const },
-    ];
-    expect(verifiedTakeProfitEventFilledQty(e[0], ledger)).toBeCloseTo(0.05);
+    const row = ledgerRow({
+      fillId: "f1",
+      qty: 0.05,
+      commission: 999,
+      commissionAsset: "BNB",
+      commissionUsdt: 50,
+      sellKind: "take_profit",
+      side: "SELL",
+      symbol: "BTCUSDT",
+    });
+    expect(verifiedTakeProfitEventFilledQty(e[0], [{
+      symbol: row.symbol,
+      fillId: row.fillId,
+      qty: row.qty,
+      side: row.side,
+      sellKind: row.sellKind,
+    }])).toBeCloseTo(0.05);
+    expect(row.qty + row.commission).toBeGreaterThan(0.05);
   });
 });

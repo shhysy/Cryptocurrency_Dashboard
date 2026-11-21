@@ -2,28 +2,25 @@
 
 > 主开发分支：gpt。Issue #2。
 
-## 本轮（GROK-SELL-01A 止盈台账）
+## 本轮（GROK-SELL-01A 验收证据补齐）
 
-### 根因
-`takeProfitTierCanResume` 仅信任事件终态字段，未与唯一成交台账交叉核验。
-
-### 修复
-- `verifiedTakeProfitEventFilledQty`：强制 `side=SELL`、`sellKind=take_profit`、fillId 唯一、数量合计=filledQty
-- `hasUnverifiedTakeProfitClaims`：无法核验则阻断本档续卖
-- `takeProfitTierCanResume` / `takeProfitTierFilledQty` / `buildSellEventReservations` 传入 ledger
-- 剩余量 = 策略目标 − 台账核验成交量
-
-### 测试
-`sell-take-profit-ledger.test.ts`：无台账、缺 fill、错误 side/kind、重复 fillId、数量不符、合法 resume
+### GPT 要求项
+1. 错误 symbol 用例
+2. 混合冲突记录（同 fillId 不同 side/kind）
+3. 真实 TradeLedgerEntry 手续费不污染 qty
+4. enqueue 集成：mock `listTradeLedger`，无台账/错误 symbol 仅阻断本币
+5. 修复 `sell-signal-queue.test.ts` resume 未传台账导致 CI 失败
 
 ### 本地
 ```
-npm test → 55 files / 461 tests 通过
+npm test → 56 files / 469 tests 通过
 npm run typecheck → 通过
 ```
 
-### 未开始
-GROK-SELL-06 Outbox（须 GPT 复核 SELL 通过后）
+### 集成测试路径
+- `lib/execution/sell-enqueue-ledger.integration.test.ts`：`enqueueEligibleSellSignals` + mock `listTradeLedger`
+- `lib/execution/sell-automation-tick.integration.test.ts`：sync wait 清证明 + tick 不 resume
+- `lib/execution/sync-sell-order.browser.ts`：`decision.action==="wait"` → `reconcile_required`
 
 ### 约束
-未改 GPT 共享模块；生产交易/Outbox 关闭。
+未改 GPT 共享模块；Outbox/生产交易关闭。待最新 CI 链接由 Actions 生成后回填。
