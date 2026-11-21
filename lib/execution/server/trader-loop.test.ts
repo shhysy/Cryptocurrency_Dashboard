@@ -79,8 +79,8 @@ describe("本地Trader策略信号与执行循环", () => {
     });
   });
 
-  it("STALE、Mock、未知账户或策略阻断时不生成intent", () => {
-    expect(buildServerBuyIntents(dashboard({ stale: true }))).toHaveLength(0);
+  it("STALE仅作软提示；Mock、未知账户或策略阻断时不生成intent", () => {
+    expect(buildServerBuyIntents(dashboard({ stale: true }))).toHaveLength(1);
     expect(buildServerBuyIntents(dashboard({ source: "mock" }))).toHaveLength(0);
     expect(buildServerBuyIntents(dashboard({ market: { accountKnown: false } }))).toHaveLength(0);
     const blocked = dashboard({
