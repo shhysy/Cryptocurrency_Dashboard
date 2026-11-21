@@ -2,7 +2,7 @@ import { chmod, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 
-export const LOCAL_EXECUTION_SCHEMA_VERSION = 3;
+export const LOCAL_EXECUTION_SCHEMA_VERSION = 4;
 
 const INITIAL_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS order_intents (
@@ -267,6 +267,14 @@ export class LocalExecutionDatabase {
         this.database.prepare(
           "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
         ).run(3, Date.now());
+      });
+    }
+    if (currentVersion < 4) {
+      this.transaction(() => {
+        this.database.exec("ALTER TABLE order_intents ADD COLUMN strategy_tier TEXT");
+        this.database.prepare(
+          "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+        ).run(4, Date.now());
       });
     }
   }
