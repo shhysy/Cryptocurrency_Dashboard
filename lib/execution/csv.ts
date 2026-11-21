@@ -42,5 +42,5 @@ export function tradeLedgerToCsv(entries: TradeLedgerEntry[]): string {
   return [
     tradeLedgerColumns.join(","),
     ...entries.map((entry) => tradeLedgerColumns.map((key) => csvCell(entry[key])).join(",")),
-  ].join("\\r\\n") + "\\r\\n";
+  ].join("\r\n") + "\\r\\n";
 }
