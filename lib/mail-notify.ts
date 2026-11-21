@@ -124,7 +124,7 @@ function buildMail(hits: NotifyHit[]) {
       : "      · （暂无明细依据）";
     return [
       `【${i + 1}】${h.name}（代码 ${h.symbol}）`,
-      `      当前机会指数：${h.score} 分（满分 90）`,
+      `      当前机会指数：${h.score} 分（满分 100）`,
       `      本次触发门槛：${h.minScore} 分（${h.group === "core" ? "核心" : "山寨"}）`,
       `      超出门槛：${Math.max(0, h.score - h.minScore)} 分`,
       `      信号状态：${h.tag || "—"} · ${stable}`,
