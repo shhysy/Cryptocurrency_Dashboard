@@ -256,3 +256,14 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - `isTradeFillMailEnabled`现在同时要求开关开启和SMTP配置完整；SMTP尚未配置时不领取Outbox事件，避免空配置导致重试耗尽。
 - CI Run `44913252848`成功：81 files / 580 tests，typecheck与Next.js build通过。
 - 仍待补充邮件业务字段：BUY计划金额与剩余待买金额；SELL卖出原因、实现盈亏和剩余持仓。
+
+
+### GPT继续完善SELL限价与开放部分成交（2026-11-21）
+- 发现服务端SELL预检错误地优先读取`MARKET_LOT_SIZE`；LIMIT GTC应使用`LOT_SIZE`。已修正`lib/execution/server/sell-execution.ts`的`toMarketRules`，缺少LOT_SIZE时直接拒绝，不再回退到市价单数量规则。
+- 回归测试特意设置`LOT_SIZE.stepSize=0.001`、`MARKET_LOT_SIZE.stepSize=0.01`，验证策略授权数量0.205按LIMIT规则提交，不被错误缩减。
+- 新增SELL开放订单`PARTIALLY_FILLED`测试：按原clientOrderId查单、读取完整myTrades、核验累计成交量/金额后即时调用SQLite真实成交写入；事件保持只读对账状态，不会在订单未终态时创建续卖或重复POST。
+- SQLite已有SELL成交幂等测试：相同tradeId第二次写入返回recorded=false；相同ID但成交内容或卖出分类不同则拒绝覆盖。
+- 自动Trader主程序`scripts/trader.ts`现直接引用`submitTraderSpotLimitOrder`，不再使用旧兼容名称。
+- 已将遗留`/api/binance/spot-order`和`/api/binance/testnet-order`改为HTTP 410永久停用，并把两组路由测试改为验证拒绝请求，防止旧MARKET下单入口绕过本地Trader。路由最终HEAD的CI仍待完成。
+- SELL补强CI Run `44913742185`：81个测试文件、582个测试通过；typecheck、Next.js production build通过。该Run对应HEAD `a1aa82c67971e292c2454ae53416831a04038fac`，不包含随后旧路由停用提交。
+- 未完成：最新遗留路由停用HEAD CI；Testnet真实订单/部分成交/重启演练；72小时运行；SMTP真实投递；Grok/Claude独立复核。生产继续硬拒绝。
