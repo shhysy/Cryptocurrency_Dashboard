@@ -248,3 +248,11 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - 新增SQLite集成测试：部分成交真实fill入账、重复tradeId幂等、成交邮件Outbox、资金锁保留、开放订单延后调度。
 - CI Run `44912627106`成功：81个测试文件/579个测试通过，typecheck和Next build通过。
 - 未完成：完整NEW→多笔PARTIALLY_FILLED→FILLED生命周期测试、SELL开放订单验收、Cloudflare dispatcher是否实际使用的核对、Testnet真实订单/重启恢复和SMTP实投验证。
+
+
+### 成交邮件内容与SMTP开关补充
+- 成交邮件现包含真实逐笔fill数量、成交价、成交金额、手续费资产/金额、USDT手续费折算、Binance orderId/tradeId和成交时间。
+- Outbox dispatcher已把这些字段完整传递给SMTP邮件模板。
+- `isTradeFillMailEnabled`现在同时要求开关开启和SMTP配置完整；SMTP尚未配置时不领取Outbox事件，避免空配置导致重试耗尽。
+- CI Run `44913252848`成功：81 files / 580 tests，typecheck与Next.js build通过。
+- 仍待补充邮件业务字段：BUY计划金额与剩余待买金额；SELL卖出原因、实现盈亏和剩余持仓。
