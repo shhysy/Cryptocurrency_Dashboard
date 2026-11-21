@@ -111,8 +111,31 @@ try {
   });
   assert(submitting.status === 200, `提交前状态持久化失败：${JSON.stringify(submitting)}`);
 
+  // 故意提交超出USDT reservation的成交：即使fill已写入事务中，也必须整体回滚。
+  const terminalAt = Date.now();
+  const rejectedFinalize = await request("/internal/finalize", {
+    intentId,
+    attempt: accountLease.attempt,
+    leaseToken: accountLease.leaseToken,
+    exchangeOrderId: "90001",
+    exchangeStatus: "FILLED",
+    executedQty: "1",
+    cumulativeQuoteQty: "20",
+    exchangeTerminalAt: terminalAt,
+    fills: [{
+      tradeId: "70001", orderId: "90001", qty: "1", quoteQty: "20",
+      commission: "0", commissionAsset: "BTC", filledAt: terminalAt,
+    }],
+  });
+  assert(rejectedFinalize.status === 409, "超出reservation的成交未被拒绝");
+  const afterRollback = await request("/internal/health", undefined, "GET");
+  assert(afterRollback.payload.fillCount === 0 &&
+    afterRollback.payload.reservationCount === 1 &&
+    afterRollback.payload.activeLockCount === 1,
+    `终态结算失败后SQLite事务未完整回滚：${JSON.stringify(afterRollback.payload)}`);
+
+  console.log("[DO SQLite] submitting/账户锁持久化与终态事务回滚验证通过，开始测试scheduler队列");
   const dueAt = Date.now();
-  console.log("[DO SQLite] 订单submitting与reconcile任务已持久化，开始测试scheduler队列");
   const enqueue = await request("/internal/scheduler/enqueue", {
     taskId: "health:sqlite-restart",
     taskType: "health_check",
