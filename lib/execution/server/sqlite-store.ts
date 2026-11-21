@@ -358,6 +358,9 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       const row = this.get("SELECT * FROM order_intents WHERE intent_id = ?", intentId);
       if (!row || row.state !== "queued") return null;
       const intent = parseIntent(row);
+      if (intent.side === "BUY" && !["head", "add", "reserve"].includes(intent.strategyTier ?? "")) {
+        throw new Error("旧版BUY意图缺少明确策略档位，禁止作为新订单领取");
+      }
       if (intent.side === "BUY" && (!Number.isFinite(intent.baseRatioAtSignal) ||
           (intent.baseRatioAtSignal as number) < 0 || (intent.baseRatioAtSignal as number) > 1)) {
         throw new Error("BUY意图缺少有效的历史底仓比例，拒绝领取");
@@ -1485,11 +1488,10 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       const cumulativeQty = sumDecimals(orderFills.map((row) => String(row.qty)));
       const cumulativeQuote = sumDecimals(orderFills.map((row) => String(row.quote_qty)));
       const cumulativeFees = sumDecimals(orderFills.map((row) => String(row.commission_usdt)));
-      if (!intent.strategyTier) throw new Error("BUY成交缺少已冻结的策略档位，拒绝生成错误邮件");
       const consumedBudget = sumDecimals([cumulativeQuote, cumulativeFees]);
       const businessSnapshot: TradeFillBusinessSnapshot = {
         side: "BUY",
-        strategyTier: intent.strategyTier,
+        strategyTier: intent.strategyTier ?? null,
         plannedUsdt: intent.amount,
         cumulativeFilledQty: cumulativeQty,
         cumulativeQuoteQty: cumulativeQuote,
