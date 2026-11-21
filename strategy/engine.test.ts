@@ -57,7 +57,8 @@ describe("BTC 市场状态", () => {
   it("未收盘周线不参与 BTC MA200 和趋势状态", () => {
     const now = 204 * WEEK + 24 * 60 * 60 * 1000;
     const weekly = [...candles(flat(204, 100)), { t: 204 * WEEK, o: 100, h: 110, l: 40, c: 40 }];
-    expect(btcMarketState(weekly, 50, undefined, now)).toBe("transition");
+    // 周内现价跌破MA200不提前改变市场状态；仍按最后一根已收盘周线的收盘价判断。
+    expect(btcMarketState(weekly, 50, undefined, now)).toBe("bull");
   });
 });
 
@@ -319,7 +320,7 @@ describe("卖出", () => {
     expect(s.tag).toBe("追踪止损");
     expect(s.action.notes.join()).toContain("追踪线");
   });
-  it("追踪止损峰值使用买入后的周线最高价，而不是仅看收盘价", () => {
+  it("追踪止损不使用周内最高价；必须以已收盘周线收盘价维护峰值", () => {
     const base = coin([...flat(200, 100), 120, 100], { price: 100 });
     const weekly = base.weekly.map((candle, index) =>
       index === 200 ? { ...candle, h: 150, c: 120 } : candle
@@ -327,6 +328,16 @@ describe("卖出", () => {
     const input = held([...flat(200, 100), 120, 100], [trade(100, 1, 200)], {
       price: 100,
       weekly,
+    });
+    const s = evaluateCoin(input, ctx());
+    expect(s.tag).not.toBe("追踪止损");
+  });
+
+  it("持仓后最高周收盘价达到启动线，随后周收盘跌破追踪线时触发", () => {
+    const base = coin([...flat(200, 100), 150, 100], { price: 100 });
+    const input = held([...flat(200, 100), 150, 100], [trade(100, 1, 200)], {
+      price: 100,
+      weekly: base.weekly,
     });
     const s = evaluateCoin(input, ctx());
     expect(s.tag).toBe("追踪止损");
