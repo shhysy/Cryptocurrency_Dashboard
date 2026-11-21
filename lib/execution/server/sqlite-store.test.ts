@@ -129,6 +129,57 @@ describe("本地SQLite执行存储", () => {
     }
   });
 
+  it("进程关闭重开后恢复unknown订单、原clientOrderId、账户租约和对账任务", async () => {
+    const path = await tempDbPath();
+    const first = await openLocalExecutionStore({ path });
+    const value = intent("SELL");
+    let originalClientOrderId = "";
+    let originalLeaseToken = "";
+    try {
+      const created = await first.createIntent(value);
+      expect(created.created).toBe(true);
+      const claim = await first.claimIntent({
+        intentId: value.intentId,
+        availableAsset: "BTC",
+        availableAmount: "1",
+        snapshotAt: NOW,
+        now: NOW,
+        leaseMs: 30_000,
+      });
+      expect(claim).not.toBeNull();
+      originalClientOrderId = claim!.intent.clientOrderId!;
+      originalLeaseToken = claim!.lease.token;
+      await first.markSubmitting({
+        intentId: value.intentId, attempt: claim!.lease.attempt,
+        leaseToken: claim!.lease.token, clientOrderId: originalClientOrderId, now: NOW + 1,
+      });
+      await first.markUnknown({
+        intentId: value.intentId, attempt: claim!.lease.attempt,
+        leaseToken: claim!.lease.token, reason: "模拟进程退出前POST结果未知", now: NOW + 2,
+      });
+    } finally {
+      first.close();
+    }
+
+    const restarted = await openLocalExecutionStore({ path });
+    try {
+      const recovered = await restarted.getIntent(value.intentId);
+      expect(recovered?.state).toBe("unknown");
+      expect(recovered?.clientOrderId).toBe(originalClientOrderId);
+      const context = await restarted.getReconcileContext(value.intentId);
+      expect(context?.lease?.token).toBe(originalLeaseToken);
+      expect(context?.reservedAsset).toBe("BTC");
+      expect(context?.reservedAmount).toBe("0.05");
+      const tasks = await restarted.scheduler.claimDue({
+        now: NOW + 5_001, leaseMs: 30_000, limit: 5, taskType: "reconcile_intent",
+      });
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0]?.taskId).toBe(`reconcile:${value.intentId}`);
+    } finally {
+      restarted.close();
+    }
+  });
+
   it("过期账户租约只能接管对账，旧token不能再续租或提交", async () => {
     const store = await openLocalExecutionStore({ path: await tempDbPath() });
     try {
