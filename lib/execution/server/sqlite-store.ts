@@ -232,7 +232,6 @@ export class SqliteExecutionStore implements LocalExecutionStore {
     };
     this.notificationOutbox = {
       enqueueSystemAlert: (event) => this.enqueueSystemAlert(event),
-      countExecutionManualReview: () => this.countExecutionManualReview(),
       claimDue: (input) => this.claimDueNotifications(input),
       markSent: (input) => this.markNotificationSent(input),
       markFailed: (input) => this.markNotificationFailed(input),
@@ -1234,7 +1233,7 @@ export class SqliteExecutionStore implements LocalExecutionStore {
     });
   }
 
-  private async countExecutionManualReview(): Promise<number> {
+  async countExecutionManualReview(): Promise<number> {
     const row = this.get(
       `SELECT
         (SELECT COUNT(*) FROM order_intents WHERE state = 'manual_review') +
