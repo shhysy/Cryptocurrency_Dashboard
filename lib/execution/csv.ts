@@ -39,7 +39,7 @@ const tradeLedgerColumns: (keyof TradeLedgerEntry)[] = [
 
 /** 只导出Binance已确认的逐笔成交，不包含挂单、限价估算或未成交数量。 */
 function tradeLedgerCell(value: unknown): string {
-  if (typeof value === "number" && Number.isFinite(value)) return \`"\${value}"\`;
+  if (typeof value === "number" && Number.isFinite(value)) return '"' + String(value) + '"';
   return csvCell(value);
 }
 
