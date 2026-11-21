@@ -382,3 +382,14 @@ GPT已先行提交限价GTC第一阶段代码，Grok请在当前gpt分支最新H
 - 最新代码HEAD `2dcf4d2edd130c28ee27271ad691a614b96594d0`对应GitHub Actions Run `44913913471`已成功：81个测试文件、572个测试通过；TypeScript typecheck和Next.js production build全部通过。
 - 572与此前SELL补强Run的582测试数量不同，是因为两个旧市价路由原先各自的多项认证/请求测试改为单项永久停用测试；不是测试失败或被跳过。
 - 该结果仍仅证明CI自动化验证通过；Binance Testnet真实订单和成交、72小时连续运行、SMTP真实收发及独立复核仍未完成。
+
+
+## GPT验收范围调整与下一轮任务（2026-11-21）
+
+- 用户明确不要求72小时连续运行测试。后续任务、验收报告和上线清单均不得再把72小时列为硬性门槛；改为短时启动/停止、订单生命周期、部分成交、异常恢复和进程重启验证。
+- 本地常驻真实执行入口为`scripts/trader.ts`：BUY通过`trader-loop.ts`，SELL通过`sell-execution.ts`；两者注入`submitTraderSpotLimitOrder`。该路径才是本次本地交易架构的主要验收对象。
+- `reconcile-intent-dispatcher.server.ts`属于独立内部协调器分发路径，开放订单只重排任务，不执行本地SQLite fill入账。不得把它与本地Trader混为一条路径；本地模式上线不得依赖该未完成的内部协调器路径，除非未来另行补齐并独立验收。
+- 本地SELL执行模块当前预检使用`LOT_SIZE`，最终Binance下单适配器再次读取`PRICE_FILTER`、`LOT_SIZE`、余额与NOTIONAL，并实际发送LIMIT GTC；需要在后续代码中统一陈旧的Market命名与类型，避免维护者误读，但不得改变现有限价规则。
+- 下一步优先补齐成交邮件数据：BUY策略档位、计划金额、累计成交数量/金额/均价、剩余待买金额；SELL卖出原因/档位、累计成交数量/金额/均价、实现盈亏和剩余持仓。盈亏和持仓必须由SQLite真实成交台账计算，禁止用限价或策略预估值伪造。
+- Testnet真实BUY/SELL、部分成交与重启恢复、SMTP三类邮件真实收信仍需用户本机配置专用Testnet Key/邮箱后验证；Mock/CI不得冒充真实环境结果。
+- 生产模式继续硬拒绝，所有提交说明使用中文。
