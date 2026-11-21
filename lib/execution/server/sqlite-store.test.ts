@@ -734,6 +734,7 @@ describe("BUY GTC开放订单增量成交", () => {
     const path = await tempDbPath();
     const store = await openLocalExecutionStore({ path });
     const value = intent("BUY");
+    let originalMailSnapshot: unknown;
     try {
       const { claim, lease } = await claimAndSubmit(store, value);
       const tasks = await store.scheduler.claimDue({
@@ -763,6 +764,7 @@ describe("BUY GTC开放订单增量成交", () => {
         eventTypes: ["confirmed_trade_fill"],
       });
       expect(mailLeases).toHaveLength(1);
+      originalMailSnapshot = mailLeases[0]!.event.businessSnapshot;
       expect(mailLeases[0]!.event).toMatchObject({
         side: "BUY",
         businessSnapshot: {
@@ -812,6 +814,17 @@ describe("BUY GTC开放订单增量成交", () => {
       expect(await store.scheduler.ack(terminalTasks[0]!, NOW + 46_005)).toBe(true);
     } finally {
       store.close();
+    }
+    const restartedStore = await openLocalExecutionStore({ path });
+    try {
+      const retryLeases = await restartedStore.notificationOutbox.claimDue({
+        now: NOW + 100_000, leaseMs: 30_000, limit: 10,
+        eventTypes: ["confirmed_trade_fill"],
+      });
+      expect(retryLeases).toHaveLength(1);
+      expect(retryLeases[0]!.event.businessSnapshot).toEqual(originalMailSnapshot);
+    } finally {
+      restartedStore.close();
     }
     const db = await openLocalExecutionDatabase({ path });
     try {
