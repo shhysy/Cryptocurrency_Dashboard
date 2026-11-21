@@ -1183,7 +1183,7 @@ export class ExecutionAccountDO {
       ? (rows[0] as { next_at?: unknown }).next_at
       : null;
     if (typeof nextAt === "number" && Number.isSafeInteger(nextAt) && nextAt > 0) {
-      await this.state.storage.setAlarm(Math.max(now + 1_000, nextAt));
+      await this.state.storage.setAlarm(Math.max(now + 60_000, nextAt));
     }
   }
 
