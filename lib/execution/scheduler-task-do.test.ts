@@ -155,7 +155,7 @@ describe("DO持久化调度任务队列", () => {
     }));
     const claimResponse = await coordinator.fetch(post("/internal/scheduler/claim", { limit: 1, taskType: "health_check" }));
     const claimBody = await claimResponse.json() as { tasks: Array<{ taskId: string; attempt: number; leaseToken: string }> };
-    const lease = claimBody.tasks[0];
+    const lease = claimBody.tasks[0]!;
     expect(lease).toBeDefined();
     expect(lease.attempt).toBe(1);
     expect(lease.leaseToken.length).toBeGreaterThanOrEqual(16);
@@ -178,7 +178,7 @@ describe("DO持久化调度任务队列", () => {
     }));
     const claim = await coordinator.fetch(post("/internal/scheduler/claim", { taskType: "reconcile_intent" }));
     const body = await claim.json() as { tasks: Array<{ taskId: string; attempt: number; leaseToken: string }> };
-    const lease = body.tasks[0];
+    const lease = body.tasks[0]!;
     const retry = await coordinator.fetch(post("/internal/scheduler/retry", {
       ...lease, reason: "只读对账执行器尚未接通",
     }));
