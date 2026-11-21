@@ -176,6 +176,45 @@ async function reconcileSellEvent(
 }
 
 /**
+ * Terminal partial fills create one deterministic continuation event for the
+ * exact remaining quantity. Each continuation may itself create one child if
+ * it also terminates partially; the parent event is never POSTed again.
+ */
+async function ensurePartialSellContinuation(
+  event: SellEventRecord,
+  deps: ServerSellCycleDependencies,
+  now: () => number,
+  log: (message: string) => void,
+): Promise<void> {
+  if (event.status !== "partially_filled") return;
+  const remainingQty = event.requestedQty - (event.filledQty ?? 0);
+  const epsilon = Math.max(1e-12, event.requestedQty * 1e-12);
+  if (remainingQty <= epsilon) return;
+
+  const events = await deps.store.sellEvents.listSellEvents();
+  const childPrefix = `${event.eventKey}:续卖`;
+  if (events.some((item) => item.eventKey.startsWith(childPrefix))) return;
+
+  const childEventKey = `${event.eventKey}:续卖1`;
+  const child = await deps.store.sellEvents.reserveSellEvent({
+    eventKey: childEventKey,
+    symbol: event.symbol,
+    kind: event.kind,
+    status: "pending",
+    requestedQty: remainingQty,
+    filledQty: 0,
+    createdAt: now(),
+    updatedAt: now(),
+    exchangeOrderId: null,
+    fillIds: [],
+    lastError: null,
+  });
+  if (child.created) {
+    log(`SELL终态部分成交，已为剩余数量建立续卖事件：${childEventKey}，剩余数量=${remainingQty}`);
+  }
+}
+
+/**
  * Local-process SELL execution. Signals, reservations, confirmed fills and event
  * state all use SQLite. The clientOrderId is persisted before POST; every
  * ambiguous outcome is reconciliation-only and can never trigger a second POST.
@@ -195,8 +234,12 @@ export async function runServerSellCycle(
     (item.status === "reconcile_required" || item.status === "partially_filled") && Boolean(item.clientOrderId))) {
     try {
       const outcome = await reconcileSellEvent(event, deps, now);
-      if (outcome === "reconciled") result.reconciled += 1;
-      else if (outcome === "blocked") result.blocked += 1;
+      if (outcome === "reconciled") {
+        result.reconciled += 1;
+        const refreshedEvent = (await deps.store.sellEvents.listSellEvents())
+          .find((item) => item.eventKey === event.eventKey);
+        if (refreshedEvent) await ensurePartialSellContinuation(refreshedEvent, deps, now, log);
+      } else if (outcome === "blocked") result.blocked += 1;
       else result.skipped += 1;
     } catch (error) {
       result.skipped += 1;
