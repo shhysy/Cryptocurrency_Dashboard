@@ -50,8 +50,15 @@ export async function runNotificationOutboxCycle(
             type: event.type,
             side: event.side,
             symbol: event.symbol,
+            fillId: event.fillId,
+            exchangeOrderId: event.exchangeOrderId,
             filledQty: event.filledQty,
             fillPrice: event.fillPrice,
+            quoteQty: event.quoteQty,
+            commission: event.commission,
+            commissionAsset: event.commissionAsset,
+            commissionUsdt: event.commissionUsdt,
+            filledAt: event.filledAt,
           }])
         : await dispatchTraderAlertMail({
             id: event.id,
