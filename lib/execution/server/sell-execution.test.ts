@@ -181,6 +181,25 @@ describe("本地Trader服务端SELL执行", () => {
     expect(submitOrder).not.toHaveBeenCalled();
   });
 
+  it("行情STALE时仍先恢复旧SELL订单，再阻断新卖单", async () => {
+    const f = fixture();
+    f.setEvent({ status: "reconcile_required", clientOrderId: "gpt-stale-recovery-1" });
+    const staleDashboard = { ...f.dashboard, stale: true } as DashboardData;
+    const submitOrder = vi.fn();
+    const result = await runServerSellCycle({
+      mode: "testnet",
+      store: f.store,
+      adapter: f.adapter,
+      dashboard: staleDashboard,
+      submitOrder,
+    });
+
+    expect(result.skipped).toBe(2);
+    expect(f.findOrderByClientOrderId).toHaveBeenCalledWith("BTCUSDT", "gpt-stale-recovery-1");
+    expect(f.store.sellEvents.claimSellEventForSubmission).not.toHaveBeenCalled();
+    expect(submitOrder).not.toHaveBeenCalled();
+  });
+
   it("按原clientOrderId只读对账，逐笔成交一致后才写台账并结束SELL事件", async () => {
     const f = fixture();
     f.setEvent({ status: "reconcile_required", clientOrderId: "gpt-original-123" });
