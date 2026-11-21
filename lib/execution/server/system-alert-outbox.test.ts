@@ -114,6 +114,25 @@ describe("Trader系统告警SQLite Outbox", () => {
       store.close();
     }
   });
+  it("即使BUY意图状态未同步，孤立的manual_review资金预留也必须触发停机计数", async () => {
+    const store = await openStore();
+    try {
+      const db = (store as unknown as { database: { exec(sql: string): void } }).database;
+      db.exec(`INSERT INTO order_intents(
+        intent_id, strategy_event_id, strategy_version, symbol, side, quote_asset,
+        amount, state, attempt, created_at, updated_at
+      ) VALUES ('intent-reservation-review', 'event-reservation-review', '3.3', 'BTCUSDT',
+        'BUY', 'USDT', '10', 'queued', 1, ${NOW}, ${NOW})`);
+      db.exec(`INSERT INTO reservations(
+        reservation_id, intent_id, asset, amount, consumed_amount, attempt, state, created_at, updated_at
+      ) VALUES ('reservation-review-1', 'intent-reservation-review', 'USDT', '10', '0',
+        1, 'manual_review', ${NOW}, ${NOW})`);
+      expect(await store.countExecutionManualReview()).toBe(1);
+    } finally {
+      store.close();
+    }
+  });
+
   it("统计BUY人工复核与SELL阻断事件，供Trader自动停机", async () => {
     const store = await openStore();
     try {
