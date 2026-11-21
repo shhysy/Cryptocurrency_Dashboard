@@ -25,6 +25,10 @@ function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+function envEnabled(value: string | undefined): boolean {
+  return value === "1" || value === "true";
+}
+
 function authenticated(req: Request): boolean {
   const expected = process.env.DASHBOARD_PASSWORD;
   const header = req.headers.get("authorization");
@@ -111,7 +115,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "跨站请求已拒绝" }, { status: 403 });
   }
   if (process.env.BINANCE_SPOT_ENVIRONMENT !== "testnet" ||
-      process.env.BINANCE_TESTNET_INTENT_CREATION_ENABLED !== "true") {
+      !envEnabled(process.env.BINANCE_TESTNET_INTENT_CREATION_ENABLED)) {
     return NextResponse.json({ error: "服务端Testnet intent创建开关未启用；生产环境永远不接受此入口" }, { status: 403 });
   }
 
@@ -168,6 +172,10 @@ export async function POST(req: Request) {
           !decimalIsPositive(priceFilter.tickSize) || !decimalIsPositive(notionalFilter.minNotional)) continue;
 
       const side = action.side === "buy" ? "BUY" : "SELL";
+      const sideEnabled = side === "BUY"
+        ? envEnabled(process.env.BINANCE_TESTNET_BUY_ENABLED)
+        : envEnabled(process.env.BINANCE_TESTNET_SELL_ENABLED);
+      if (!sideEnabled) continue;
       if (side === "BUY" && !rules.quoteOrderQtyMarketAllowed) continue;
       const requiredAsset = side === "BUY" ? "USDT" : rules.baseAsset;
       const rawAmount = side === "BUY" ? action.usdt : action.qty;
