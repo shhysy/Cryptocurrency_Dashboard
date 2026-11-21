@@ -7,6 +7,7 @@ import { openLocalExecutionStore } from "@/lib/execution/server/sqlite-store";
 import { acquireTraderLock } from "@/lib/execution/server/trader-lock";
 import { runTraderCycle, type TraderMode } from "@/lib/execution/server/trader-loop";
 import { enqueueServerSellSignals } from "@/lib/execution/server/sell-enqueue";
+import { runServerSellCycle } from "@/lib/execution/server/sell-execution";
 import { parseAutoTradeMode, assertProductionAuthorized } from "@/lib/execution/server/auto-trade-mode";
 import { runStartupSelfCheck } from "@/lib/execution/server/startup-self-check";
 import { ConsecutiveFailureBreaker } from "@/lib/execution/server/circuit-breaker";
@@ -66,6 +67,9 @@ async function main(): Promise<void> {
     if (process.env.BINANCE_TESTNET_BUY_ENABLED !== "1") {
       throw new Error("Testnet BUY服务端开关未启用；拒绝启动自动买入");
     }
+    if (process.env.BINANCE_TESTNET_SELL_ENABLED !== "1") {
+      throw new Error("Testnet SELL服务端开关未启用；拒绝启动自动卖出");
+    }
     if (process.env.ENABLE_ACCOUNT === "0" || !hasCredentials()) {
       throw new Error("Testnet自动交易需要启用账户读取并配置专用Testnet Key/Secret");
     }
@@ -115,6 +119,15 @@ async function main(): Promise<void> {
             const dash = await getDashboard();
             const sell = await enqueueServerSellSignals(dash, store);
             safeLog("[Trader] SELL入队", sell);
+            const execution = await runServerSellCycle({
+              mode: effectiveMode,
+              store,
+              adapter: binanceReconcileAdapter,
+              dashboard: dash,
+              submitOrder: submitSpotMarketOrder,
+              log: (message) => safeLog(`[Trader] ${message}`),
+            });
+            safeLog("[Trader] SELL执行/对账", execution);
           } catch (sellError) {
             safeError("[Trader] SELL入队失败（不中断BUY对账）", sellError);
           }
