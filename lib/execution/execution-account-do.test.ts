@@ -271,7 +271,7 @@ describe("账户级Durable Object持久化基础", () => {
     const body = await response.json() as { ok: boolean; storage: string; intentCount: number };
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ ok: true, storage: "sqlite", intentCount: 0 });
+    expect(body).toMatchObject({ ok: true, storage: "sqlite", intentCount: 0, alarmAt: null });
     expect(sql.statements.filter((statement) => statement.includes("CREATE TABLE IF NOT EXISTS"))).toHaveLength(8);
   });
 
