@@ -6,7 +6,6 @@ import { serverExecutionIntentId } from "@/lib/execution/server-execution-core";
 import { isSignalOnly, watchlist } from "@/watchlist.config";
 
 export const dynamic = "force-dynamic";
-export const runtime = "edge";
 
 interface DurableObjectStubLike {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
@@ -137,13 +136,12 @@ export async function POST(req: Request) {
     if (!namespace) return NextResponse.json({ error: "Durable Object执行账户绑定未配置" }, { status: 503 });
     const coordinator = namespace.get(namespace.idFromName("binance-spot-primary"));
 
-    const [balances, created] = await Promise.all([
-      binanceReconcileAdapter.getAccountBalances(),
-      Promise.resolve([] as Array<{ intentId: string; symbol: string; side: string; kind: string; state: string; created: boolean }>),
-    ]);
+    const balances = await binanceReconcileAdapter.getAccountBalances();
     const byAsset = new Map(balances.map((item) => [item.asset, item.free]));
     const week = isoWeek(now);
-    const results = created;
+    const results: Array<{
+      intentId: string; symbol: string; side: string; kind: string; state: string; created: boolean;
+    }> = [];
 
     for (const coin of dashboard.coins) {
       const item = watchlist.find((entry) => entry.symbol === coin.symbol);
