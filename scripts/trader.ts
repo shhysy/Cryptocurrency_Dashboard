@@ -8,6 +8,7 @@ import { acquireTraderLock } from "@/lib/execution/server/trader-lock";
 import { runTraderCycle, type TraderMode } from "@/lib/execution/server/trader-loop";
 import { enqueueServerSellSignals } from "@/lib/execution/server/sell-enqueue";
 import { runServerSellCycle } from "@/lib/execution/server/sell-execution";
+import { runNotificationOutboxCycle } from "@/lib/execution/server/notification-outbox-dispatcher";
 import { parseAutoTradeMode, assertProductionAuthorized } from "@/lib/execution/server/auto-trade-mode";
 import { runStartupSelfCheck } from "@/lib/execution/server/startup-self-check";
 import { ConsecutiveFailureBreaker } from "@/lib/execution/server/circuit-breaker";
@@ -133,6 +134,9 @@ async function main(): Promise<void> {
             throw sellError;
           }
         }
+        const outbox = await runNotificationOutboxCycle(store);
+        safeLog("[Trader] 成交通知Outbox", outbox);
+        if (outbox.failed > 0) throw new Error(`成交通知Outbox本轮失败${outbox.failed}项`);
         breaker.recordSuccess();
         safeLog("[Trader] 本轮结果", result);
       } catch (error) {
