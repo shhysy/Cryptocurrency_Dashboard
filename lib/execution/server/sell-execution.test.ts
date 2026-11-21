@@ -55,8 +55,9 @@ function fixture() {
     },
   } as unknown as LocalExecutionStore;
 
+  const findOrderByClientOrderId = vi.fn(async () => ({ kind: "not_found" as const }));
   const adapter = {
-    findOrderByClientOrderId: vi.fn(async () => ({ kind: "not_found" as const })),
+    findOrderByClientOrderId,
     listOrderTrades: vi.fn(async () => ({ trades: [], complete: true, pagesRead: 1 })),
     getAccountBalances: vi.fn(async () => [
       { asset: "BTC", free: "1", locked: "0" },
@@ -81,7 +82,7 @@ function fixture() {
     coins: [{ symbol: "BTC", price: 100 }],
   } as unknown as DashboardData;
 
-  return { store, adapter, dashboard, getEvent: () => event };
+  return { store, adapter, dashboard, findOrderByClientOrderId, getEvent: () => event };
 }
 
 describe("本地Trader服务端SELL执行", () => {
@@ -141,7 +142,7 @@ describe("本地Trader服务端SELL执行", () => {
 
     const second = await runServerSellCycle(deps);
     expect(second.skipped).toBe(1);
-    expect(f.adapter.findOrderByClientOrderId).toHaveBeenCalledWith("BTCUSDT", originalClientOrderId);
+    expect(f.findOrderByClientOrderId).toHaveBeenCalledWith("BTCUSDT", originalClientOrderId);
     expect(submitOrder).toHaveBeenCalledTimes(1);
     expect(f.getEvent().clientOrderId).toBe(originalClientOrderId);
   });
