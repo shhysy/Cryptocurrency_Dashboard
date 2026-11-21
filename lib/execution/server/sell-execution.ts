@@ -177,12 +177,9 @@ export async function runServerSellCycle(
   const now = deps.now ?? Date.now;
   const log = deps.log ?? (() => undefined);
   const result: ServerSellCycleResult = { reconciled: 0, submitted: 0, unknown: 0, blocked: 0, skipped: 0 };
-  if (deps.mode === "off" || deps.mode === "production") return result;
-  if (deps.dashboard.source !== "binance" || deps.dashboard.stale || !deps.dashboard.market.accountKnown) {
-    result.skipped += 1;
-    return result;
-  }
+  if (deps.mode === "production") return result;
 
+  // STOP/off只禁止新信号和新订单；已有订单仍必须继续只读恢复。
   const events = await deps.store.sellEvents.listSellEvents();
   // Recover all previously claimed/ambiguous orders before considering any new SELL.
   for (const event of events.filter((item) =>
@@ -199,6 +196,10 @@ export async function runServerSellCycle(
   }
 
   if (deps.mode !== "testnet") return result;
+  if (!deps.dashboard || deps.dashboard.source !== "binance" || deps.dashboard.stale || !deps.dashboard.market.accountKnown) {
+    result.skipped += 1;
+    return result;
+  }
   const refreshed = await deps.store.sellEvents.listSellEvents();
   for (const event of refreshed.filter((item) => item.status === "pending")) {
     try {
