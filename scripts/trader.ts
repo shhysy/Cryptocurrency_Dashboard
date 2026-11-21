@@ -109,7 +109,7 @@ async function main(): Promise<void> {
           submitOrder: submitTraderSpotMarketOrder,
           log: (message) => safeLog(`[Trader] ${message}`),
         });
-        let dash = null;
+        let dash: Awaited<ReturnType<typeof getDashboard>> | null = null;
         if (effectiveMode !== "off") {
           dash = await getDashboard();
           const sell = await enqueueServerSellSignals(dash, store);
