@@ -153,9 +153,16 @@ export async function POST(req: Request) {
 
       const symbol = coin.symbol + "USDT";
       const rules = await binanceReconcileAdapter.getSymbolRules(symbol);
-      if (rules.symbol !== symbol || rules.status !== "TRADING" || rules.quoteAsset !== "USDT") continue;
+      const lotSize = rules.filters.find((filter) => filter.filterType === "LOT_SIZE");
+      const priceFilter = rules.filters.find((filter) => filter.filterType === "PRICE_FILTER");
+      const notionalFilter = rules.filters.find((filter) =>
+        filter.filterType === "MIN_NOTIONAL" || filter.filterType === "NOTIONAL");
+      if (rules.symbol !== symbol || rules.status !== "TRADING" || rules.quoteAsset !== "USDT" ||
+          !lotSize?.stepSize || !lotSize.minQty || !priceFilter?.tickSize ||
+          !notionalFilter?.minNotional) continue;
 
       const side = action.side === "buy" ? "BUY" : "SELL";
+      if (side === "BUY" && !rules.quoteOrderQtyMarketAllowed) continue;
       const requiredAsset = side === "BUY" ? "USDT" : rules.baseAsset;
       const rawAmount = side === "BUY" ? action.usdt : action.qty;
       if (typeof rawAmount !== "number" || !Number.isFinite(rawAmount) || rawAmount <= 0) continue;
