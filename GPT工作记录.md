@@ -274,3 +274,14 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - 最新代码HEAD `2dcf4d2edd130c28ee27271ad691a614b96594d0`对应GitHub Actions Run `44913913471`已成功：81个测试文件、572个测试通过；TypeScript typecheck和Next.js production build全部通过。
 - 572与此前SELL补强Run的582测试数量不同，是因为两个旧市价路由原先各自的多项认证/请求测试改为单项永久停用测试；不是测试失败或被跳过。
 - 该结果仍仅证明CI自动化验证通过；Binance Testnet真实订单和成交、72小时连续运行、SMTP真实收发及独立复核仍未完成。
+
+## 本轮完成：策略档位持久化与成交邮件业务快照（2026-11-21）
+
+- 沿真实策略信号入口追踪到`buildServerBuyIntents`，将`action.kind`的`head/add/reserve`显式保存到BUY intent。
+- SQLite schema v4新增`order_intents.strategy_tier`。新BUY创建和领取强制校验档位；旧库升级时缺少档位的queued BUY进入manual_review，防止旧订单未经确认被自动提交。旧版已在途订单允许真实成交入账，档位邮件标为未知。
+- `sqlite-store.ts`的BUY真实fill事务计算计划金额、累计成交数量/金额/USDT手续费、均价和剩余预算；使用BigInt十进制累计与扣减。
+- SELL真实fill事务按同一orderId累计数量/金额/手续费/均价，并重放完整trade_ledger取得实现盈亏和剩余持仓。若账本不完整，快照中的盈亏/持仓置空，邮件显示无法核算；不会因此回滚已确认SELL fill。
+- 终态核对保留首次入账时的Outbox业务快照，仅校验交易所成交事实，避免快照被空白事件覆盖。
+- 增加Outbox重启后快照一致、SMTP失败后重试邮件正文一致的测试。
+- 最新HEAD `50d8e3610292f52c33d054808b42fee1372fd104`，CI Run `44917328323`成功：81个测试文件、575项测试通过，TypeScript typecheck、Next.js production build通过。
+- 仍待：Testnet真实BUY/SELL和部分成交/重启实测、SMTP真实邮箱收件验证、策略3.3 Excel逐表核对、Grok/Claude独立最终验收、生产API权限/IP白名单与分阶段小额实盘演练。生产模式继续硬拒绝；不要求72小时连续运行。
