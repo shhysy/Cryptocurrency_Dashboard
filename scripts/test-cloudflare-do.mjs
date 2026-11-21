@@ -101,7 +101,7 @@ try {
   const claim = await request("/internal/claim", {
     intentId, asset: "USDT", availableBalance: "100", snapshotAt: Date.now(),
   });
-  assert(claim.status === 200, `账户预留领取失败：${JSON.stringify(claim)}`);
+  assert(claim.status === 201, `账户预留领取失败：${JSON.stringify(claim)}`);
   const accountLease = claim.payload;
   assert(typeof accountLease.leaseToken === "string" && accountLease.leaseToken.length >= 16,
     "DO未返回账户租约token");
