@@ -1006,9 +1006,9 @@ export class SqliteExecutionStore implements LocalExecutionStore {
         !reason.trim()) throw new Error("开放订单调度延后参数无效");
     return this.transaction(() => {
       const changed = this.run(
-        \`UPDATE scheduler_tasks SET state = 'pending', attempt = 0, lease_token = NULL,
+        `UPDATE scheduler_tasks SET state = 'pending', attempt = 0, lease_token = NULL,
          lease_until = NULL, next_attempt_at = ?, last_error = ?, updated_at = ?
-         WHERE task_id = ? AND state = 'leased' AND attempt = ? AND lease_token = ? AND lease_until > ?\`,
+         WHERE task_id = ? AND state = 'leased' AND attempt = ? AND lease_token = ? AND lease_until > ?`,
         now + delayMs, reason.slice(0, 500), now, lease.taskId, lease.attempt, lease.leaseToken, now,
       );
       return changed === 1;
@@ -1341,21 +1341,21 @@ export class SqliteExecutionStore implements LocalExecutionStore {
         fill.orderId, input.now, input.intentId, input.attempt,
       );
       this.run(
-        \`INSERT INTO fills(
+        `INSERT INTO fills(
           symbol, trade_id, intent_id, attempt, order_id, side, price, qty, quote_qty,
           commission, commission_asset, commission_usdt, filled_at, sell_kind
-        ) VALUES (?, ?, ?, ?, ?, 'BUY', ?, ?, ?, ?, ?, ?, ?, NULL)\`,
+        ) VALUES (?, ?, ?, ?, ?, 'BUY', ?, ?, ?, ?, ?, ?, ?, NULL)`,
         fill.symbol, fill.fillId, input.intentId, input.attempt, fill.orderId,
         String(fill.price), String(fill.qty), String(fill.quoteQty), String(fill.commission),
         fill.commissionAsset, String(fill.commissionUsdt), fill.time,
       );
       const id = fill.symbol + ":" + fill.fillId;
       this.run(
-        \`INSERT INTO trade_ledger(
+        `INSERT INTO trade_ledger(
           id, symbol, fill_id, order_id, side, time, price, qty, quote_qty,
           commission, commission_asset, commission_usdt, realized_pnl_usdt,
           sell_kind, base_ratio_at_buy
-        ) VALUES (?, ?, ?, ?, 'BUY', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)\`,
+        ) VALUES (?, ?, ?, ?, 'BUY', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
         id, fill.symbol, fill.fillId, fill.orderId, fill.time, fill.price, fill.qty,
         fill.quoteQty, fill.commission, fill.commissionAsset, fill.commissionUsdt,
         intent.baseRatioAtSignal as number,
@@ -1363,9 +1363,9 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       const notification = buildTradeFillNotificationEvent(fill, input.now);
       const payload = JSON.stringify(notification);
       this.run(
-        \`INSERT INTO notification_outbox(
+        `INSERT INTO notification_outbox(
           id, payload_json, state, attempt, next_attempt_at, created_at, updated_at
-        ) VALUES (?, ?, 'pending', 0, 0, ?, ?)\`,
+        ) VALUES (?, ?, 'pending', 0, 0, ?, ?)`,
         notification.id, payload, input.now, input.now,
       );
       const stored = this.get("SELECT * FROM trade_ledger WHERE id = ?", id);
