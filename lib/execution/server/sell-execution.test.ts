@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { DashboardData } from "@/lib/types";
 import type { SellEventRecord } from "../sell-store.browser";
 import type { LocalExecutionStore } from "./store";
+import type { createBinanceReconcileAdapter } from "../binance-reconcile.server";
+import type { SpotMarketOrderInput } from "@/lib/binance";
+type Adapter = ReturnType<typeof createBinanceReconcileAdapter>;
 import { runServerSellCycle } from "./sell-execution";
 
 function fixture() {
@@ -69,7 +72,7 @@ function fixture() {
         { filterType: "MIN_NOTIONAL", minNotional: "10", applyToMarket: true },
       ],
     })),
-  } as never;
+  } as unknown as Adapter;
 
   const dashboard = {
     source: "binance",
@@ -84,7 +87,7 @@ function fixture() {
 describe("本地Trader服务端SELL执行", () => {
   it("在SQLite事件领取后提交一次SELL，并持久化原clientOrderId", async () => {
     const f = fixture();
-    const submitOrder = vi.fn(async (input) => ({
+    const submitOrder = vi.fn(async (input: SpotMarketOrderInput) => ({
       symbol: input.symbol,
       orderId: 123,
       clientOrderId: input.clientOrderId,
