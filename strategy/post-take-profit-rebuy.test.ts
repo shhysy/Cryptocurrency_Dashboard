@@ -108,6 +108,53 @@ describe("post-take-profit average-cost rebuy", () => {
     expect(result.coins[0].signal.action.blocked.join()).toContain("SELL事件");
   });
 
+  it("部分成交父事件已有续卖子事件时仍冻结新动作，直到续卖链完成", () => {
+    const partialParent = {
+      ...event,
+      status: "partially_filled" as const,
+      filledQty: 0.1,
+      fillIds: ["sell-1"],
+    };
+    const pendingChild = {
+      ...event,
+      eventKey: `${event.eventKey}:续卖1`,
+      status: "pending" as const,
+      requestedQty: 0.1,
+      filledQty: 0,
+      fillIds: [],
+      exchangeOrderId: null,
+    };
+    const partialFill = { ...sell, qty: 0.1, quoteQty: 15 };
+    const d = data({ coins: [{ ...coin, qty: 0.9, marketValue: 72 }] });
+    const result = applyPostTakeProfitRebuy(d, [partialParent, pendingChild], [partialFill]);
+    expect(result.coins[0].signal.tag).toBe("暂缓");
+    expect(result.coins[0].signal.action.blocked.join()).toContain("SELL事件");
+  });
+
+  it("续卖子事件继承父止盈档位，不会重复计为新的止盈1", () => {
+    const continuation = {
+      ...event,
+      eventKey: `${event.eventKey}:续卖1`,
+      status: "executed" as const,
+      requestedQty: 0.1,
+      filledQty: 0.1,
+      exchangeOrderId: "12",
+      fillIds: ["sell-child-1"],
+    };
+    const continuationFill: TradeLedgerEntry = {
+      ...sell,
+      id: "BTCUSDT:sell-child-1",
+      fillId: "sell-child-1",
+      orderId: "12",
+      time: 11,
+      qty: 0.1,
+      quoteQty: 15,
+    };
+    const d = data({ coins: [{ ...coin, price: 300, qty: 0.9, marketValue: 270 }] });
+    const result = applyPostTakeProfitRebuy(d, [continuation], [continuationFill]);
+    expect(result.coins[0].signal.action.label).toBe("止盈2");
+  });
+
   it("does not switch modes for a pending or unfilled take-profit event", () => {
     const pending = { ...event, status: "pending" as const, filledQty: 0 };
     const result = applyPostTakeProfitRebuy(data(), [pending], [sell]);
