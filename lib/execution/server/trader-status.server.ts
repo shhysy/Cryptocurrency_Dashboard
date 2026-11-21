@@ -341,9 +341,14 @@ export async function readTraderStrategyHistory(options: { dbPath?: string } = {
         baseRatioAtBuy: row.base_ratio_at_buy == null ? undefined : Number(row.base_ratio_at_buy),
       };
     });
-    if (sellEvents.some((event) => !Number.isFinite(event.requestedQty) ||
-        !Number.isFinite(event.createdAt) || !Number.isFinite(event.updatedAt)) ||
-        tradeLedger.some((fill) =>
+    if (sellEvents.some((event) =>
+        !Number.isFinite(event.requestedQty) || event.requestedQty <= 0 ||
+        !Number.isFinite(event.createdAt) || !Number.isFinite(event.updatedAt) ||
+        (event.filledQty !== undefined && (!Number.isFinite(event.filledQty) ||
+          event.filledQty < 0 || event.filledQty > event.requestedQty)) ||
+        (["executed", "partially_filled"].includes(event.status) && event.fillIds.length === 0) ||
+        (event.status === "partially_filled" && (!Number.isFinite(event.filledQty) || (event.filledQty ?? 0) <= 0))
+      ) || tradeLedger.some((fill) =>
           ![fill.qty, fill.price, fill.time, fill.quoteQty, fill.commission, fill.commissionUsdt]
             .every(Number.isFinite) ||
           fill.qty <= 0 || fill.price <= 0 || fill.quoteQty <= 0 || fill.commission < 0 ||
