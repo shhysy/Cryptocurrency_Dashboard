@@ -1,6 +1,9 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { build } from "esbuild";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { serverExecutionIntentId, type ServerExecutionIntent } from "../server-execution-core";
 import { schedulerTaskRetryAt } from "../scheduler-task-core";
@@ -594,4 +597,80 @@ describe("本地SQLite执行存储", () => {
       restarted.close();
     }
   });
+
+  it("Trader子进程被SIGKILL后重启，只查询原clientOrderId且绝不重复POST", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "cryptodash-trader-kill-restart-"));
+    directories.push(directory);
+    const dbPath = join(directory, "data", "trader.db");
+    const markerPath = join(directory, "prepared.json");
+    const resultPath = join(directory, "recovered.json");
+    const bundlePath = join(directory, "trader-restart-child.mjs");
+    await build({
+      absWorkingDir: process.cwd(),
+      entryPoints: [join(process.cwd(), "lib/execution/server/trader-restart-child.ts")],
+      outfile: bundlePath,
+      bundle: true,
+      platform: "node",
+      format: "esm",
+      target: "node22",
+      packages: "external",
+      alias: { "@": process.cwd() },
+      logLevel: "silent",
+    });
+
+    const prepare = spawn(process.execPath, [bundlePath, "prepare", dbPath, markerPath, resultPath], {
+      cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"],
+    });
+    const prepareErrors: string[] = [];
+    prepare.stderr?.on("data", (chunk: Buffer) => prepareErrors.push(chunk.toString()));
+    const deadline = Date.now() + 15_000;
+    let prepared = false;
+    while (Date.now() < deadline) {
+      try {
+        await access(markerPath);
+        prepared = true;
+        break;
+      } catch {
+        if (prepare.exitCode !== null || prepare.signalCode !== null) break;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+    if (!prepared) {
+      prepare.kill("SIGKILL");
+      await once(prepare, "exit");
+      throw new Error(`Trader准备子进程未完成：${prepareErrors.join("").slice(-2000)}`);
+    }
+
+    const marker = JSON.parse(await readFile(markerPath, "utf8")) as { clientOrderId: string };
+    expect(marker.clientOrderId).toBeTruthy();
+    expect(prepare.kill("SIGKILL")).toBe(true);
+    const [, killedBy] = await once(prepare, "exit") as [number | null, NodeJS.Signals | null];
+    expect(killedBy).toBe("SIGKILL");
+
+    const recover = spawn(process.execPath, [bundlePath, "recover", dbPath, markerPath, resultPath], {
+      cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"],
+    });
+    const recoverErrors: string[] = [];
+    recover.stderr?.on("data", (chunk: Buffer) => recoverErrors.push(chunk.toString()));
+    const [exitCode, exitSignal] = await once(recover, "exit") as [number | null, NodeJS.Signals | null];
+    expect({ exitCode, exitSignal, errors: recoverErrors.join("").slice(-2000) }).toMatchObject({
+      exitCode: 0,
+      exitSignal: null,
+    });
+
+    const recovered = JSON.parse(await readFile(resultPath, "utf8")) as {
+      mode: string;
+      lookups: Array<{ symbol: string; clientOrderId: string }>;
+      postCalls: number;
+      state: string;
+      recoveredClientOrderId: string;
+      expectedClientOrderId: string;
+    };
+    expect(recovered.mode).toBe("off");
+    expect(recovered.lookups).toEqual([{ symbol: "BTCUSDT", clientOrderId: marker.clientOrderId }]);
+    expect(recovered.postCalls).toBe(0);
+    expect(recovered.state).toBe("unknown");
+    expect(recovered.recoveredClientOrderId).toBe(marker.clientOrderId);
+    expect(recovered.expectedClientOrderId).toBe(marker.clientOrderId);
+  }, 45_000);
 
