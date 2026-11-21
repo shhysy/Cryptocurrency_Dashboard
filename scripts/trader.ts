@@ -39,7 +39,7 @@ async function syncRealTradeLedgerCsv(store: Awaited<ReturnType<typeof openLocal
   await mkdir("data", { recursive: true, mode: 0o700 });
   const entries = await store.tradeLedger.listTradeLedger();
   const temporary = path + ".tmp";
-  await writeFile(temporary, "\\uFEFF" + tradeLedgerToCsv(entries), { encoding: "utf8", mode: 0o600 });
+  await writeFile(temporary, "\uFEFF" + tradeLedgerToCsv(entries), { encoding: "utf8", mode: 0o600 });
   await chmod(temporary, 0o600);
   await rename(temporary, path);
   await chmod(path, 0o600);
