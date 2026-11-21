@@ -251,6 +251,9 @@ describe("本地Trader服务端SELL执行", () => {
       1_800_000_000_002,
     );
     expect(f.store.tradeLedger.recordConfirmedSellFill).toHaveBeenCalledTimes(1);
+    const bindOrderCall = vi.mocked(f.store.sellEvents.bindSellEventToExchangeOrder).mock.invocationCallOrder[0];
+    const ledgerWriteCall = vi.mocked(f.store.tradeLedger.recordConfirmedSellFill).mock.invocationCallOrder[0];
+    expect(bindOrderCall).toBeLessThan(ledgerWriteCall);
     expect(f.getEvent()).toMatchObject({
       status: "executed",
       exchangeOrderId: "123",
