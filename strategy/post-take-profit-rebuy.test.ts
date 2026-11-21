@@ -131,6 +131,27 @@ describe("post-take-profit average-cost rebuy", () => {
     expect(result.coins[0].signal.action.blocked.join()).toContain("SELL事件");
   });
 
+  it("续卖子事件数量与父事件剩余数量不一致时阻断本币新动作", () => {
+    const partialParent = {
+      ...event,
+      status: "partially_filled" as const,
+      filledQty: 0.1,
+      fillIds: ["sell-1"],
+    };
+    const invalidChild = {
+      ...event,
+      eventKey: `${event.eventKey}:续卖1`,
+      status: "pending" as const,
+      requestedQty: 0.09,
+      filledQty: 0,
+      fillIds: [],
+    };
+    const d = data({ coins: [{ ...coin, qty: 0.9, marketValue: 72 }] });
+    const result = applyPostTakeProfitRebuy(d, [partialParent, invalidChild], [sell]);
+    expect(result.coins[0].signal.tag).toBe("暂缓");
+    expect(result.coins[0].signal.action.blocked.join()).toContain("SELL事件");
+  });
+
   it("续卖子事件继承父止盈档位，不会重复计为新的止盈1", () => {
     const continuation = {
       ...event,
