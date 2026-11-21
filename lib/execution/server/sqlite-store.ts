@@ -331,6 +331,16 @@ export class SqliteExecutionStore implements LocalExecutionStore {
         throw new Error("账户可用余额不足，未创建资金预留");
       }
       if (this.get("SELECT intent_id FROM account_lock WHERE singleton = 1")) return null;
+      // 账户锁或预留表若出现不一致，不能因为锁缺失就继续下一笔交易。
+      const unresolved = this.get(
+        `SELECT intent_id FROM order_intents
+         WHERE state IN ('reserved', 'submitting', 'unknown', 'reconciling', 'partial_open', 'manual_review')
+         LIMIT 1`,
+      );
+      const orphanReservation = this.get(
+        "SELECT reservation_id FROM reservations WHERE state IN ('reserved', 'manual_review') LIMIT 1",
+      );
+      if (unresolved || orphanReservation) return null;
 
       const attempt = intent.attempt + 1;
       if (!Number.isSafeInteger(attempt) || attempt <= 0) throw new Error("订单attempt计数无效");
