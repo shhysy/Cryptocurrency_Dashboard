@@ -92,3 +92,12 @@
 - Worker Cron使用wrangler中配置的`WORKER_SELF_REFERENCE` Service Binding，带服务端Dashboard认证调用`POST /api/execution/intents`；信号仍由Next.js服务端getDashboard重算。
 - 该Cron只生成幂等DO intent；不会调用Binance订单POST。策略扫描开关默认关闭，生产环境不执行。
 - 仍待真实Cloudflare Worker Cron + Service Binding部署验证、DO真实SQLite和Testnet完整执行链路验收。
+
+
+## Cloudflare Durable Object SQLite集成测试
+
+运行`npm run test:cloudflare-do`。该脚本使用独立`wrangler.test.jsonc`与本地Wrangler/workerd Durable Object SQLite运行时，不依赖Fake SQL；会启动Worker、创建intent并预留账户资金、标记submitting、写入调度任务、停止并重启Worker（复用临时持久化目录），再验证订单上下文/clientOrderId/账户租约、scheduler租约和Alarm时间仍然存在，并用两个并发claim请求验证同一任务只会被领取一次。
+
+当前本地真实运行时覆盖：SQLite建表、DO进程重启持久化、账户锁/订单状态持久化、调度任务幂等入队与内容冲突、Alarm持久化、调度租约重启后续期、并发claim互斥。
+
+仍未覆盖：旧版数据库升级迁移的真实样本、transactionSync中途异常回滚、租约自然过期后的takeover/Alarm实际触发恢复、多账户DO隔离、Cloudflare线上部署实例验证。该测试通过不等于线上Cloudflare账户已部署或Testnet订单执行已验收。
