@@ -16,6 +16,7 @@ import { redactSecrets, safeError, safeLog } from "@/lib/execution/server/safe-l
 import { buildSystemAlertNotificationEvent } from "@/lib/execution/notification-outbox";
 import { isStopFilePresent } from "@/lib/execution/server/stop-file";
 import { tradeLedgerToCsv } from "@/lib/execution/csv";
+import { runScoreMailNotify } from "@/lib/mail-notify";
 
 function readPollInterval(): number {
   const value = Number(process.env.TRADER_POLL_INTERVAL_MS ?? "15000");
@@ -169,6 +170,15 @@ async function main(): Promise<void> {
         let dash: Awaited<ReturnType<typeof getDashboard>> | null = null;
         if (effectiveMode !== "off" && result.manualReview === 0) {
           dash = await getDashboard();
+          if (dash.source === "binance" && !dash.stale) {
+            try {
+              const signalMail = await runScoreMailNotify(dash);
+              if (signalMail.ok && signalMail.sent) safeLog(`[Trader] 策略信号邮件已发送：${signalMail.hits.length}个币种`);
+              else if (!signalMail.ok) safeError("[Trader] 策略信号邮件发送失败，不影响交易：", signalMail.error);
+            } catch (mailError) {
+              safeError("[Trader] 策略信号邮件异常，不影响交易：", mailError);
+            }
+          }
           const sell = await enqueueServerSellSignals(dash, store);
           safeLog("[Trader] SELL入队", sell);
         }
