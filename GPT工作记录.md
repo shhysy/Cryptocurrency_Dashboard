@@ -218,3 +218,15 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - 用户不需要自动撤单/过期订单业务流程。限价单仍需最小状态查询、部分成交入账和未知结果按原clientOrderId恢复，以避免重复下单及虚报成交；不建设复杂撤单审批。
 - SMTP只需简单发送能力与用户邮箱实际收发验证；不把独立故障告警邮件平台或多层Outbox审批作为业务目标。邮件失败不得伪报sent，也不得把普通通知失败变成交易审批。
 - 下一步按此范围修订需求清单和Grok任务；核心LIMIT GTC及成交CSV代码仍未完成，本记录不代表代码已实现。
+
+
+## 2026-11-21 GPT继续开发：0.5% LIMIT GTC与真实成交CSV
+
+- 新增 `lib/execution/server/limit-order.ts`，使用BigInt定点数处理0.5%限价、tickSize方向取整、stepSize数量取整、USDT预算换算基础币数量和名义金额计算。
+- `lib/binance.ts`新增Trader专用 `submitTraderSpotLimitOrder`；原 `submitTraderSpotMarketOrder` 兼容名称改为转调LIMIT GTC实现，避免Trader BUY/SELL调用链误走MARKET。
+- 限价入口读取Binance原始字符串现价，避免先转Number后出现小币种科学计数法；下单前重新核验PRICE_FILTER、LOT_SIZE、NOTIONAL、账户可用余额。
+- BUY按预算计算LIMIT数量并按LOT_SIZE向下取整；SELL不允许静默缩减策略授权数量。
+- 新增 `lib/binance.limit-order.test.ts` 与 `lib/execution/server/limit-order.test.ts`。
+- `lib/execution/csv.ts`新增真实TradeLedgerEntry CSV导出；`scripts/trader.ts`每轮从SQLite成交台账原子同步 `data/trades.csv`，SQLite仍为事实来源。
+- 开发过程中GitHub Actions先后发现正则转义和CSV源码转义问题，已修复；最终验收以最新HEAD的CI为准。
+- **未完成边界**：BUY GTC订单处于NEW/PARTIALLY_FILLED时的增量fill入账仍需开发/验证；Testnet真实挂单/成交/部分成交/重启恢复尚未做；SMTP真实投递未验证；生产模式继续硬拒绝。
