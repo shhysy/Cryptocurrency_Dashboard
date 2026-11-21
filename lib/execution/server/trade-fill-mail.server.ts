@@ -26,7 +26,7 @@ export type TradeFillMailPayload = {
   filledAt?: number;
   businessSnapshot?: {
     side: "BUY" | "SELL";
-    strategyTier?: "head" | "add" | "reserve";
+    strategyTier?: "head" | "add" | "reserve" | null;
     sellKind?: "take_profit" | "indicator_profit" | "trail_stop" | "base_reduce";
     plannedUsdt?: string;
     cumulativeFilledQty: string;
