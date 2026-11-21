@@ -393,3 +393,28 @@ GPT已先行提交限价GTC第一阶段代码，Grok请在当前gpt分支最新H
 - 下一步优先补齐成交邮件数据：BUY策略档位、计划金额、累计成交数量/金额/均价、剩余待买金额；SELL卖出原因/档位、累计成交数量/金额/均价、实现盈亏和剩余持仓。盈亏和持仓必须由SQLite真实成交台账计算，禁止用限价或策略预估值伪造。
 - Testnet真实BUY/SELL、部分成交与重启恢复、SMTP三类邮件真实收信仍需用户本机配置专用Testnet Key/邮箱后验证；Mock/CI不得冒充真实环境结果。
 - 生产模式继续硬拒绝，所有提交说明使用中文。
+
+
+## GPT追加代码审查任务：成交邮件业务字段（2026-11-21）
+
+GPT已直接检查当前邮件实现，确认当前Outbox事件仅保存单笔fill事实，SMTP模板无法自行推导缺失的策略上下文。请在最新需求清单对应章节基础上完成代码，不要只修改文档：
+
+1. 检查并修改`lib/execution/notification-outbox.ts`，为真实成交Outbox事件增加不可变业务快照字段。字段应可选兼容历史Outbox记录，但新事件必须按方向校验必需字段。
+2. 修改`lib/execution/server/sqlite-store.ts`的BUY/SELL真实fill入账事务：
+   - BUY从原intent/reservation读取计划金额和策略档位来源；按同一symbol+orderId汇总已入账真实fills，计算累计数量、累计quote金额、加权均价和本订单剩余USDT预算。
+   - SELL读取并验证sellKind；在本次真实fill入账后读取完整trade_ledger，调用`replayPositionLedger`计算本次成交后的真实实现盈亏与剩余总持仓；按同一orderId汇总累计成交量/金额/均价。
+   - 将以上结果写入该笔Outbox JSON快照。历史事件重试时不得重新计算或漂移。
+3. 先确认策略档位是否已经持久化到intent。如果当前数据模型没有档位字段，沿策略信号→intent创建链补齐持久化字段；禁止从币种或金额猜档位。SELL原因使用明确的sellKind映射。
+4. 修改`lib/execution/server/notification-outbox-dispatcher.ts`和`lib/execution/server/trade-fill-mail.server.ts`，把快照完整传递并生成中文邮件。邮件必须区分本订单累计成交与当前持仓，真实成交价不能替换为LIMIT委托价。
+5. 补充BUY/SELL多笔部分成交、重复tradeId、position ledger盈亏、剩余持仓、Outbox重启序列化、SMTP重试快照不变、邮件失败不影响成交记账等测试。
+6. 确保信号邮件、BUY真实成交邮件、SELL真实成交邮件是用户仅需的三类邮件；不要引入审批回复或复杂通知平台。
+7. 更新需求清单和本工作记录，中文提交；报告每个代码文件改动、测试数量、最新HEAD和CI Run。
+
+当前代码审查确认：
+- `notification-outbox.ts`事件目前只有逐笔fill字段。
+- `notification-outbox-dispatcher.ts`只把这些逐笔字段转交邮件适配器。
+- `trade-fill-mail.server.ts`只展示逐笔成交数量/价格/金额/手续费/订单ID/tradeId/时间。
+- SQLite BUY事务可访问原intent与reservation；SELL事务可识别sellKind并写入真实trade_ledger。
+- `position-accounting.ts`的`replayPositionLedger`可重放真实持仓与实现盈亏，应复用而非另造估算公式。
+
+注意：HEAD `a2fb2b006ebb387d3d52d1d62f80460841ef923e`对应CI Run `44914865835`已通过，但这只是Grok记录/验收范围调整的CI，不代表本任务代码已完成。用户不要求72小时连续测试；生产模式保持硬拒绝。
