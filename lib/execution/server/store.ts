@@ -121,13 +121,13 @@ export interface NotificationOutboxLease {
 
 export interface NotificationOutboxRepository {
   enqueueSystemAlert(event: SystemAlertNotificationEvent): Promise<{ created: boolean }>;
-  countExecutionManualReview(): Promise<number>;
   claimDue(input: { now: number; leaseMs: number; limit: number; eventTypes?: Array<TradeNotificationOutboxEvent["type"]> }): Promise<NotificationOutboxLease[]>;
   markSent(input: { id: string; leaseToken: string; now: number }): Promise<boolean>;
   markFailed(input: { id: string; leaseToken: string; now: number; reason: string }): Promise<"pending" | "manual_review" | "lease_lost">;
 }
 
 export interface LocalExecutionStore {
+  countExecutionManualReview(): Promise<number>;
   readonly scheduler: SchedulerTaskRepository;
   readonly sellEvents: SellEventRepository;
   readonly tradeLedger: TradeLedgerRepository;
