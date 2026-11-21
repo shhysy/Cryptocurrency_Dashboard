@@ -340,3 +340,19 @@ GPT已先行提交限价GTC第一阶段代码，Grok请在当前gpt分支最新H
 - SMTP发送失败只记日志，不阻断交易；信号邮件不表示订单已成交。
 - 信号邮件正文修正为100分制；`.env.example`已设置核心55、山寨75、默认不要求额外企稳、成交邮件默认开启。
 - Grok需独立核对信号邮件不会在STALE/mock数据触发、邮件失败不影响Trader、真实成交Outbox只由真实fill触发。SMTP真实投递需用户配置邮箱后验证。
+
+
+### GPT本轮新增BUY开放订单部分成交实现，交Grok复核
+- BUY订单处于NEW/PARTIALLY_FILLED时，现已完整读取myTrades并在SQLite即时写入新增真实fill、trade_ledger和成交邮件Outbox。
+- 保留Binance原始十进制字符串；tradeId幂等；校验intent/attempt、订单ID、账户与调度租约、USDT预留和累计消耗。
+- GTC正常挂单采用15秒defer调度，重置故障重试计数，不释放资金锁、不触发自动撤单。
+- CI Run `44912627106`：81个测试文件、579个测试通过；typecheck和Next build通过。
+
+### Grok下一步必须复核/补齐
+1. 做完整NEW→PARTIALLY_FILLED多笔fill→FILLED终态集成测试，确认终态重复读取myTrades不会重复写入，也不会漏掉部分成交。
+2. 检查`finalizeReconciledOrder`对已增量写入fill/ledger/Outbox的重复核对逻辑；必要时增加崩溃恢复测试。
+3. 检查SELL GTC开放订单在NEW/PARTIALLY_FILLED期间的真实fill逐笔入账和终态核对。
+4. 检查`reconcile-intent-dispatcher.server.ts`：其open_fills分支当前仅重试，不会增量写入SQLite；确认该Cloudflare/内部协调器是否在任何部署配置中启用。若启用，必须实现等价持久化，或明确禁用该订单执行路径。
+5. 复核所有自动交易POST均为LIMIT GTC；任何MARKET调用不得进入自动Trader路径。
+6. 在测试与typecheck/build通过后记录最新HEAD SHA和Run ID；不能把CI通过当作Testnet实盘验收。
+7. 后续继续完成Testnet部分成交、重启恢复、72小时运行和SMTP真实收发验证。生产硬拒绝保持。
