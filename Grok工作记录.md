@@ -149,3 +149,14 @@
 - 已恢复Access验证模块及测试，防止构建失败。
 - 本地Trader成交通知已走SMTP Outbox；旧API路由的可选Worker/Access分支仍需确认是否有旧客户端调用，不能贸然删除。
 - M0-01保持进行中，后续先追踪调用链，再做完整移除。
+
+
+
+### GPT继续开发：SQLite重开后unknown订单只读恢复集成测试（2026-11-21）
+
+- 在`lib/execution/server/sqlite-store.test.ts`新增真实文件SQLite集成用例：创建BUY intent、claim资金预留、持久化原`clientOrderId`、标记unknown、关闭数据库连接，再重新打开同一数据库文件。
+- 重启后的正式`runTraderCycle(mode="off")`读取待对账任务，并通过只读适配器按原`clientOrderId`查询；测试明确断言查询参数与原订单一致、提交函数调用次数为0，且unknown状态与原ID仍持久化。
+- GitHub Actions Run `44887231223`：Run tests、TypeScript typecheck、Next.js production build全部通过。
+- 提交：`8725454188`（测试完善），前置测试提交`8006213895`。
+- **验收边界：** 这是文件数据库关闭/重开 + 正式Trader循环的集成测试，不是操作系统级SIGKILL进程演练。M1-03仍为[~]，下一步需补子进程被强制终止后重启的端到端验证；不能把本测试说成完整kill/restart验收。
+- M1-05尚未修改：当前`ExecutionStatusPanel`仍读取浏览器IndexedDB，不能代表本地Trader SQLite状态。后续先实现只读状态投影与本机访问保护，再替换看板数据源。
