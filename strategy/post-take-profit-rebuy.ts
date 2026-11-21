@@ -100,6 +100,8 @@ export function applyPostTakeProfitRebuy(
     const unresolvedSell = symbolEvents.find((event) => {
       if (["pending", "reconcile_required", "blocked"].includes(event.status)) return true;
       if (event.status !== "partially_filled") return false;
+      if (!Number.isFinite(event.filledQty) || (event.filledQty ?? 0) <= 0 ||
+          (event.filledQty ?? 0) > event.requestedQty || event.fillIds.length === 0) return true;
       const remaining = event.requestedQty - (event.filledQty ?? 0);
       if (remaining <= EPSILON) return false;
       const continuation = symbolEvents.find((child) =>
