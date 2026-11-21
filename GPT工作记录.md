@@ -684,3 +684,13 @@
 - 修正新调度队列测试中数组索引的非空断言，避免开启严格索引检查时出现测试类型错误：`127d89ae071b774d65e03f4e8841fcb3dff5c427`。
 - 将调度队列Alarm最小唤醒间隔设为60秒，防止到期任务因处理异常而每秒空转；Cron每分钟作为兜底唤醒：`b4ec3f7f2a4d682ae8856aee59727cd460d027eb`。
 - 这两项尚待最新GitHub Actions验证；当前没有把静态修改视为测试通过。
+
+
+## 用户确认补全自动交易最终闭环任务（2026-11-21）
+
+- 用户确认将当前全部剩余工作写入《自动交易系统总需求清单.md》，并按依赖持续完成，不只停留在进度汇报。
+- 本次将剩余工作拆为可独立验收的任务组：Grok SELL最终验收；DO真实SQLite/Alarm/Cron/只读任务消费；Binance服务端只读查单、逐笔成交、余额与交易规则适配器；可信策略3.3事件到幂等intent；服务端Testnet BUY/SELL执行与unknown恢复；Simple Earn服务端赎回；Outbox；Dashboard跨设备状态；Cloudflare部署及生产安全预检。
+- 明确每项完成必须附代码提交、专项/全量测试、typecheck、Actions CI、必要的Cloudflare真实运行时证据和独立复核；Fake SQL不替代真实SQLite验收。
+- 推进原则：Grok负责SELL并由GPT独立复核；GPT负责DO调度、Binance只读适配器、策略事件/intent、服务端执行闭环与总集成。依赖满足的任务并行推进，阻塞时拆解处理。
+- 安全边界：当前只用Mock/Testnet；生产BUY/SELL、Simple Earn真实赎回、Outbox生产投递保持关闭；未知POST只读查单，不盲目重发；生产启用必须等待完整验收和用户明确授权。
+- 本次只更新任务清单与工作记录，没有开启生产开关，也没有发送任何Binance订单或赎回请求。
