@@ -100,3 +100,11 @@
 - M3-05：SMTP未真正发送，Outbox不得假报sent。
 - M3-06：日志按日轮转未实现。
 - production仍硬拒绝；真实Key不应粘贴到聊天或提交仓库。
+
+
+### SMTP Outbox继续开发（2026-11-21）
+
+- SQLite Outbox repository：双连接原子领取、租约fencing、成功标记、失败指数退避，10次失败进入人工复核。
+- 新增本地SMTP直发，只有`TRADE_FILL_MAIL_ENABLED=1`才发送；SMTP主机/端口/邮箱地址校验，15秒响应超时。Outbox dispatcher已接入Trader。
+- 最新CI Run `44880232514`：74 files / 521 tests、typecheck、build全部通过。
+- Mock测试覆盖Outbox并发领取、SMTP发送适配调用、发送失败退避和关闭开关；没有使用用户真实SMTP账号，不能声称真实邮件送达。

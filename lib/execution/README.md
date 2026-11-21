@@ -8,7 +8,7 @@
 2. **SELL：** `enqueueServerSellSignals` 将信号写入SQLite；`server/sell-execution.ts` 由Trader调用，完成账户成交台账/余额核验、交易规则预检、底仓保护、提交前持久化clientOrderId、SELL POST、原ID只读查单、逐笔成交核验、台账/Outbox写入和终态/部分成交状态。浏览器版仍保留旧实现，但常驻Trader不依赖IndexedDB。当前仅有Mock测试，尚未完成Testnet真实订单验收。
 3. **订单未知态：** BUY POST 前持久化 clientOrderId；异常进入 unknown 并排队只读对账。禁止未知订单盲目重发。仍需进程级崩溃/重启验收。
 4. **生产模式：** `AUTO_TRADE_MODE=production` 当前明确拒绝启动真实交易；M0–M3 独立验收通过前不得解除。
-5. **通知/Earn：** 成交通知邮件模块目前是门控/正文占位实现，未真正发送 SMTP；Simple Earn 服务端入口仍明确拒绝提交。二者均未完成。
+5. **通知/Earn：** 成交确认写入SQLite Outbox；本地Trader使用租约领取、SMTP直发、指数退避，失败10次转人工复核。仅`TRADE_FILL_MAIL_ENABLED=1`时发送，默认关闭；尚未用用户SMTP账户实测。Simple Earn服务端入口仍明确拒绝提交。
 6. **自检/日志：** Testnet/production启动自检现在会实际读取Binance账户权限（canTrade必须true、canWithdraw必须false）、USDT余额、Binance服务器时间偏差及数据/SQLite目录可写；仍需Testnet实测并补数据库实际写入/锁联动验收。Trader连续异常熔断已接入；日志目前仅脱敏控制台输出，按日文件轮转未完成。
 
 ## 主要模块
@@ -20,7 +20,7 @@
 | `server/sqlite-store.ts` | intent、reservation、scheduler、SELL event、ledger、Outbox 持久化 |
 | `server/trader-loop.ts` | BUY intent、提交与订单只读恢复 |
 | `binance-reconcile.server.ts` | Binance 只读查单/成交/余额/规则适配 |
-| `notification-outbox.ts` | 成交通知事件与重试领域逻辑 |
+| `notification-outbox.ts` / `server/notification-outbox-dispatcher.ts` | 成交Outbox、SQLite租约、SMTP直发与退避重试 |
 
 ## 安全规则
 
@@ -33,5 +33,5 @@
 
 ## 当前验收证据
 
-- SELL服务端执行与启动自检本轮CI：GitHub Actions Run `44879348229`，73 files / 515 tests通过，TypeScript typecheck与Next.js production build通过。随后仅有Trader熔断传播和文档更新，仍需最新HEAD CI确认。
+- SELL服务端执行、启动自检与SMTP Outbox本轮CI：GitHub Actions Run `44880232514`，74 files / 521 tests通过，TypeScript typecheck与Next.js production build通过。该Run覆盖Outbox并发领取、SMTP投递门控与失败路径Mock；不代表真实SMTP邮箱已投递。
 - 该 CI 只证明代码质量检查通过，不代表 Testnet 实盘订单、SMTP 真发或生产交易验收通过。
