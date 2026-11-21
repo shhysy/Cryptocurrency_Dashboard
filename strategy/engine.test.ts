@@ -216,6 +216,11 @@ describe("补仓与备用金", () => {
     expect(s.action.label).toBe("补仓1");
     expect(s.action.usdt).toBe(150);
   });
+  it("补仓触发价使用已收盘周线，而非周内现价", () => {
+    const signal = evaluateCoin(held(bottoming(), [trade(60, 2, 250)], { price: 60 }), ctx());
+    expect(signal.action.label).toBe("补仓1");
+    expect(signal.action.side).toBe("buy");
+  });
   it("已补过一档 -> 下一次是补仓2", () => {
     const s = evaluateCoin(held(bottoming(), [trade(70, 2, 250), trade(60, 2, 260)]), ctx());
     expect(s.action.label).toBe("补仓2");
@@ -315,6 +320,11 @@ describe("卖出", () => {
     expect(btc.action.side).not.toBe("sell");
   });
 
+  it("止盈触发价使用已收盘周线，而非周内现价", () => {
+    const signal = evaluateCoin(held(rising(), [trade(100, 1, 200)], { price: 100 }), ctx());
+    expect(signal.action.label).toBe("止盈1");
+    expect(signal.action.side).toBe("sell");
+  });
   it("价格 ≥ 均价 × 2：止盈1", () => {
     const s = evaluateCoin(held(rising(), [trade(100, 1, 200)]), ctx());
     expect(s.tag).toBe("止盈");
