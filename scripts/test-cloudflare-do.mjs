@@ -97,33 +97,33 @@ try {
   });
   assert(submitting.status === 200, `提交前状态持久化失败：${JSON.stringify(submitting)}`);
 
+  const dueAt = Date.now();
   const enqueue = await request("/internal/scheduler/enqueue", {
     taskId: "health:sqlite-restart",
     taskType: "health_check",
-    dueAt: Date.now(),
+    dueAt,
   });
   assert(enqueue.status === 201, `调度任务入队失败：${JSON.stringify(enqueue)}`);
-  const duplicate = await request("/internal/scheduler/enqueue", {
+  const duplicateSame = await request("/internal/scheduler/enqueue", {
     taskId: "health:sqlite-restart",
-    taskType: "health_check",
-    dueAt: enqueue.payload.state === "pending" ? Date.now() - 1 : Date.now(),
-  });
-  // 同taskId但dueAt不同必须冲突，不能静默覆盖。
-  assert(duplicate.status === 409, "相同taskId不同内容未被拒绝");
-
-  const dueAt = Date.now();
-  const queue = await request("/internal/scheduler/enqueue", {
-    taskId: "health:lease-persist",
     taskType: "health_check",
     dueAt,
   });
-  assert(queue.status === 201, `持久化租约任务入队失败：${JSON.stringify(queue)}`);
+  assert(duplicateSame.status === 200 && duplicateSame.payload.created === false,
+    "完全相同的重复enqueue未保持幂等");
+  const duplicateConflict = await request("/internal/scheduler/enqueue", {
+    taskId: "health:sqlite-restart",
+    taskType: "health_check",
+    dueAt: dueAt + 1,
+  });
+  // 同taskId但内容不同必须冲突，不能静默覆盖。
+  assert(duplicateConflict.status === 409, "相同taskId不同内容未被拒绝");
+
   const taskClaim = await request("/internal/scheduler/claim", { taskType: "health_check", limit: 1 });
   assert(taskClaim.status === 200 && taskClaim.payload.tasks?.length === 1,
     `调度任务领取失败：${JSON.stringify(taskClaim)}`);
   const schedulerLease = taskClaim.payload.tasks[0];
-  assert(schedulerLease.taskId === "health:sqlite-restart" || schedulerLease.taskId === "health:lease-persist",
-    "领取到非预期调度任务");
+  assert(schedulerLease.taskId === "health:sqlite-restart", "领取到非预期调度任务");
 
   const healthBefore = await request("/internal/health", undefined, "GET");
   assert(healthBefore.status === 200 && healthBefore.payload.storage === "sqlite",
