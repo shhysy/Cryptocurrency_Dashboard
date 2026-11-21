@@ -16,14 +16,9 @@ export const BINANCE_SPOT_API_BASE =
     ? "https://testnet.binance.vision"
     : "https://api.binance.com";
 const BASE = BINANCE_SPOT_API_BASE;
-export const BINANCE_SPOT_BUY_SUBMISSION_ENABLED =
-  BINANCE_SPOT_ENVIRONMENT === "testnet"
-    ? process.env.NEXT_PUBLIC_BINANCE_TESTNET_BUY_ENABLED === "1"
-    : process.env.NEXT_PUBLIC_BINANCE_PRODUCTION_BUY_ENABLED === "1";
-export const BINANCE_SPOT_SELL_SUBMISSION_ENABLED =
-  BINANCE_SPOT_ENVIRONMENT === "testnet"
-    ? process.env.NEXT_PUBLIC_BINANCE_TESTNET_SELL_ENABLED === "1"
-    : process.env.NEXT_PUBLIC_BINANCE_PRODUCTION_SELL_ENABLED === "1";
+// 自动交易唯一执行入口是本地Node Trader；浏览器不允许提交现货订单。
+export const BINANCE_SPOT_BUY_SUBMISSION_ENABLED = false as const;
+export const BINANCE_SPOT_SELL_SUBMISSION_ENABLED = false as const;
 
 function assertSimpleEarnProductionOnly(): void {
   assertSimpleEarnSupported(BINANCE_SPOT_ENVIRONMENT);
