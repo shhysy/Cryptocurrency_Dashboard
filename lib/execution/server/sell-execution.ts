@@ -274,7 +274,7 @@ export async function runServerSellCycle(
       Math.abs(child.requestedQty - remaining) > tolerance;
   });
   if (afterRecovery.some((item) => item.status === "reconcile_required") || incompletePartialChain) {
-    result.skipped += 1;
+    if (result.skipped === 0) result.skipped += 1;
     return result;
   }
   if (!deps.dashboard || deps.dashboard.source !== "binance" || deps.dashboard.stale || !deps.dashboard.market.accountKnown) {
