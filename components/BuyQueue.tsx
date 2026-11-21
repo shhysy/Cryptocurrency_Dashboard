@@ -199,7 +199,7 @@ export default function BuyQueue({ data, refreshKey }: { data: DashboardData; re
       <div className="flex items-center justify-between gap-2">
         <div>
           <h3 className="text-sm font-semibold text-fg">待买队列</h3>
-          <p className="mt-0.5 text-[11px] text-mute">策略信号已入队；资金规划只读 Binance 并做本地资金预留，不会赎回理财或提交订单。</p>
+          <p className="mt-0.5 text-[11px] text-mute">旧版浏览器IndexedDB队列，仅供历史核对；不属于本地Trader SQLite，浏览器下单已永久关闭。</p>
         </div>
         <button
           type="button"
