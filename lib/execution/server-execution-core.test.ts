@@ -12,6 +12,7 @@ const base: ServerExecutionIntent = {
   intentId: "v33:BTC:head:2026W47",
   strategyEventId: "BTC:head:2026W47",
   strategyVersion: "3.3",
+  strategyTier: "head",
   symbol: "BTCUSDT",
   side: "BUY",
   quoteAsset: "USDT",
