@@ -91,3 +91,13 @@ Claude 判断：项目已转为本地优先，GPT 负责"本地常驻执行器"�
 ### 当前分支基线
 - 本轮读取的gpt分支基线：`50b600cf846b332ba339d7950d4f8ea00007f80b`；随后本次接口提交为`a9d53c393869966ad2260c321b0e9a08d12f7c2d`。
 - 当前仓库以Claude 2026-11-21最新《自动交易系统总需求清单.md》为准：本地优先、不使用Cloudflare；此前DO SQLite/Cloudflare测试结果仅为历史实现证据，不代表当前目标架构验收。
+
+
+### M1-01补充：本地SQLite基础层（阶段性）
+- 新增`lib/execution/server/sqlite-database.ts`，提交`20f3d585c0da46682008f37ff820702eddf7113c`。
+- 采用Node内置`node:sqlite`的同步`DatabaseSync`；默认数据库路径`data/trader.db`，创建目录权限0700、数据库文件权限0600；已配置WAL、foreign_keys、FULL synchronous和busy_timeout。
+- 新增版本迁移表与首版schema，覆盖：`order_intents`、`order_attempts`、`exchange_orders`、`reservations`、`account_lock`、`fills`、`trade_ledger`、`buy_orders`、`sell_events`、`scheduler_tasks`、`notification_outbox`、`audit_events`。
+- `LocalExecutionDatabase.transaction()` 使用`BEGIN IMMEDIATE/COMMIT/ROLLBACK`；拒绝返回Promise的异步事务回调，避免await期间持有事务锁或误把网络IO放入事务。
+- 新增`lib/execution/server/sqlite-database.test.ts`，提交`8ab178ed40233fbcf2fd246720dc28b1693567d5`，覆盖首次schema、重复打开/数据持久化、异常回滚、拒绝async事务、关闭后拒绝访问。
+- GitHub Actions Run `44870478846`通过：64个测试文件、504项测试通过；TypeScript typecheck、Next.js production build通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44870478846
+- 当前仍只是SQLite连接/迁移/事务基础设施，不是完整`LocalExecutionStore`；intent/attempt/reservation/账户锁/调度任务各方法实现、SELL/BUY原子成交落账、进程重启恢复/并发集成测试仍待完成。M1-01保持[~]。
