@@ -5,7 +5,6 @@ import Balances from "./Balances";
 import BuyQueue from "./BuyQueue";
 import PrepOrdersPanel from "./PrepOrdersPanel";
 import SellQueue from "./SellQueue";
-import ExecutionBackground from "./ExecutionBackground";
 import ExecutionStatusPanel from "./ExecutionStatusPanel";
 import CoinCardView from "./CoinCard";
 import CoinCardCompact from "./CoinCardCompact";
@@ -114,7 +113,6 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
   const [err, setErr] = useState<string | null>(null);
   const [directReady, setDirectReady] = useState(false);
   const [queueVersion, setQueueVersion] = useState(0);
-  const refreshQueue = useCallback(() => setQueueVersion((version) => version + 1), []);
   const [tab, setTab] = useState<Tab>("trades");
   const fit = useFit();
   const scenario = data.source === "mock" ? data.scenario : undefined;
@@ -304,11 +302,6 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
   if (fit) {
     return (
       <main className="mx-auto flex h-dvh w-full max-w-[1800px] flex-col gap-2 overflow-hidden px-4 py-2.5 lg:px-6">
-        <ExecutionBackground
-          onChange={refreshQueue}
-          data={data}
-          executionAllowed={directReady && !err && data.source === "binance" && !data.stale}
-        />
         {header}
         {banner}
         <ScoreToast data={data} />
@@ -399,11 +392,6 @@ export default function Dashboard({ initial }: { initial: DashboardData }) {
 
   return (
     <main className="mx-auto w-full max-w-[1480px] space-y-5 px-4 pb-16 pt-5 sm:px-6 sm:pt-8 lg:px-10">
-      <ExecutionBackground
-          onChange={refreshQueue}
-          data={data}
-          executionAllowed={directReady && !err && data.source === "binance" && !data.stale}
-        />
       {header}
       {banner}
       <ScoreToast data={data} />
