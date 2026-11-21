@@ -75,6 +75,10 @@ function decimalParts(value: string): { units: bigint; scale: number } {
   return { units: BigInt(whole + fraction), scale: fraction.length };
 }
 
+function decimalIsPositive(value: string): boolean {
+  return decimalParts(value).units > 0n;
+}
+
 function decimalAtLeast(balance: string, required: string): boolean {
   const a = decimalParts(balance);
   const b = decimalParts(required);
@@ -159,7 +163,9 @@ export async function POST(req: Request) {
         filter.filterType === "MIN_NOTIONAL" || filter.filterType === "NOTIONAL");
       if (rules.symbol !== symbol || rules.status !== "TRADING" || rules.quoteAsset !== "USDT" ||
           !lotSize?.stepSize || !lotSize.minQty || !priceFilter?.tickSize ||
-          !notionalFilter?.minNotional) continue;
+          !notionalFilter?.minNotional ||
+          !decimalIsPositive(lotSize.stepSize) || !decimalIsPositive(lotSize.minQty) ||
+          !decimalIsPositive(priceFilter.tickSize) || !decimalIsPositive(notionalFilter.minNotional)) continue;
 
       const side = action.side === "buy" ? "BUY" : "SELL";
       if (side === "BUY" && !rules.quoteOrderQtyMarketAllowed) continue;
