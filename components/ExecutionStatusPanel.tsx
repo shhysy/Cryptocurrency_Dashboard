@@ -121,7 +121,7 @@ export default function ExecutionStatusPanel({ refreshKey }: { refreshKey: numbe
           {review > 0 && <p className="rounded-lg border border-warn/40 bg-warn/5 p-2 text-xs text-warn">有 {review} 条执行记录需要人工复核；请先检查日志和交易所订单，不要直接删除数据库记录。</p>}
           <div className="space-y-1">
             <p className="text-xs font-medium text-fg">最近订单</p>
-            {database.intents.slice(0, 6).map((item) => <p key={item.id} className="text-[10px] text-sub">{item.symbol} {item.side} · {item.amount} USDT · {item.state} · {time(item.updatedAt)}</p>)}
+            {database.intents.slice(0, 6).map((item) => <p key={item.id} className="text-[10px] text-sub">{item.symbol} {item.side} · {item.side === "BUY" ? item.amount + " USDT" : item.amount + " 数量"} · {item.state} · {time(item.updatedAt)}</p>)}
             {database.intents.length === 0 && <p className="text-[10px] text-mute">暂无订单意图</p>}
           </div>
           <div className="space-y-1">
