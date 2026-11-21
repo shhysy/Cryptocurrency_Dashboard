@@ -172,3 +172,14 @@
 - GitHub Actions Run `44887541409`（HEAD `436aaa0a5610fd1722f51b67442ecac9c14039f4`）：测试、TypeScript typecheck、Next.js production build全部通过。
 - 运维手册已补充启用步骤：`TRADER_STATUS_API_ENABLED=1`，使用`npm run dev -- --hostname 127.0.0.1`并在同一机器/目录启动Trader。
 - **验收边界：** 代码和CI测试通过；仍需用户本机实际启动Next.js与Trader，确认PID/心跳/STOP/订单/成交数据展示正确。接口默认关闭，不可通过公网或代理访问。M1-05保持[~]，待本机验收。
+
+
+
+### GPT补齐M1-03：真实子进程SIGKILL与重启恢复（2026-11-21）
+
+- 新增`lib/execution/server/trader-restart-child.ts`测试夹具及`sqlite-store.test.ts`进程级集成测试。
+- 测试启动独立Node子进程，使用真实SQLite文件创建BUY intent、持久化原`clientOrderId`、写入unknown状态；父进程对其执行`SIGKILL`，再启动第二个Node子进程打开同一数据库并运行正式`runTraderCycle(mode="off")`。
+- 重启子进程只调用只读`findOrderByClientOrderId("BTCUSDT", 原clientOrderId)`；测试断言查询ID与原ID完全一致、订单仍为unknown、下单函数调用次数为0。
+- 过程中的首轮测试暴露夹具问题：未决Promise不会保持Node事件循环，子进程提前退出导致SIGKILL断言失败。已在夹具中加入保持进程存活的定时器，修正后重新跑完整CI。
+- 最新GitHub Actions Run `44887848264`，HEAD `b39ef69912a2578403bb829051bdf7f8cb818520`：**77 files / 536 tests通过**，TypeScript typecheck通过，Next.js production build通过。另新增状态接口Host/Origin/反向代理头访问边界测试。
+- **结论：** M1-03所要求的SQLite文件 + OS级进程强杀 + 重启后按原clientOrderId只读恢复、不重复POST，已具备自动化集成测试证据；任务状态仍等待Claude独立复核，不抢先标[x]。此测试使用模拟只读交易所响应，不等于Testnet真实订单演练（M2）。
