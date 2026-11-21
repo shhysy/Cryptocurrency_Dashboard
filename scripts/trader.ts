@@ -109,24 +109,26 @@ async function main(): Promise<void> {
           submitOrder: submitTraderSpotMarketOrder,
           log: (message) => safeLog(`[Trader] ${message}`),
         });
+        let dash = null;
         if (effectiveMode !== "off") {
-          try {
-            const dash = await getDashboard();
-            const sell = await enqueueServerSellSignals(dash, store);
-            safeLog("[Trader] SELL入队", sell);
-            const execution = await runServerSellCycle({
-              mode: effectiveMode,
-              store,
-              adapter: binanceReconcileAdapter,
-              dashboard: dash,
-              submitOrder: submitTraderSpotMarketOrder,
-              log: (message) => safeLog(`[Trader] ${message}`),
-            });
-            safeLog("[Trader] SELL执行/对账", execution);
-          } catch (sellError) {
-            safeError("[Trader] SELL执行链路失败，计入连续故障熔断", sellError);
-            throw sellError;
-          }
+          dash = await getDashboard();
+          const sell = await enqueueServerSellSignals(dash, store);
+          safeLog("[Trader] SELL入队", sell);
+        }
+        try {
+          // 即使data/STOP已触发，也继续恢复旧SELL订单；off模式不会创建新事件或POST新订单。
+          const execution = await runServerSellCycle({
+            mode: effectiveMode,
+            store,
+            adapter: binanceReconcileAdapter,
+            dashboard: dash,
+            submitOrder: submitTraderSpotMarketOrder,
+            log: (message) => safeLog(`[Trader] ${message}`),
+          });
+          safeLog("[Trader] SELL执行/对账", execution);
+        } catch (sellError) {
+          safeError("[Trader] SELL执行链路失败，计入连续故障熔断", sellError);
+          throw sellError;
         }
         const outbox = await runNotificationOutboxCycle(store);
         safeLog("[Trader] 成交通知Outbox", outbox);
