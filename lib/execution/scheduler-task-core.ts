@@ -29,7 +29,7 @@ export function validateSchedulerTaskInput(
       !Number.isSafeInteger(now) || now <= 0) return false;
   const value = input as Record<string, unknown>;
   if (typeof value.taskId !== "string" ||
-      !/^[A-Za-z0-9:_-]{1,160}$/.test(value.taskId)) return false;
+      !/^[A-Za-z0-9:_-]{1,170}$/.test(value.taskId)) return false;
   if (value.taskType !== "reconcile_intent" && value.taskType !== "health_check") return false;
   if (!Number.isSafeInteger(value.dueAt) || (value.dueAt as number) <= 0 ||
       (value.dueAt as number) > now + SCHEDULER_TASK_MAX_FUTURE_MS) return false;
@@ -52,7 +52,7 @@ export function createSchedulerTaskLease(
   now: number,
   leaseToken: string,
 ): SchedulerTaskLease {
-  if (!/^[A-Za-z0-9:_-]{1,160}$/.test(taskId) ||
+  if (!/^[A-Za-z0-9:_-]{1,170}$/.test(taskId) ||
       !Number.isSafeInteger(attempt) || attempt <= 0 ||
       !Number.isSafeInteger(now) || now <= 0 ||
       typeof leaseToken !== "string" || leaseToken.length < 16 || leaseToken.length > 128) {
