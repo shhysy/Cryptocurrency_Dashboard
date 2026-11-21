@@ -16,6 +16,7 @@ export interface IntentClaimInput {
   intentId: string;
   availableAsset: string;
   availableAmount: string;
+  snapshotAt: number;
   now: number;
   leaseMs: number;
 }
@@ -56,6 +57,7 @@ export interface FinalizeReconciledOrderInput extends ExecutionLeaseInput {
   executedQty: string;
   cumulativeQuoteQty: string;
   exchangeTerminalAt: number;
+  schedulerLease?: SchedulerTaskLease;
   fills: Array<{
     tradeId: string;
     orderId: string;
