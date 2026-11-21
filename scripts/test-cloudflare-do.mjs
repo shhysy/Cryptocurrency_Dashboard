@@ -7,6 +7,13 @@ import { setTimeout as delay } from "node:timers/promises";
 const port = 8799;
 const base = `http://127.0.0.1:${port}`;
 const persist = await mkdtemp(join(tmpdir(), "cryptodash-do-sqlite-"));
+const watchdog = setTimeout(() => {
+  console.error("[DO SQLite] 集成测试超过120秒，强制终止Wrangler进程组");
+  if (child?.pid) {
+    try { process.kill(-child.pid, "SIGKILL"); } catch {}
+  }
+  process.exit(1);
+}, 120_000);
 let child;
 let childLogs = "";
 
@@ -45,7 +52,7 @@ async function stopWorker() {
 }
 
 async function waitForWorker() {
-  for (let attempt = 0; attempt < 80; attempt++) {
+  for (let attempt = 0; attempt < 40; attempt++) {
     if (child.exitCode !== null) throw new Error(`wrangler dev提前退出：\n${childLogs}`);
     try {
       const response = await fetch(base + "/health", { signal: AbortSignal.timeout(1_000) });
@@ -61,7 +68,7 @@ async function request(path, body, method = "POST") {
     method,
     headers: body === undefined ? {} : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(8_000),
   });
   const payload = await response.json().catch(() => ({}));
   return { status: response.status, payload };
@@ -185,5 +192,6 @@ try {
   process.exitCode = 1;
 } finally {
   await stopWorker();
+  clearTimeout(watchdog);
   await rm(persist, { recursive: true, force: true });
 }
