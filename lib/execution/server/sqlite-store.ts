@@ -47,6 +47,7 @@ function parseIntent(rowValue: unknown): ServerExecutionIntent {
     side: row.side === "SELL" ? "SELL" : "BUY",
     quoteAsset: "USDT",
     amount: String(row.amount),
+    baseRatioAtSignal: row.base_ratio_at_signal == null ? undefined : Number(row.base_ratio_at_signal),
     state: String(row.state) as ServerExecutionIntent["state"],
     attempt: Number(row.attempt),
     createdAt: Number(row.created_at),
@@ -264,13 +265,13 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       const inserted = this.run(
         `INSERT INTO order_intents(
           intent_id, strategy_event_id, strategy_version, symbol, side, quote_asset,
-          amount, state, attempt, created_at, updated_at, exchange_order_id,
+          amount, base_ratio_at_signal, state, attempt, created_at, updated_at, exchange_order_id,
           client_order_id, exchange_terminal_at, fills_reconciled_at, last_error
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT DO NOTHING`,
         intent.intentId, intent.strategyEventId, intent.strategyVersion, intent.symbol,
-        intent.side, intent.quoteAsset, intent.amount, intent.state, intent.attempt,
-        intent.createdAt, intent.updatedAt, intent.exchangeOrderId, intent.clientOrderId,
+        intent.side, intent.quoteAsset, intent.amount, intent.baseRatioAtSignal ?? null,
+        intent.state, intent.attempt, intent.createdAt, intent.updatedAt, intent.exchangeOrderId, intent.clientOrderId,
         intent.exchangeTerminalAt, intent.fillsReconciledAt, intent.lastError,
       );
       const existing = this.get(
@@ -318,6 +319,10 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       const row = this.get("SELECT * FROM order_intents WHERE intent_id = ?", intentId);
       if (!row || row.state !== "queued") return null;
       const intent = parseIntent(row);
+      if (intent.side === "BUY" && (!Number.isFinite(intent.baseRatioAtSignal) ||
+          (intent.baseRatioAtSignal as number) < 0 || (intent.baseRatioAtSignal as number) > 1)) {
+        throw new Error("BUY意图缺少有效的历史底仓比例，拒绝领取");
+      }
       const expectedAsset = intent.side === "BUY" ? "USDT" : intent.symbol.slice(0, -4);
       if (!intent.symbol.endsWith("USDT") || availableAsset !== expectedAsset) {
         throw new Error("余额资产与订单方向/交易对不匹配");
@@ -679,7 +684,7 @@ export class SqliteExecutionStore implements LocalExecutionStore {
         if (![numericFill.price, numericFill.qty, numericFill.quoteQty, numericFill.commission, numericFill.commissionUsdt].every(Number.isFinite)) {
           throw new Error("成交数字超出本地台账可表示范围");
         }
-        const baseRatioAtBuy = intent.side === "BUY" ? Number((intent as ServerExecutionIntent & { baseRatioAtSignal?: number }).baseRatioAtSignal) : null;
+        const baseRatioAtBuy = intent.side === "BUY" ? intent.baseRatioAtSignal ?? null : null;
         if (intent.side === "BUY" && (!Number.isFinite(baseRatioAtBuy) || baseRatioAtBuy! < 0 || baseRatioAtBuy! > 1)) {
           throw new Error("BUY订单缺少信号时冻结的底仓比例，拒绝写入持仓台账");
         }
