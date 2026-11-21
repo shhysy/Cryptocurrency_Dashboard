@@ -137,6 +137,18 @@ describe("GROK-SELL-01A 止盈 resume 台账核验", () => {
     ])).toBeNull();
   });
 
+  it("同键有效行与 qty=0/NaN 并存必须冲突阻断（不得先过滤数量）", () => {
+    const e = [partial()];
+    expect(verifiedTakeProfitEventFilledQty(e[0], [
+      { symbol: "BTC", fillId: "f1", qty: 0.05, side: "SELL", sellKind: "take_profit" },
+      { symbol: "BTC", fillId: "f1", qty: 0, side: "SELL", sellKind: "take_profit" },
+    ])).toBeNull();
+    expect(verifiedTakeProfitEventFilledQty(e[0], [
+      { symbol: "BTC", fillId: "f1", qty: 0.05, side: "SELL", sellKind: "take_profit" },
+      { symbol: "BTC", fillId: "f1", qty: Number.NaN, side: "SELL", sellKind: "take_profit" },
+    ])).toBeNull();
+  });
+
   it("同键混合冲突：错误 side/kind 与有效行并存时必须阻断", () => {
     const e = [partial()];
     expect(verifiedTakeProfitEventFilledQty(e[0], [
