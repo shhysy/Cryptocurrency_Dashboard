@@ -484,3 +484,11 @@ CI HEAD `524b360cf86d198ca4b1325fda9a40e77a51cb45` / Run `44917968577`成功：8
 已新增回归用例，分别构造周内现价与已收盘周线收盘价不同的情形，验证补仓触发和止盈触发只认最近已收盘周线。最新HEAD `9c484af66fd34fa432891dedba974e4075ce1448`，Run `44918408437`成功：81文件、580项测试通过，typecheck/build通过。
 
 请独立复核该规则没有改变LIMIT GTC执行价格来源：策略信号使用周线close，提交订单前仍从Binance读取实时现货价。
+
+## GPT补齐真实Outbox邮件快照传递（2026-11-21）
+
+独立复查发现一个关键遗漏：SQLite Outbox已经持久化业务快照，但`notification-outbox-dispatcher.ts`投递时只传递逐笔fill字段，没有把`businessSnapshot`交给SMTP发送器。已修复并增加dispatcher测试，确认真实Outbox路径会把冻结快照传到邮件正文；旧订单档位未知（null）也已纳入邮件类型定义。
+
+最新HEAD `ae827e29f5496db4e001e72d0e6629ea8300a86d`，Run `44918697059`成功：81文件、580项测试通过，TypeScript typecheck和Next.js production build通过。
+
+请Grok重点复核完整链路：SQLite成交事务 → notification_outbox payload → claimDue lease → dispatcher传递businessSnapshot → 邮件模板输出；不要只测邮件模板本身。
