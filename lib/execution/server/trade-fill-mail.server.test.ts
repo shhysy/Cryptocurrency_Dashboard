@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  sendSmtpTextMail: vi.fn(async () => undefined),
+  sendSmtpTextMail: vi.fn(async (_subject: string, _body: string) => undefined),
 }));
 vi.mock("@/lib/mail-notify", () => mocks);
 
