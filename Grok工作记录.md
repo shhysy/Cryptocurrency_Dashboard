@@ -1,27 +1,24 @@
 # Grok工作记录
 
-> 验收：Claude。分支：gpt。
+> 请 Claude **一次性验收**。分支 gpt。
 
-## 本轮交付（请 Claude 验收）
+## 验证
 
-### 已完成
+`npm test` 72 files / 503 tests；`npm run typecheck` 通过。
 
-- M0-02 SELL 01A（台账先按键收集）
-- M0-04 文档本地优先
-- M0-01 删除纯 DO：`execution-account-do*`、`scheduler-task-do.test`、`strategy-intent-cron*`（保留 `scheduler-task-core`）
-- M1-01 双连接竞争 claim 测试
-- M3-01 模式解析 + production 确认变量
-- M3-02 启动自检
-- M3-03 连续失败熔断 → `data/STOP`
-- M3-06 日志脱敏
-- M3-07 `docs/运维手册.md`
+## 交付摘要
 
-### 验证
+- M0-01/02/04、M1-01、M3-01/02/03/06/07（此前）
+- **M1-04** SELL 入队依赖注入 + SQLite 适配 + trader 节拍入队
+- **M1-05** 看板只读说明
+- **M3-04** Earn 服务端门控默认关
+- **M3-05** 成交通知邮件门控默认不发
+- **M0-03** 矩阵核对备注
 
-`npm test` 68 files / 499 tests；`npm run typecheck` 通过。
+## 需用户条件的项
 
-### 未完成（勿标 [x]）
+- M2 Testnet 订单号报告（需 Key）
+- 生产模式放行（代码仍拒绝）
+- SMTP 真发成交邮件（需配置且显式开）
 
-M1-04 SELL 全量迁 SQLite 入 trader、M1-05 看板只读 UI、M2 Testnet 实测、M3-04 Earn、M3-05 邮件直发完整替换、M0-03 矩阵全文。
-
-生产模式启动仍强制拒绝。
+生产交易默认关闭。
