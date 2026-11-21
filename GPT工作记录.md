@@ -149,3 +149,12 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - M0-01旧通知API仍有可选Cloudflare Access/Worker分支，需先核对调用链后清理。
 - 12个工作表的Excel逐项独立核验和Claude最终验收仍未完成。
 - production模式继续硬拒绝；不能宣称当前已达到“只换真实Key即可实盘”。
+
+
+### GPT补充：熔断一次性触发与Testnet运维文档（2026-11-21）
+
+- `ConsecutiveFailureBreaker.recordFailure()`改为仅在首次跨越阈值时返回true，避免达到阈值后每个失败周期反复写STOP/重复执行熔断副作用。
+- 单测覆盖阈值触发、后续失败不重复触发、成功清零。Run `44891380475`通过。
+- `.env.example`增加 `TRADER_CIRCUIT_FAILURES=5`；`docs/运维手册.md`增加dry-run与Testnet真实订单启动方式、提现权限关闭提醒及production硬拒绝说明。
+- 最终文档CI Run `44891430947`通过：tests、typecheck、build均成功。
+- M3-03异常/熔断邮件仍待实现；M3-04 Simple Earn仍关闭；M2 Testnet订单与72小时验收仍需用户本机Testnet环境。
