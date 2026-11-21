@@ -98,6 +98,6 @@
 
 运行`npm run test:cloudflare-do`。该脚本使用独立`wrangler.test.jsonc`与本地Wrangler/workerd Durable Object SQLite运行时，不依赖Fake SQL；会启动Worker、创建intent并预留账户资金、标记submitting、写入调度任务、停止并重启Worker（复用临时持久化目录），再验证订单上下文/clientOrderId/账户租约、scheduler租约和Alarm时间仍然存在，并用两个并发claim请求验证同一任务只会被领取一次。
 
-当前本地真实运行时覆盖：SQLite建表、DO进程重启持久化、账户锁/订单状态持久化、调度任务幂等入队与内容冲突、Alarm持久化、调度租约重启后续期、并发claim互斥。
+当前本地真实运行时覆盖：SQLite建表、DO进程重启持久化、账户锁/订单状态持久化、调度任务幂等入队与内容冲突、Alarm持久化、调度租约重启后续期、并发claim互斥，以及成交写入后因超出reservation而失败时的SQLite事务完整回滚（fills保持0、reservation和账户锁保持原状）。
 
-仍未覆盖：旧版数据库升级迁移的真实样本、transactionSync中途异常回滚、租约自然过期后的takeover/Alarm实际触发恢复、多账户DO隔离、Cloudflare线上部署实例验证。该测试通过不等于线上Cloudflare账户已部署或Testnet订单执行已验收。
+仍未覆盖：旧版数据库升级迁移的真实样本、租约自然过期后的takeover/Alarm实际触发恢复、多账户DO隔离、Cloudflare线上部署实例验证。该测试通过不等于线上Cloudflare账户已部署或Testnet订单执行已验收。
