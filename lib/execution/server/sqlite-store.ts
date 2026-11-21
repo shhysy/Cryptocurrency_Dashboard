@@ -44,6 +44,7 @@ function parseIntent(rowValue: unknown): ServerExecutionIntent {
     intentId: String(row.intent_id),
     strategyEventId: String(row.strategy_event_id),
     strategyVersion: "3.3",
+    strategyTier: row.strategy_tier == null ? undefined : String(row.strategy_tier) as ServerExecutionIntent["strategyTier"],
     symbol: String(row.symbol),
     side: row.side === "SELL" ? "SELL" : "BUY",
     quoteAsset: "USDT",
@@ -275,12 +276,12 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       const inserted = this.run(
         `INSERT INTO order_intents(
           intent_id, strategy_event_id, strategy_version, symbol, side, quote_asset,
-          amount, base_ratio_at_signal, state, attempt, created_at, updated_at, exchange_order_id,
+          amount, base_ratio_at_signal, strategy_tier, state, attempt, created_at, updated_at, exchange_order_id,
           client_order_id, exchange_terminal_at, fills_reconciled_at, last_error
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT DO NOTHING`,
         intent.intentId, intent.strategyEventId, intent.strategyVersion, intent.symbol,
-        intent.side, intent.quoteAsset, intent.amount, intent.baseRatioAtSignal ?? null,
+        intent.side, intent.quoteAsset, intent.amount, intent.baseRatioAtSignal ?? null, intent.strategyTier ?? null,
         intent.state, intent.attempt, intent.createdAt, intent.updatedAt, intent.exchangeOrderId, intent.clientOrderId,
         intent.exchangeTerminalAt, intent.fillsReconciledAt, intent.lastError,
       );
