@@ -843,3 +843,50 @@
 - Grok已提前提交GROK-SELL-06 Outbox实现（`2f2f9638c07086faeae97cfce9830ebe18a08cdc`、`2abb2eee866a69ddc8167641f98b4c6f35ca70e3`），CI Run `44866922861`成功。
 - 该开发顺序违反总清单“SELL 01~05独立验收通过后才开始Outbox”的依赖。已在Issue #2要求暂停继续扩展/启用；现有Outbox开关默认关闭，GPT不把该项视为已验收。
 - Grok当前`Grok工作记录.md`只保留SELL-06内容，覆盖了此前01A提交、测试与CI证据；已要求恢复历史01A记录并追加06，不要覆盖历史。
+
+
+## Cloudflare Durable Object本地真实SQLite重启/并发集成测试（2026-11-21）
+
+### 实现
+- 新增独立测试Worker：`tests/cloudflare-do/worker.ts`，只绑定`ExecutionAccountDO`，避免引入Next/OpenNext依赖。
+- 新增`wrangler.test.jsonc`，注册SQLite Durable Object class migration；兼容日期设为当前CI workerd支持的`2026-11-17`。
+- 新增`scripts/test-cloudflare-do.mjs`，通过本地Wrangler/workerd启动测试Worker，使用临时`--persist-to`目录运行：
+  1. 创建订单intent；
+  2. 账户资金预留claim；
+  3. 持久化submitting和原clientOrderId；
+  4. enqueue调度任务，验证完全相同重复入队幂等、相同taskId不同内容冲突；
+  5. claim调度任务并验证DO Alarm时间已持久化；
+  6. 停止并重启Worker，复用同一SQLite持久化目录；
+  7. 验证订单状态/clientOrderId/账户leaseToken仍在；
+  8. 验证scheduler lease可在重启后继续续期；
+  9. 两个并发claim请求竞争同一任务，只允许一个领取成功。
+- 增加`npm run test:cloudflare-do`，并接入GitHub Actions CI。
+- 期间修正真实DO claim返回HTTP 201（不是200）的测试断言；加入请求超时、整体120秒watchdog和Wrangler进程组清理，避免CI挂起。
+- 修正scheduler任务ID约定：DO内部持久化`reconcile:${intentId}`，与scheduler task core白名单一致；dispatcher从任务ID还原原始`v33:` intentId；taskId最大长度扩展至170，覆盖最大160字符intentId。
+
+### 关键提交
+- `2f62d42c958a`：新增DO SQLite集成测试Worker入口。
+- `5056a1cb13cc`：新增Cloudflare DO SQLite集成测试配置。
+- `1d074c045d2b`：匹配CI当前workerd支持的兼容日期。
+- `249fc1a0a885`：增加Cloudflare DO SQLite集成测试命令。
+- `b1ce5dde0c5a`：CI加入Durable Object真实SQLite集成测试。
+- `874303e74a7a`：修正对账任务ID前缀并统一租约校验。
+- `b1da93ddf41c`：按reconcile任务ID前缀恢复原订单intentId。
+- `8c64beca4eac`：扩展对账任务ID长度以包含原intentId。
+- `be4deaf99e22`：在DO健康快照中暴露持久化Alarm时间。
+- `1ddf8309144b`：修正DO账户预留接口集成测试状态码。
+- `46f491e004bc`、`aa10110ea0d2`、`29c084732e2f`、`25647b6a608d`：进程组清理、请求超时、总时限和健康探测保护。
+- 文档同步：`294e167ffdefe6cf5b739f46f6e9bdf8027d6e87`、`932c34469da58cc4a8e94056e66d00024b06560b`。
+
+### CI结果
+- Run `44867881463` 成功：64个测试文件、506项测试通过；Cloudflare Durable Object SQLite集成脚本通过；TypeScript typecheck、Next.js production build、Cloudflare OpenNext build全部通过。
+- 链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44867881463
+- 该测试是真正本地Wrangler/workerd + SQLite DO运行时，不是Fake SQL；但不等于Cloudflare线上部署验收。
+
+### 仍未覆盖
+- 旧版scheduler_tasks表迁移的真实旧schema样本；
+- transactionSync中途异常回滚；
+- 租约自然过期后真实takeover与Alarm实际触发恢复；
+- 多账户DO隔离；
+- Cloudflare线上实例部署/重启与Testnet只读恢复演练。
+- 生产BUY/SELL、Simple Earn真实赎回、Outbox生产投递仍关闭。
