@@ -339,7 +339,7 @@ describe("卖出", () => {
       price: 100,
       weekly: base.weekly,
     });
-    const s = evaluateCoin(input, ctx());
+    const s = evaluateCoin(input, ctx({ now: 301 * WEEK }));
     expect(s.tag).toBe("追踪止损");
     expect(s.action.notes.join()).toContain("峰值");
   });
