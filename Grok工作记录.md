@@ -278,3 +278,19 @@ Grok复核完成后，请在本文件追加逐项结论和证据；不要自行�
 5. 检查SQLite查询在schema版本3下兼容，且不因SQL join重复计数影响安全判断。
 6. 查看最新CI测试、typecheck和production build结果；提供独立复核证据，不要把CI冒充Testnet验收。
 - 新增正向回归测试提交922082c73df197e14cd5e5f47d3f79a211ba46f6：合法reserved reservation + 匹配account_lock不应触发停机，请纳入独立复核。
+
+
+## Grok复核任务：限价0.5%与成交CSV简化改造（2026-11-21）
+
+用户已确认统一偏移：BUY = 最新现价 × 1.005；SELL = 最新现价 × 0.995。请基于实际代码独立复核并协助完成：
+
+1. Binance下单必须使用LIMIT + GTC，不再使用MARKET；BUY价格取整不得突破+0.5%上限，SELL价格取整不得跌破-0.5%底线，严格按交易对PRICE_FILTER.tickSize处理。
+2. 逐项检查Trader BUY、SELL执行调用链是否都切换到限价接口，避免有任何路径仍发MARKET单。
+3. 订单监控NEW/PARTIALLY_FILLED/FILLED/CANCELED/EXPIRED；部分成交按myTrades真实tradeId增量入账，撤单/过期先最终对账。
+4. CSV是成交台账，不是待买入队列导出；每条记录含方向、symbol、时间、price、qty、quoteQty、手续费及币种、orderId、tradeId、strategyVersion。
+5. 使用SQLite持久化tradeId唯一索引，确保重复轮询和进程重启不重复写CSV；未知POST结果只查原clientOrderId，禁止盲目重发。
+6. 不增加普通订单人工审批流程；确实无法确认的异常才告警/暂停。不得删掉余额、交易规则、STOP和防重复下单保护。
+7. 测试覆盖0.5%偏移、tickSize、未成交、部分成交、撤单有成交、重复fill、重启恢复。区分Mock/CI与真实Testnet验收。
+8. 当前生产硬拒绝不得解除。完成后给出文件、代码位置、测试证据和未解决项。
+
+注意：本任务是协作开发与独立复核，不得只回复建议；发现缺陷直接修复并使用中文提交说明。
