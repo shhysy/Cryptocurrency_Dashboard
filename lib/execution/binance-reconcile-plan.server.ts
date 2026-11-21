@@ -1,4 +1,3 @@
-import type { ExecutionFill } from "./types";
 import type {
   BinanceOrderLookup,
   BinanceReadOrder,
