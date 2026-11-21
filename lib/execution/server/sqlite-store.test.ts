@@ -99,6 +99,14 @@ describe("本地SQLite执行存储", () => {
       const value = intent("SELL");
       expect((await store.createIntent(value)).created).toBe(true);
       expect((await store.createIntent(value)).created).toBe(false);
+      await expect(store.claimIntent({
+        intentId: value.intentId,
+        availableAsset: "BTC",
+        availableAmount: "1",
+        snapshotAt: NOW - 60_001,
+        now: NOW,
+        leaseMs: 30_000,
+      })).rejects.toThrow("已过期");
       const claim = await store.claimIntent({
         intentId: value.intentId,
         availableAsset: "BTC",
