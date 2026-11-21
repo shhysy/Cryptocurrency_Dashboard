@@ -97,7 +97,8 @@ function fixture() {
       quoteAsset: "USDT",
       quoteOrderQtyMarketAllowed: true,
       filters: [
-        { filterType: "MARKET_LOT_SIZE", minQty: "0.001", maxQty: "100", stepSize: "0.001" },
+        { filterType: "LOT_SIZE", minQty: "0.001", maxQty: "100", stepSize: "0.001" },
+        { filterType: "MARKET_LOT_SIZE", minQty: "0.01", maxQty: "100", stepSize: "0.01" },
         { filterType: "MIN_NOTIONAL", minNotional: "10", applyToMarket: true },
       ],
     })),
@@ -461,6 +462,38 @@ describe("本地Trader服务端SELL执行", () => {
       fillIds: ["456"],
       exchangeTerminalStatus: "FILLED",
     });
+  });
+
+
+  it("LIMIT SELL按LOT_SIZE取整，不错误套用更粗的MARKET_LOT_SIZE", async () => {
+    const f = fixture();
+    f.setEvent({ requestedQty: 0.205 });
+    const submitOrder = vi.fn(async (input: SpotMarketOrderInput) => ({
+      symbol: input.symbol,
+      orderId: 126,
+      clientOrderId: input.clientOrderId,
+      status: "NEW" as const,
+      origQty: input.amount,
+      executedQty: "0",
+      cummulativeQuoteQty: "0",
+      transactTime: 1_800_000_000_001,
+    }));
+
+    const result = await runServerSellCycle({
+      mode: "testnet",
+      store: f.store,
+      adapter: f.adapter,
+      dashboard: f.dashboard,
+      submitOrder,
+      now: () => 1_800_000_000_002,
+    });
+
+    expect(result.submitted).toBe(1);
+    expect(submitOrder).toHaveBeenCalledWith(expect.objectContaining({
+      side: "SELL",
+      symbol: "BTCUSDT",
+      amount: "0.205",
+    }));
   });
 
 });
