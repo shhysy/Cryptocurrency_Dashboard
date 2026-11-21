@@ -38,8 +38,22 @@ function workerEvent(event: TradeNotificationOutboxEvent) {
 }
 
 /**
+ * 成交通知投递开关：默认关闭。
+ * 仅当 NEXT_PUBLIC_TRADE_FILL_DISPATCH_ENABLED=1 时才 claim/投递。
+ * 生产仍须服务端 Worker + HMAC + Access 配置齐全；本开关不能代替那些。
+ */
+export function isTradeFillNotificationDispatchEnabled(): boolean {
+  try {
+    return process.env.NEXT_PUBLIC_TRADE_FILL_DISPATCH_ENABLED === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 仅投递「成交对账事务」已写入的 Outbox 事件。
  * 同源 API 校验身份并在服务端签名；浏览器不接触 HMAC 密钥。
+ * 默认关闭：未显式开启时不领取、不请求、不改状态。
  */
 export async function dispatchPendingTradeNotifications(): Promise<{
   claimed: number;
@@ -47,6 +61,14 @@ export async function dispatchPendingTradeNotifications(): Promise<{
   failed: number;
   reason: string | null;
 }> {
+  if (!isTradeFillNotificationDispatchEnabled()) {
+    return {
+      claimed: 0,
+      sent: 0,
+      failed: 0,
+      reason: "成交通知投递默认关闭（设置 NEXT_PUBLIC_TRADE_FILL_DISPATCH_ENABLED=1 后才启用）",
+    };
+  }
   const batch = await claimTradeNotificationOutboxBatch(20);
   if (batch.length === 0) return { claimed: 0, sent: 0, failed: 0, reason: null };
 
