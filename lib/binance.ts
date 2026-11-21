@@ -154,6 +154,26 @@ async function signedGet<T>(path: string, params: Record<string, string | number
   return getJson<T>(`${SIGNED_BASE}${path}?${qs}&signature=${signature}`, { "X-MBX-APIKEY": key });
 }
 
+
+/** 读取当前 Binance 环境的服务器时间，并返回本机往返时延中点用于启动时钟自检。 */
+export async function fetchBinanceServerTime(): Promise<{
+  serverTime: number;
+  localMidpoint: number;
+  roundTripMs: number;
+}> {
+  const startedAt = Date.now();
+  const response = await publicGet<{ serverTime: number }>("/api/v3/time");
+  const finishedAt = Date.now();
+  if (!Number.isSafeInteger(response.serverTime) || response.serverTime <= 0) {
+    throw new Error("Binance服务器时间响应无效");
+  }
+  return {
+    serverTime: response.serverTime,
+    localMidpoint: (startedAt + finishedAt) / 2,
+    roundTripMs: finishedAt - startedAt,
+  };
+}
+
 // ---------- 公开行情 ----------
 export async function fetchTickers(pairs: string[]): Promise<Record<string, Ticker>> {
   const symbols = encodeURIComponent(JSON.stringify(pairs));
