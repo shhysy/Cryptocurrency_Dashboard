@@ -68,18 +68,19 @@ async function main(): Promise<void> {
     heartbeatMs: 10_000,
     staleAfterMs: 45_000,
   });
-  const store = await openLocalExecutionStore({
-    path: process.env.TRADER_DB_PATH ?? "data/trader.db",
-  });
+  let store: Awaited<ReturnType<typeof openLocalExecutionStore>> | null = null;
   const controller = new AbortController();
   const onStop = () => controller.abort();
   process.once("SIGINT", onStop);
   process.once("SIGTERM", onStop);
 
-  console.log(`[Trader] 已启动 mode=${mode}；数据库=${process.env.TRADER_DB_PATH ?? "data/trader.db"}；单实例锁已获取`);
-  console.log("[Trader] 当前阶段只接入BUY自动执行；SELL等待Grok完成M1-04服务端适配；生产模式强制关闭");
-
   try {
+    store = await openLocalExecutionStore({
+      path: process.env.TRADER_DB_PATH ?? "data/trader.db",
+    });
+    console.log(`[Trader] 已启动 mode=${mode}；数据库=${process.env.TRADER_DB_PATH ?? "data/trader.db"}；单实例锁已获取`);
+    console.log("[Trader] 当前阶段只接入BUY自动执行；SELL等待Grok完成M1-04服务端适配；生产模式强制关闭");
+
     while (!controller.signal.aborted) {
       const stopped = await stopFileExists();
       const effectiveMode: TraderMode = stopped ? "off" : mode;
@@ -103,7 +104,7 @@ async function main(): Promise<void> {
   } finally {
     process.removeListener("SIGINT", onStop);
     process.removeListener("SIGTERM", onStop);
-    store.close();
+    store?.close();
     await lock.release();
     console.log("[Trader] 已停止，SQLite连接和单实例锁已释放");
   }
