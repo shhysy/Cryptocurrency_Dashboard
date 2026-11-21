@@ -119,7 +119,7 @@ async function main(): Promise<void> {
               store,
               adapter: binanceReconcileAdapter,
               dashboard: dash,
-              submitOrder: submitSpotMarketOrder,
+              submitOrder: submitTraderSpotMarketOrder,
               log: (message) => safeLog(`[Trader] ${message}`),
             });
             safeLog("[Trader] SELL执行/对账", execution);
