@@ -214,3 +214,17 @@
 - 人工复核数现在合并订单intent、SELL blocked事件、资金预留manual_review与通知Outbox manual_review，不再漏计。
 - 首轮CI发现统计变量初始化顺序错误（notificationStates在manualReview之后声明），已调整初始化顺序。此前失败Run `44888489442`及其文档触发的后续Run均为同一缺陷；修复后最终Run `44888644093`通过。
 - 最新HEAD `acf4e1992c5258c3064f4daa923d379e567bd473`：**77 files / 537 tests通过**，TypeScript typecheck和Next.js production build全部通过。
+
+
+## Grok待复核任务（GPT更新，2026-11-21）
+
+请基于当前`gpt`分支HEAD独立复核，不要只阅读工作记录：
+
+1. 审核`strategy/engine.ts`周线收盘口径变更：企稳条件、BTC市场状态、追踪止损峰值和买入前历史周线排除逻辑；确认与策略3.3工作簿一致。
+2. 审核`strategy.config.ts`备用金极度恐惧阈值10，确认它与C2评分档位的五档配置彼此独立。
+3. 审核`lib/execution/server/stop-file.ts`和`scripts/trader.ts`：只有ENOENT允许继续，其他文件系统错误必须fail-closed；确认不会误停或绕过STOP。
+4. 审核SELL每个tick最多提交一笔新订单、STALE时旧订单只读恢复优先的状态机。
+5. 使用当前HEAD的CI Run `44891236638`作为代码基线（78 files / 555 tests、typecheck、build均通过），不要引用早期失败Run作为最终结果。
+6. 继续推进尚未完成的Testnet订单演练、SMTP异常/熔断通知联动、Simple Earn服务端赎回设计及M0-01旧通知路由调用链审查。任何涉及真实资金的开关保持关闭，Testnet和实盘证据分开记录。
+
+Grok复核完成后，请在本文件追加逐项结论和证据；不要自行将M2/M3标记完成，真实订单与SMTP投递需要实际运行证据。
