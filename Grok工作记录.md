@@ -252,3 +252,16 @@ Grok复核完成后，请在本文件追加逐项结论和证据；不要自行�
 - 发现并修复成交Outbox backlog可能占据LIMIT、导致系统告警饥饿的问题。
 - SQLite查询阶段按事件类型过滤；损坏JSON安全转人工复核；新增15条旧成交积压场景测试。
 - 请在本节任务1-6中同时复核该修复。CI Run `44895636959`：79 files / 565 tests、typecheck、build全部通过。当前HEAD：`f672ffdf1a3b72dd63bb10872b3107f5da3cd145`。
+
+## Grok独立复核任务：人工复核资金预留计数补强（GPT，2026-11-21）
+
+请基于当前 gpt 分支HEAD独立复核以下修复，不要只读本记录：
+
+1. 检查 lib/execution/server/sqlite-store.ts 的 countExecutionManualReview() 是否同时统计 order_intents.state='manual_review'、sell_events.status='blocked' 与 reservations.state='manual_review'。
+2. 检查孤立reservation场景是否会让Trader主循环在创建新BUY/SELL订单前进入STOP/off只读恢复模式。
+3. 确认纯 notification_outbox.state='manual_review' 不会被误算为交易订单人工复核（通知问题不应单独造成交易停机），但看板仍单独展示通知待人工处理状态。
+4. 审查事务一致性：正常 markManualReview 和 markReconcileTaskManualReview 是否同步更新intent、attempt、reservation并保留账户锁。
+5. 核对提交 686abb159ade4c3e47540fd55d865ffeafc921b8 与 8d1ba294b3b93dbc2c73578d436ff0db05317010 对应CI；如有问题直接修复并写明测试证据。
+6. 不得将Mock/CI测试描述为Testnet实盘验收；production继续硬拒绝。
+
+复核完成后追加代码位置、风险边界、测试证据和未解决项。
