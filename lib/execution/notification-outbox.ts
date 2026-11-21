@@ -33,8 +33,9 @@ export type TradeFillBusinessSnapshot =
       cumulativeQuoteQty: string;
       cumulativeCommissionUsdt: string;
       averageFillPrice: string;
-      realizedPnlUsdt: number;
-      remainingPositionQty: number;
+      realizedPnlUsdt: number | null;
+      remainingPositionQty: number | null;
+      accountingAvailable: boolean;
     };
 
 export interface ConfirmedTradeFillNotificationEvent extends NotificationOutboxBase {
