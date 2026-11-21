@@ -5,10 +5,14 @@ import type { TradeNotificationOutboxEvent } from "../notification-outbox";
 const mocks = vi.hoisted(() => ({
   enabled: vi.fn(() => true),
   dispatch: vi.fn(async (): Promise<{ ok: boolean; sent: boolean; reason?: string }> => ({ ok: true, sent: true })),
+  alertEnabled: vi.fn(() => false),
+  alertDispatch: vi.fn(async (): Promise<{ ok: boolean; sent: boolean; reason?: string }> => ({ ok: true, sent: true })),
 }));
 vi.mock("./trade-fill-mail.server", () => ({
   isTradeFillMailEnabled: mocks.enabled,
   dispatchTradeFillMail: mocks.dispatch,
+  isTraderAlertMailEnabled: mocks.alertEnabled,
+  dispatchTraderAlertMail: mocks.alertDispatch,
 }));
 
 import { runNotificationOutboxCycle } from "./notification-outbox-dispatcher";
@@ -53,6 +57,10 @@ afterEach(() => {
   mocks.enabled.mockReturnValue(true);
   mocks.dispatch.mockReset();
   mocks.dispatch.mockResolvedValue({ ok: true, sent: true });
+  mocks.alertEnabled.mockReset();
+  mocks.alertEnabled.mockReturnValue(false);
+  mocks.alertDispatch.mockReset();
+  mocks.alertDispatch.mockResolvedValue({ ok: true, sent: true });
 });
 
 describe("本地成交Outbox投递器", () => {
@@ -81,6 +89,37 @@ describe("本地成交Outbox投递器", () => {
       leaseToken: "lease-1",
       reason: "SMTP unavailable",
     }));
+  });
+
+
+  it("系统告警开关独立启用时只领取并发送系统告警", async () => {
+    const repo = store();
+    const alert = {
+      ...event,
+      id: "trader-alert:circuit-breaker:1800000000000",
+      type: "system_alert" as const,
+      severity: "critical" as const,
+      title: "Trader连续故障熔断",
+      message: "连续失败达到阈值",
+      occurredAt: 1_800_000_000_000,
+      side: undefined,
+      symbol: undefined,
+      fillId: undefined,
+      exchangeOrderId: undefined,
+    };
+    repo.notificationOutbox.claimDue = vi.fn(async () => [{ event: alert, leaseToken: "alert-lease" }]);
+    mocks.enabled.mockReturnValue(false);
+    mocks.alertEnabled.mockReturnValue(true);
+    const result = await runNotificationOutboxCycle(repo, 1_800_000_000_001);
+    expect(result).toMatchObject({ claimed: 1, sent: 1, failed: 0 });
+    expect(repo.notificationOutbox.claimDue).toHaveBeenCalledWith(expect.objectContaining({
+      eventTypes: ["system_alert"],
+    }));
+    expect(mocks.alertDispatch).toHaveBeenCalledWith(expect.objectContaining({
+      id: alert.id,
+      title: alert.title,
+    }));
+    expect(mocks.dispatch).not.toHaveBeenCalled();
   });
 
   it("邮件开关关闭时不领取Outbox", async () => {
