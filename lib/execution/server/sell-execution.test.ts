@@ -285,6 +285,34 @@ describe("本地Trader服务端SELL执行", () => {
     expect(child?.exchangeOrderId).toBe("125");
   });
 
+  it("预检可执行数量比策略授权数量少至少一个交易步长时拒绝静默缩量", async () => {
+    const f = fixture();
+    const ledger = await f.store.tradeLedger.listTradeLedger();
+    vi.mocked(f.store.tradeLedger.listTradeLedger).mockResolvedValue([{
+      ...ledger[0],
+      qty: 0.2,
+      quoteQty: 20,
+      baseRatioAtBuy: 0.4,
+    }]);
+    vi.mocked(f.adapter.getAccountBalances).mockResolvedValue([
+      { asset: "BTC", free: "0.12", locked: "0.08" },
+      { asset: "USDT", free: "100", locked: "0" },
+    ] as never);
+    const submitOrder = vi.fn();
+    const result = await runServerSellCycle({
+      mode: "testnet",
+      store: f.store,
+      adapter: f.adapter,
+      dashboard: f.dashboard,
+      submitOrder,
+      now: () => 1_800_000_000_002,
+    });
+    expect(result.blocked).toBe(1);
+    expect(f.getEvent().status).toBe("blocked");
+    expect(f.getEvent().lastError).toContain("拒绝静默缩量");
+    expect(submitOrder).not.toHaveBeenCalled();
+  });
+
   it("dry-run只读，不领取SELL事件也不发送订单", async () => {
     const f = fixture();
     const submitOrder = vi.fn();
