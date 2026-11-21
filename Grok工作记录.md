@@ -418,3 +418,24 @@ GPT已直接检查当前邮件实现，确认当前Outbox事件仅保存单笔fi
 - `position-accounting.ts`的`replayPositionLedger`可重放真实持仓与实现盈亏，应复用而非另造估算公式。
 
 注意：HEAD `a2fb2b006ebb387d3d52d1d62f80460841ef923e`对应CI Run `44914865835`已通过，但这只是Grok记录/验收范围调整的CI，不代表本任务代码已完成。用户不要求72小时连续测试；生产模式保持硬拒绝。
+
+
+## 进一步审查：策略档位数据源与数据库模型缺口（2026-11-21）
+
+GPT继续核对了当前HEAD `35216db83af12b70b9f996595e9ddebd71fce5c1`的核心数据模型，发现一个不能绕过的实现前置条件：
+
+- `lib/execution/server-execution-core.ts`中的`ServerExecutionIntent`只有`strategyEventId`、`strategyVersion`、`symbol`、`side`、`amount`和`baseRatioAtSignal`等字段，没有独立、可验证的`strategyLabel/tier`。
+- `lib/execution/server/sqlite-database.ts`当前schema version为3；`order_intents`表没有策略档位列。
+- 同一SQLite schema虽然有`buy_orders.strategy_label`和`planned_usdt`，但当前本地Trader的`recordConfirmedBuyFill`使用的是`order_intents + reservations + fills + trade_ledger`路径，不能未经关联校验就把另一套buy_orders记录当成本次订单的档位或计划金额来源。
+- BUY测试里的事件ID示例为`BTC:head:2026W47`，但不能仅凭测试样例把所有策略事件第二段硬编码成用户可读策略档位。必须追踪真实策略信号生成及intent创建入口，明确档位枚举和语义，再将它持久化到intent。
+- `position-accounting.ts`的`replayPositionLedger`要求完整BUY底仓比例及SELL类型，SELL邮件盈亏/持仓应基于该函数重放；不得仅用当前fill的`realized_pnl_usdt`（目前新SELL入账时写NULL）充当累计已实现盈亏。
+
+### 本轮新增实施要求
+
+1. 先沿策略3.3信号→BUY订单意图创建链追踪真实字段，列出每个创建调用点和当前档位值来源；不得猜测。
+2. 若现有intent事件ID仅能表达head/add等策略事件，增加显式类型化字段并进行SQLite schema version 4迁移；旧记录兼容读取，但新订单必须校验字段完整。
+3. 明确`plannedUsdt`来自原始BUY intent金额/已关联reservation，而不是孤立的buy_orders表行；累计fill按symbol+orderId，remaining=计划金额-累计quoteQty-计入USDT预算的手续费，使用精确十进制运算并保证非负。
+4. SELL邮件中的累计实现盈亏定义为本次成交写入后，对该symbol完整真实trade_ledger调用`replayPositionLedger`所得的`realizedPnlUsdt`；剩余持仓使用同一快照的`totalQty`。如果完整账本缺失BUY底仓比例或SELL kind，必须拒绝生成带数字的邮件快照。
+5. 为了防止后续成交污染历史邮件，所有字段在每个fill入账的同一SQLite事务内生成并写入Outbox JSON；邮件重试只读取原快照。
+
+当前HEAD最新CI Run `44915279189`已成功（工作记录提交本身）；它不代表上述代码缺口已修复。请优先提交代码、迁移、测试和真实数据链路说明，不要只继续追加文档。用户不要求72小时测试，生产交易继续硬拒绝。
