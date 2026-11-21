@@ -102,7 +102,7 @@ export function applyPostTakeProfitRebuy(
       if (event.status !== "partially_filled") return false;
       const remaining = event.requestedQty - (event.filledQty ?? 0);
       const hasContinuation = symbolEvents.some((child) =>
-        child.eventKey.startsWith(`${event.eventKey}:续卖`)
+        child.eventKey === `${event.eventKey}:续卖1`
       );
       return remaining > EPSILON && !hasContinuation;
     });
