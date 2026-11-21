@@ -15,12 +15,9 @@ function noAction(label: string, over: Partial<Action> = {}): Action {
   };
 }
 
-function confirmed(event: SellEventRecord, symbolSells: TradeLedgerEntry[]): boolean {
+function confirmed(event: SellEventRecord): boolean {
   return event.status === "executed" ||
-    (event.status === "partially_filled" && (event.filledQty ?? 0) > EPSILON) ||
-    Boolean(event.exchangeOrderId && symbolSells.some((fill) =>
-      fill.orderId === event.exchangeOrderId && fill.sellKind === "take_profit"
-    ));
+    (event.status === "partially_filled" && (event.filledQty ?? 0) > EPSILON);
 }
 
 function tierOf(event: SellEventRecord): number | null {
@@ -99,8 +96,17 @@ export function applyPostTakeProfitRebuy(
       fill.symbol === pair && fill.side === "SELL"
     );
     const replay = replayAverageCost(coin, symbolSells);
+    // 任何未终态或需人工复核的止盈事件都先冻结本币新动作，避免未知/部分写入订单与新BUY并发。
+    const unresolvedTp = symbolEvents.find((event) =>
+      event.kind === "take_profit" &&
+      ["pending", "reconcile_required", "blocked"].includes(event.status)
+    );
+    if (unresolvedTp) {
+      return blockedSignal(coin, "存在未终态或需人工复核的止盈事件；暂停本币新买入与回补，先完成SELL对账");
+    }
+
     const tpEvents = symbolEvents.filter((event) =>
-      event.kind === "take_profit" && confirmed(event, symbolSells)
+      event.kind === "take_profit" && confirmed(event)
     );
     const tpIds = new Set(tpEvents.flatMap((event) => event.fillIds));
     const tpFills = symbolSells.filter((fill) =>
