@@ -44,7 +44,7 @@ describe("Binance订单终态对账计划", () => {
     })).resolves.toMatchObject({
       kind: "finalize", exchangeOrderId: "55", exchangeStatus: "CANCELED",
       executedQty: "0.00400000", cumulativeQuoteQty: "260.00",
-      fills: [{ tradeId: "101", commission: "0.00000400", commissionAsset: "BTC" }],
+      fills: [{ tradeId: "101", price: "65000.00", commission: "0.00000400", commissionAsset: "BTC" }],
     });
   });
 
