@@ -259,6 +259,12 @@ export async function runServerSellCycle(
   }
 
   if (deps.mode !== "testnet") return result;
+  // 只要仍有SELL订单未进入交易所终态，就不再并发提交其他SELL。
+  const afterRecovery = await deps.store.sellEvents.listSellEvents();
+  if (afterRecovery.some((item) => item.status === "reconcile_required")) {
+    result.skipped += 1;
+    return result;
+  }
   if (!deps.dashboard || deps.dashboard.source !== "binance" || deps.dashboard.stale || !deps.dashboard.market.accountKnown) {
     result.skipped += 1;
     return result;
@@ -304,6 +310,18 @@ export async function runServerSellCycle(
         result.blocked += 1;
         continue;
       }
+      const clippedQty = desiredQty - preflight.quantity;
+      const clipTolerance = Math.max(1e-12, rules.stepSize * 1e-9);
+      if (clippedQty >= rules.stepSize - clipTolerance) {
+        await deps.store.sellEvents.updateSellEvent({
+          ...event,
+          status: "blocked",
+          lastError: "可执行数量比策略授权数量少至少一个交易步长；拒绝静默缩量提交，转人工复核",
+          updatedAt: now(),
+        });
+        result.blocked += 1;
+        continue;
+      }
 
       const clientOrderId = clientOrderIdForEvent(event.eventKey, 0);
       await deps.store.sellEvents.claimSellEventForSubmission(event.eventKey, clientOrderId, now());
@@ -319,9 +337,13 @@ export async function runServerSellCycle(
         await deps.store.sellEvents.bindSellEventToExchangeOrder(event.eventKey, String(response.orderId), now());
         result.submitted += 1;
         log(`SELL已收到交易所响应：${pair} clientOrderId=${clientOrderId}，等待只读成交核验`);
+        // 每个节拍最多提交一笔SELL；其余事件留到下一轮，先核对本笔订单状态。
+        break;
       } catch (error) {
         result.unknown += 1;
         log(`SELL提交结果未知，事件已锁定且禁止重发：${clientOrderId}；${error instanceof Error ? error.message : "未知错误"}`);
+        // POST结果未知时不得继续提交下一笔SELL，避免两个未确认订单并发。
+        break;
       }
     } catch (error) {
       result.blocked += 1;
