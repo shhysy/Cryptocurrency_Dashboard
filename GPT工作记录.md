@@ -267,3 +267,10 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - 已将遗留`/api/binance/spot-order`和`/api/binance/testnet-order`改为HTTP 410永久停用，并把两组路由测试改为验证拒绝请求，防止旧MARKET下单入口绕过本地Trader。路由最终HEAD的CI仍待完成。
 - SELL补强CI Run `44913742185`：81个测试文件、582个测试通过；typecheck、Next.js production build通过。该Run对应HEAD `a1aa82c67971e292c2454ae53416831a04038fac`，不包含随后旧路由停用提交。
 - 未完成：最新遗留路由停用HEAD CI；Testnet真实订单/部分成交/重启演练；72小时运行；SMTP真实投递；Grok/Claude独立复核。生产继续硬拒绝。
+
+
+### 最新遗留市价路由封闭验收结果（2026-11-21）
+- 现货旧市价路由与Testnet旧市价路由均已HTTP 410停用；两个路由测试均已改为断言410，避免遗留测试继续期待市价下单。
+- 最新代码HEAD `2dcf4d2edd130c28ee27271ad691a614b96594d0`对应GitHub Actions Run `44913913471`已成功：81个测试文件、572个测试通过；TypeScript typecheck和Next.js production build全部通过。
+- 572与此前SELL补强Run的582测试数量不同，是因为两个旧市价路由原先各自的多项认证/请求测试改为单项永久停用测试；不是测试失败或被跳过。
+- 该结果仍仅证明CI自动化验证通过；Binance Testnet真实订单和成交、72小时连续运行、SMTP真实收发及独立复核仍未完成。
