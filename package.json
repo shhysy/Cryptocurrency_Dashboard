@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "notify": "node scripts/notify-score.mjs",
     "trader": "node --env-file=.env.local scripts/trader.mjs",
-    "test:smtp": "node --env-file-if-exists=.env.local scripts/test-smtp.mjs"
+    "test:smtp": "node --experimental-strip-types --env-file-if-exists=.env.local scripts/test-smtp.mjs"
   },
   "dependencies": {
     "next": "^16.4.6",
