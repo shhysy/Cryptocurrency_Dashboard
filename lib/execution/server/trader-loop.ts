@@ -48,7 +48,8 @@ const TERMINAL_STATES = new Set([
 export function buildServerBuyIntents(
   data: DashboardData,
 ): ServerExecutionIntent[] {
-  if (data.source !== "binance" || data.stale || !data.market.accountKnown ||
+  // 策略3.3 G2：STALE只是看板软提示，不单独否决买入；关键行情/账户字段仍由策略阻断与下单前实时预检验证。
+  if (data.source !== "binance" || !data.market.accountKnown ||
       !Number.isSafeInteger(data.updatedAt) || data.updatedAt <= 0) return [];
 
   const intents: ServerExecutionIntent[] = [];
