@@ -158,3 +158,16 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - `.env.example`增加 `TRADER_CIRCUIT_FAILURES=5`；`docs/运维手册.md`增加dry-run与Testnet真实订单启动方式、提现权限关闭提醒及production硬拒绝说明。
 - 最终文档CI Run `44891430947`通过：tests、typecheck、build均成功。
 - M3-03异常/熔断邮件仍待实现；M3-04 Simple Earn仍关闭；M2 Testnet订单与72小时验收仍需用户本机Testnet环境。
+
+
+## GPT本轮继续开发：故障告警与人工复核自动停机（2026-11-21）
+
+- 新增系统告警Outbox事件类型`system_alert`，复用SQLite通知队列的租约、围栏、退避和人工复核状态；无schema迁移，使用已有JSON payload表。
+- 新增`enqueueSystemAlert`、`countExecutionManualReview`；计数覆盖BUY intent `manual_review`与SELL事件`blocked`。
+- 新增`TRADER_ALERT_MAIL_ENABLED`和`dispatchTraderAlertMail`，和成交通知独立启用；Outbox根据启用类型领取，防止错误消费未启用类型。
+- Trader连续失败达到阈值时先写STOP，再持久化故障邮件；告警邮件失败不会中断Trader交易循环，交给Outbox重试。
+- 发现BUY对账进入manual_review后原循环可能继续扫描新信号，已加guard：人工复核期间不创建新BUY；Trader检测已有人工复核/SELL blocked时自动off新订单并继续旧订单只读恢复。
+- SELL阻断时写STOP并将原因持久化告警。
+- GitHub Actions Run `44895391448`：79 files / 564 tests passed，typecheck与production build passed。
+- 真实SMTP仍需用户本机填入SMTP配置并设置`TRADER_ALERT_MAIL_ENABLED=1`后实测；当前默认0，不会发信。此项代码通过不代表SMTP已真实投递。
+- production仍硬拒绝；M2 Testnet、Earn、Excel全表核验和Claude验收仍未完成。
