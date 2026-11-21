@@ -973,6 +973,7 @@ export class SqliteExecutionStore implements LocalExecutionStore {
            WHERE task_id = ? AND state = 'leased' AND attempt = ? AND lease_token = ?`,
           reason.slice(0, 500), now, lease.taskId, lease.attempt, lease.leaseToken,
         );
+        this.markReconcileTaskManualReview(lease.taskId, reason, now);
         return "manual_review";
       }
       this.run(
@@ -997,12 +998,14 @@ export class SqliteExecutionStore implements LocalExecutionStore {
         const attempt = Number(row.attempt);
         const decision = expiredSchedulerLeaseDecision(attempt, now);
         if (decision.state === "manual_review") {
+          const taskId = String(row.task_id);
           recovered += this.run(
             `UPDATE scheduler_tasks SET state = 'manual_review', lease_token = NULL,
              lease_until = NULL, last_error = '租约过期且达到最大尝试次数', updated_at = ?
              WHERE task_id = ? AND state = 'leased' AND attempt = ? AND lease_until <= ?`,
-            now, String(row.task_id), attempt, now,
+            now, taskId, attempt, now,
           );
+          this.markReconcileTaskManualReview(taskId, "对账任务租约过期且达到最大尝试次数", now);
         } else {
           recovered += this.run(
             `UPDATE scheduler_tasks SET state = 'pending', lease_token = NULL,
@@ -1014,6 +1017,29 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       }
       return recovered;
     });
+  }
+
+  private markReconcileTaskManualReview(taskId: string, reason: string, now: number): void {
+    if (!taskId.startsWith("reconcile:")) return;
+    const intentId = taskId.slice("reconcile:".length);
+    if (!intentId) return;
+    this.run(
+      `UPDATE order_intents SET state = 'manual_review', last_error = ?, updated_at = ?
+       WHERE intent_id = ? AND state IN ('submitting', 'unknown', 'reconciling', 'partial_open')`,
+      reason.slice(0, 500), now, intentId,
+    );
+    this.run(
+      `UPDATE order_attempts SET state = 'manual_review', updated_at = ?
+       WHERE intent_id = ? AND attempt = (
+         SELECT attempt FROM order_intents WHERE intent_id = ?
+       )`,
+      now, intentId, intentId,
+    );
+    this.run(
+      "UPDATE reservations SET state = 'manual_review', updated_at = ? WHERE intent_id = ? AND state = 'reserved'",
+      now, intentId,
+    );
+    // account_lock保留，直到人工核对后显式解锁。
   }
 
   private async reserveSellEvent(record: SellEventRecord): Promise<{ record: SellEventRecord; created: boolean }> {
