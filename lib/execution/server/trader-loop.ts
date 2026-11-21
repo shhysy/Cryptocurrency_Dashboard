@@ -1,5 +1,6 @@
 import type { DashboardData } from "@/lib/types";
 import { strategyConfig } from "@/strategy.config";
+import { isBuyAssetEligible } from "@/watchlist.config";
 import { buildBinanceReconcilePlan } from "../binance-reconcile-plan.server";
 import type { createBinanceReconcileAdapter } from "../binance-reconcile.server";
 import type { SpotMarketOrderResponse } from "@/lib/binance";
@@ -54,6 +55,8 @@ export function buildServerBuyIntents(
 
   const intents: ServerExecutionIntent[] = [];
   for (const coin of data.coins) {
+    // 服务端执行入口再次独立校验；看板/调用方即使漏带blocked也不能绕过白名单。
+    if (!isBuyAssetEligible(coin.symbol)) continue;
     const action = coin.signal.action;
     if (action.side !== "buy" || !BUY_KINDS.has(action.kind) ||
         !Array.isArray(action.blocked) || action.blocked.length > 0 ||
