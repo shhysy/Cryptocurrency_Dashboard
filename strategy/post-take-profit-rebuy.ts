@@ -71,7 +71,7 @@ function replayAverageCost(coin: CoinCard, sells: TradeLedgerEntry[]): AverageRe
 }
 
 function blockedSignal(coin: CoinCard, reason: string): CoinCard {
-  const action = noAction("均价回补", { blocked: [reason] });
+  const action = noAction("台账待核对", { blocked: [reason] });
   return { ...coin, signal: { ...coin.signal, kind: "none" as const, tag: "暂缓" as const, action } };
 }
 
