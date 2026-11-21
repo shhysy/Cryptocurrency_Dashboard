@@ -167,4 +167,85 @@ describe("enqueueEligibleSellSignals 台账完整性", () => {
     expect(result.blocked.filter((b) => b.symbol === "BTC")).toHaveLength(0);
     expect(result.created).toBe(1);
   });
+
+  it("止盈 partial：无台账时阻断本币，不误伤无宣称币", async () => {
+    listSellEvents.mockResolvedValue([{
+      eventKey: "sell:BTC:take_profit:2:止盈1",
+      symbol: "BTC",
+      kind: "take_profit",
+      status: "partially_filled",
+      requestedQty: 0.15,
+      filledQty: 0.05,
+      createdAt: 1,
+      updatedAt: 1,
+      exchangeOrderId: "1",
+      fillIds: ["tp1"],
+      lastError: null,
+      exchangeTerminalStatus: "CANCELED",
+      fillReconcileCompletedAt: 1_700_000_000_000,
+      lotStepSize: 0.00001,
+    }]);
+    listTradeLedger.mockResolvedValue([]);
+    const result = await enqueueEligibleSellSignals(data(["BTC", "ETH"]));
+    expect(result.blocked.some((b) => b.symbol === "BTC" && b.reason.includes("台账"))).toBe(true);
+    const ethOk = reserveSellEvent.mock.calls.some((c) => (c[0] as { symbol?: string }).symbol === "ETH");
+    const btcOk = reserveSellEvent.mock.calls.some((c) => (c[0] as { symbol?: string }).symbol === "BTC");
+    expect(ethOk).toBe(true);
+    expect(btcOk).toBe(false);
+  });
+
+  it("止盈 partial：合法 take_profit 台账可 resume", async () => {
+    listSellEvents.mockResolvedValue([{
+      eventKey: "sell:BTC:take_profit:2:止盈1",
+      symbol: "BTC",
+      kind: "take_profit",
+      status: "partially_filled",
+      requestedQty: 0.15,
+      filledQty: 0.05,
+      createdAt: 1,
+      updatedAt: 1,
+      exchangeOrderId: "1",
+      fillIds: ["tp1"],
+      lastError: null,
+      exchangeTerminalStatus: "CANCELED",
+      fillReconcileCompletedAt: 1_700_000_000_000,
+      lotStepSize: 0.00001,
+    }]);
+    listTradeLedger.mockResolvedValue([{
+      symbol: "BTCUSDT", fillId: "tp1", qty: 0.05, side: "SELL", sellKind: "take_profit",
+      orderId: "1", time: 1, price: 1, quoteQty: 1, commission: 0, commissionAsset: "USDT",
+      commissionUsdt: 0, id: "x", realizedPnlUsdt: null,
+    }]);
+    const result = await enqueueEligibleSellSignals(data(["BTC"]));
+    expect(result.created).toBe(1);
+    const key = (reserveSellEvent.mock.calls[0][0] as { eventKey: string }).eventKey;
+    expect(key).toContain("resume");
+  });
+
+  it("止盈 partial：错误 symbol 台账阻断本币", async () => {
+    listSellEvents.mockResolvedValue([{
+      eventKey: "sell:BTC:take_profit:2:止盈1",
+      symbol: "BTC",
+      kind: "take_profit",
+      status: "partially_filled",
+      requestedQty: 0.15,
+      filledQty: 0.05,
+      createdAt: 1,
+      updatedAt: 1,
+      exchangeOrderId: "1",
+      fillIds: ["tp1"],
+      lastError: null,
+      exchangeTerminalStatus: "CANCELED",
+      fillReconcileCompletedAt: 1_700_000_000_000,
+      lotStepSize: 0.00001,
+    }]);
+    listTradeLedger.mockResolvedValue([{
+      symbol: "ETHUSDT", fillId: "tp1", qty: 0.05, side: "SELL", sellKind: "take_profit",
+      orderId: "1", time: 1, price: 1, quoteQty: 1, commission: 0, commissionAsset: "USDT",
+      commissionUsdt: 0, id: "x", realizedPnlUsdt: null,
+    }]);
+    const result = await enqueueEligibleSellSignals(data(["BTC"]));
+    expect(result.created).toBe(0);
+    expect(result.blocked.some((b) => b.symbol === "BTC")).toBe(true);
+  });
 });
