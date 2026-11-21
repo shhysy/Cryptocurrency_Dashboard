@@ -633,7 +633,7 @@ describe("账户级Durable Object持久化基础", () => {
       body: JSON.stringify({ intentId: intent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken }),
     }));
     const schedulerLeaseToken = "scheduler-lease-token-123456";
-    sql.schedulerTasks.set(intent.intentId, {
+    sql.schedulerTasks.set(`reconcile:${intent.intentId}`, {
       state: "leased", attempt: 1, lease_token: schedulerLeaseToken, lease_until: Date.now() + 30_000,
     });
     const terminalAt = Date.now();
@@ -641,7 +641,7 @@ describe("账户级Durable Object持久化基础", () => {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({
         intentId: intent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken,
-        schedulerTaskId: intent.intentId, schedulerAttempt: 1, schedulerLeaseToken,
+        schedulerTaskId: `reconcile:${intent.intentId}`, schedulerAttempt: 1, schedulerLeaseToken,
         exchangeOrderId: "90001", exchangeStatus: "FILLED", executedQty: "0.001",
         cumulativeQuoteQty: "50", exchangeTerminalAt: terminalAt,
         fills: [{
@@ -684,7 +684,7 @@ describe("账户级Durable Object持久化基础", () => {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({
         intentId: intent.intentId, attempt: claimed.attempt, leaseToken: claimed.leaseToken,
-        schedulerTaskId: intent.intentId, schedulerAttempt: 1,
+        schedulerTaskId: `reconcile:${intent.intentId}`, schedulerAttempt: 1,
         schedulerLeaseToken: "expired-scheduler-token-123456",
         exchangeOrderId: "90006", exchangeStatus: "FILLED", executedQty: "0.001",
         cumulativeQuoteQty: "50", exchangeTerminalAt: terminalAt,
