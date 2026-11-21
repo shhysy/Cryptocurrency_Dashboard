@@ -187,6 +187,10 @@ async function ensurePartialSellContinuation(
   log: (message: string) => void,
 ): Promise<void> {
   if (event.status !== "partially_filled") return;
+  if (!Number.isFinite(event.filledQty) || (event.filledQty ?? 0) <= 0 ||
+      (event.filledQty ?? 0) > event.requestedQty || event.fillIds.length === 0) {
+    throw new Error("SELL部分成交事件缺少可信成交数量或fillIds，拒绝自动续卖");
+  }
   const remainingQty = event.requestedQty - (event.filledQty ?? 0);
   const epsilon = Math.max(1e-12, event.requestedQty * 1e-12);
   if (remainingQty <= epsilon) return;
