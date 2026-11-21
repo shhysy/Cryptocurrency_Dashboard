@@ -114,6 +114,47 @@ describe("Testnet服务端策略意图入口", () => {
     expect(stub.fetch).not.toHaveBeenCalled();
   });
 
+  it("SELL只按基础资产free余额检查，不把locked数量当作可卖数量", async () => {
+    const stub = { fetch: vi.fn() };
+    contextMock.mockReturnValue({
+      env: { EXECUTION_ACCOUNT: { idFromName: () => "id", get: () => stub } },
+    } as never);
+    getDashboardMock.mockResolvedValue(dashboard({
+      coins: [{
+        symbol: "BTC",
+        signal: { action: { side: "sell", kind: "takeProfit", usdt: 60, qty: 0.001, blocked: [] } },
+      }],
+    }) as never);
+    balancesMock.mockResolvedValue([
+      { asset: "BTC", free: "0.0009", locked: "0.01" },
+      { asset: "USDT", free: "100", locked: "0" },
+    ] as never);
+    const response = await POST(makeRequest());
+    expect(response.status).toBe(200);
+    expect((await response.json()).created).toBe(0);
+    expect(stub.fetch).not.toHaveBeenCalled();
+  });
+
+  it("交易规则步长或最小名义金额为零时拒绝创建intent", async () => {
+    const stub = { fetch: vi.fn() };
+    contextMock.mockReturnValue({
+      env: { EXECUTION_ACCOUNT: { idFromName: () => "id", get: () => stub } },
+    } as never);
+    rulesMock.mockResolvedValue({
+      symbol: "BTCUSDT", status: "TRADING", baseAsset: "BTC", quoteAsset: "USDT",
+      quoteOrderQtyMarketAllowed: true,
+      filters: [
+        { filterType: "LOT_SIZE", minQty: "0.00001", maxQty: "100", stepSize: "0" },
+        { filterType: "PRICE_FILTER", minPrice: "0.01", maxPrice: "1000000", tickSize: "0.01" },
+        { filterType: "MIN_NOTIONAL", minNotional: "5", applyToMarket: true },
+      ],
+    } as never);
+    const response = await POST(makeRequest());
+    expect(response.status).toBe(200);
+    expect((await response.json()).created).toBe(0);
+    expect(stub.fetch).not.toHaveBeenCalled();
+  });
+
   it("生产环境、未启用开关、跨站或未认证请求均拒绝", async () => {
     const stub = { fetch: vi.fn() };
     contextMock.mockReturnValue({
