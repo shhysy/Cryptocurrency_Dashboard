@@ -746,7 +746,7 @@ export class SqliteExecutionStore implements LocalExecutionStore {
           throw new Error("成交台账已存在冲突内容，拒绝覆盖");
         }
 
-        const notification = buildTradeFillNotificationEvent(numericFill, now);
+        const notification = buildTradeFillNotificationEvent(numericFill, numericFill.time);
         const notificationPayload = JSON.stringify(notification);
         this.run(
           `INSERT INTO notification_outbox(
@@ -1241,7 +1241,7 @@ export class SqliteExecutionStore implements LocalExecutionStore {
         id, fill.symbol, fill.fillId, fill.orderId, fill.time, fill.price, fill.qty,
         fill.quoteQty, fill.commission, fill.commissionAsset, fill.commissionUsdt, sellKind,
       );
-      const notification = buildTradeFillNotificationEvent(fill);
+      const notification = buildTradeFillNotificationEvent(fill, fill.time);
       this.run(
         `INSERT INTO notification_outbox(
           id, payload_json, state, attempt, next_attempt_at, created_at, updated_at
@@ -1404,7 +1404,7 @@ export class SqliteExecutionStore implements LocalExecutionStore {
         fill.quoteQty, fill.commission, fill.commissionAsset, fill.commissionUsdt,
         intent.baseRatioAtSignal as number,
       );
-      const notification = buildTradeFillNotificationEvent(fill, input.now);
+      const notification = buildTradeFillNotificationEvent(fill, fill.time);
       const payload = JSON.stringify(notification);
       this.run(
         "INSERT INTO notification_outbox(id, payload_json, state, attempt, next_attempt_at, created_at, updated_at) VALUES (?, ?, 'pending', 0, 0, ?, ?)",
