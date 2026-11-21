@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isBuyAssetEligible, watchlist } from "./watchlist.config";
+import { isBuyAssetEligible, watchlist, type WatchItem } from "./watchlist.config";
 
 describe("策略3.3资产池买入许可", () => {
   it("按用户确认允许BTC、PAXG、ETH、BNB、UNI自动新增买入", () => {
@@ -17,7 +17,7 @@ describe("策略3.3资产池买入许可", () => {
     for (const symbol of ["BTC", "PAXG", "ETH", "BNB", "UNI"]) {
       expect(watchlist.find((item) => item.symbol === symbol)?.buyEnabled).toBe(true);
     }
-    const unconfigured = { symbol: "NEW", name: "New asset", color: "#000000" };
+    const unconfigured: WatchItem = { symbol: "NEW", name: "New asset", color: "#000000" };
     expect(unconfigured.buyEnabled).toBeUndefined();
   });
 });
