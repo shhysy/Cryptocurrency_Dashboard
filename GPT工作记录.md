@@ -678,3 +678,9 @@
 - 正向确认：`enqueueEligibleSellSignals` 确实读取 `listTradeLedger()` 并映射side/sellKind/qty；`recordConfirmedSellFill` 持久化sellKind并校验重复成交字段一致性。
 - 尚需Grok补充：错误symbol；有效记录与混合冲突记录；真实commission/commissionAsset字段不参与qty合计；实际enqueue/tick集成路径（不只手工传数组测试）；最新CI与中文commit SHA。
 - 已在Issue #2评论ID `7056908010` 请求补测和CI证据。当前只认定为核心代码阶段性交付，不认定SELL通过；Outbox与生产交易继续关闭。
+
+
+### P2-C调度队列测试与Alarm空转边界修正（2026-11-21）
+- 修正新调度队列测试中数组索引的非空断言，避免开启严格索引检查时出现测试类型错误：`127d89ae071b774d65e03f4e8841fcb3dff5c427`。
+- 将调度队列Alarm最小唤醒间隔设为60秒，防止到期任务因处理异常而每秒空转；Cron每分钟作为兜底唤醒：`b4ec3f7f2a4d682ae8856aee59727cd460d027eb`。
+- 这两项尚待最新GitHub Actions验证；当前没有把静态修改视为测试通过。
