@@ -307,3 +307,29 @@ Grok复核完成后，请在本文件追加逐项结论和证据；不要自行�
 6. 不删除余额/交易规则预检、STOP、防重复下单和真实成交核验等底线。
 7. 优先完成BUY+0.5%、SELL-0.5%的LIMIT GTC改造、成交CSV台账及对应测试；production硬拒绝继续保留。
 8. 直接开发、测试并用中文提交；更新工作记录给出实际代码位置和CI证据，不要只回复建议，也不要把Mock说成Testnet实测。
+
+
+## GPT移交给Grok：限价GTC与成交CSV后续任务（2026-11-21）
+
+GPT已先行提交限价GTC第一阶段代码，Grok请在当前gpt分支最新HEAD上接手，不要覆盖现有实现。
+
+### 已有代码
+- `lib/execution/server/limit-order.ts`：BigInt十进制定点价格与数量计算。
+- `lib/binance.ts`：`submitTraderSpotLimitOrder`；兼容旧Trader入口已转调LIMIT GTC。
+- BUY价格+0.5%向下tick取整；SELL价格-0.5%向上tick取整。
+- BUY按USDT预算换算基础币数量并按LOT_SIZE取整；SELL数量严格按LOT_SIZE校验。
+- `lib/binance.limit-order.test.ts`、`lib/execution/server/limit-order.test.ts`。
+- `lib/execution/csv.ts`与`scripts/trader.ts`：SQLite真实成交台账原子同步到`data/trades.csv`。
+
+### Grok必须继续完成
+1. 审核最新HEAD CI；修复所有失败，不能把旧Run当作最新验收。
+2. 逐一审查Trader BUY、SELL及兼容API路由，确认自动交易不会提交MARKET订单；若旧路由仍允许自动下MARKET，必须禁用或迁移为LIMIT GTC。
+3. 重点补齐BUY GTC订单NEW/PARTIALLY_FILLED时的增量成交核验：每轮按原clientOrderId查订单、按orderId读取完整myTrades，验证累计executedQty/cummulativeQuoteQty后，将新增tradeId逐笔写SQLite fills与trade_ledger并触发成交Outbox；tradeId唯一键防重。不能等到GTC最终结束才记部分成交。
+4. SELL同样核实开放订单的逐笔fill持续入账，不能重复记账；不增加自动撤单/过期订单独立业务。
+5. CSV必须从SQLite真实成交台账原子重建，验证负数盈亏、中文/逗号/引号、公式注入保护；不把待买订单CSV冒充成交CSV。
+6. 完成测试、typecheck、Next build；在Grok工作记录写实际Run ID、测试数量与HEAD SHA。
+7. Testnet真实BUY/SELL、部分成交、重启恢复和异常演练仍按M2清单完成。没有用户Testnet凭证不能虚报实测。
+8. SMTP只需信号分数达55/75邮件和真实BUY/SELL成交邮件，不做审批、不扩展复杂通知平台。
+9. 所有提交说明继续使用中文；生产开关继续硬拒绝。
+
+**本任务当前状态：GPT第一阶段已写代码，等待最新CI与Grok独立复核；不能标记M1/M2完成。**
