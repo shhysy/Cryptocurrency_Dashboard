@@ -198,3 +198,14 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - 新增SQLite测试：queued intent + reserved reservation + 缺失account_lock必须返回非零计数。
 - 提交：6c0fc91797685f64317d61f5ec29bb1bacc0bd95、399907566bffd8617d072798b93c405692a71436。等待CI；尚未宣布通过。
 - 增加正向回归测试：intent=reserved、reservation=reserved、account_lock(singleton=1且intent/attempt匹配)时 countExecutionManualReview()必须为0，验证新安全检查不会误伤合法在途订单。提交922082c73df197e14cd5e5f47d3f79a211ba46f6；等待CI。
+
+
+## 2026-11-21｜用户确认限价偏移0.5%，简化买卖执行
+
+- 用户确认BUY限价在当前价基础上+0.5%，SELL限价在当前价基础上-0.5%，明确不采用1%。
+- 目标改为LIMIT GTC挂单、定时查询订单、只按交易所真实逐笔成交更新成交CSV；未成交不写CSV，部分成交只写新增fill，撤单/过期也先最终查单再记账。
+- CSV目标从“待买入订单导出”改为“真实成交台账”；SQLite只保留未完成订单和tradeId去重索引等必要状态。
+- 不再引入普通订单人工审批；但保留clientOrderId查单恢复，防止POST超时/进程重启造成重复下单或漏记成交。
+- 本轮先完成规则记录与任务拆分；尚未改动下单代码，当前仍为MARKET实现，不能宣称LIMIT改造完成。
+- 下一步：改造Binance LIMIT GTC接口（PRICE_FILTER/tickSize），迁移Trader BUY/SELL调用，增量成交fill写CSV并用SQLite唯一键去重；新增单测与Testnet实测。
+- 生产模式继续硬拒绝，直到Testnet真实挂单/部分成交/撤单/重启恢复验收。
