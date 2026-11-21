@@ -9,6 +9,8 @@ export interface ServerExecutionIntent {
   intentId: string;
   strategyEventId: string;
   strategyVersion: "3.3";
+  /** BUY信号的真实策略执行档位：头仓、补仓或备用金；不从事件ID推断。 */
+  strategyTier?: "head" | "add" | "reserve";
   symbol: string;
   side: ServerExecutionSide;
   quoteAsset: "USDT";
