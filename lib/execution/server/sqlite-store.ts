@@ -12,7 +12,7 @@ import {
   SCHEDULER_TASK_MAX_ATTEMPTS,
   validateSchedulerTaskInput,
 } from "../scheduler-task-core";
-import { buildTradeFillNotificationEvent } from "../notification-outbox";
+import { buildTradeFillNotificationEvent, tradeNotificationRetryDelayMs, type TradeNotificationOutboxEvent } from "../notification-outbox";
 import type {
   CreateIntentResult,
   ExecutionLeaseInput,
@@ -25,6 +25,7 @@ import type {
   ReconcileContext,
   SchedulerTaskInput,
   SchedulerTaskLease,
+  NotificationOutboxLease,
 } from "./store";
 import { LocalExecutionDatabase, openLocalExecutionDatabase, type LocalExecutionDatabaseOptions } from "./sqlite-database";
 
@@ -207,6 +208,7 @@ export class SqliteExecutionStore implements LocalExecutionStore {
   readonly scheduler: LocalExecutionStore["scheduler"];
   readonly sellEvents: LocalExecutionStore["sellEvents"];
   readonly tradeLedger: LocalExecutionStore["tradeLedger"];
+  readonly notificationOutbox: LocalExecutionStore["notificationOutbox"];
   private readonly database: LocalExecutionDatabase;
 
   private constructor(database: LocalExecutionDatabase) {
@@ -227,6 +229,11 @@ export class SqliteExecutionStore implements LocalExecutionStore {
         this.claimSellEventForSubmission(eventKey, clientOrderId, now),
       bindSellEventToExchangeOrder: (eventKey, exchangeOrderId, now) =>
         this.bindSellEventToExchangeOrder(eventKey, exchangeOrderId, now),
+    };
+    this.notificationOutbox = {
+      claimDue: (input) => this.claimDueNotifications(input),
+      markSent: (input) => this.markNotificationSent(input),
+      markFailed: (input) => this.markNotificationFailed(input),
     };
     this.tradeLedger = {
       listTradeLedger: () => this.listTradeLedger(),
@@ -1222,6 +1229,117 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       const ledger = this.get("SELECT * FROM trade_ledger WHERE id = ?", id);
       if (!ledger) throw new Error("卖出成交写入后无法读取台账");
       return { recorded: true, ledger: parseTradeLedger(ledger) };
+    });
+  }
+
+  private async claimDueNotifications(input: {
+    now: number; leaseMs: number; limit: number;
+  }): Promise<NotificationOutboxLease[]> {
+    if (!validTime(input.now) || !Number.isSafeInteger(input.leaseMs) ||
+        input.leaseMs < 1_000 || input.leaseMs > 120_000 ||
+        !Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100) {
+      throw new Error("Outbox领取参数无效");
+    }
+    return this.transaction(() => {
+      const rows = this.all(
+        `SELECT * FROM notification_outbox
+         WHERE next_attempt_at <= ?
+           AND (state = 'pending' OR (state = 'leased' AND lease_until <= ?))
+         ORDER BY created_at ASC LIMIT ?`,
+        input.now, input.now, input.limit,
+      );
+      const leases: NotificationOutboxLease[] = [];
+      for (const row of rows) {
+        const id = String(row.id);
+        const attempt = Number(row.attempt) + 1;
+        const leaseToken = randomUUID();
+        const leaseUntil = input.now + input.leaseMs;
+        const changed = this.run(
+          `UPDATE notification_outbox
+           SET state = 'leased', attempt = ?, lease_token = ?, lease_until = ?, updated_at = ?
+           WHERE id = ? AND next_attempt_at <= ?
+             AND (state = 'pending' OR (state = 'leased' AND lease_until <= ?))`,
+          attempt, leaseToken, leaseUntil, input.now, id, input.now, input.now,
+        );
+        if (changed !== 1) continue;
+        let payload: TradeNotificationOutboxEvent;
+        try {
+          payload = JSON.parse(String(row.payload_json)) as TradeNotificationOutboxEvent;
+        } catch {
+          this.run(
+            "UPDATE notification_outbox SET state = 'manual_review', lease_token = NULL, lease_until = NULL, last_error = ?, updated_at = ? WHERE id = ? AND lease_token = ?",
+            "Outbox载荷JSON损坏", input.now, id, leaseToken,
+          );
+          continue;
+        }
+        if (!payload || payload.id !== id || payload.type !== "confirmed_trade_fill" ||
+            (payload.side !== "BUY" && payload.side !== "SELL") ||
+            !payload.symbol || !payload.fillId || !payload.exchangeOrderId) {
+          this.run(
+            "UPDATE notification_outbox SET state = 'manual_review', lease_token = NULL, lease_until = NULL, last_error = ?, updated_at = ? WHERE id = ? AND lease_token = ?",
+            "Outbox载荷身份字段无效", input.now, id, leaseToken,
+          );
+          continue;
+        }
+        leases.push({
+          leaseToken,
+          event: {
+            ...payload,
+            status: "sending",
+            attemptCount: attempt,
+            leaseUntil,
+            leaseToken,
+            updatedAt: input.now,
+          },
+        });
+      }
+      return leases;
+    });
+  }
+
+  private async markNotificationSent(input: {
+    id: string; leaseToken: string; now: number;
+  }): Promise<boolean> {
+    if (!input.id || !input.leaseToken || !validTime(input.now)) {
+      throw new Error("Outbox成功确认参数无效");
+    }
+    return this.run(
+      `UPDATE notification_outbox
+       SET state = 'sent', lease_token = NULL, lease_until = NULL,
+           next_attempt_at = 0, last_error = NULL, updated_at = ?
+       WHERE id = ? AND state = 'leased' AND lease_token = ? AND lease_until > ?`,
+      input.now, input.id, input.leaseToken, input.now,
+    ) === 1;
+  }
+
+  private async markNotificationFailed(input: {
+    id: string; leaseToken: string; now: number; reason: string;
+  }): Promise<"pending" | "manual_review" | "lease_lost"> {
+    if (!input.id || !input.leaseToken || !validTime(input.now) || !input.reason) {
+      throw new Error("Outbox失败确认参数无效");
+    }
+    return this.transaction(() => {
+      const row = this.get("SELECT state, attempt, lease_token, lease_until FROM notification_outbox WHERE id = ?", input.id);
+      if (!row || row.state !== "leased" || row.lease_token !== input.leaseToken ||
+          Number(row.lease_until) <= input.now) return "lease_lost";
+      const attempt = Number(row.attempt);
+      if (attempt >= 10) {
+        this.run(
+          `UPDATE notification_outbox SET state = 'manual_review', lease_token = NULL,
+           lease_until = NULL, last_error = ?, updated_at = ?
+           WHERE id = ? AND state = 'leased' AND lease_token = ?`,
+          input.reason.slice(0, 500), input.now, input.id, input.leaseToken,
+        );
+        return "manual_review";
+      }
+      const nextAttemptAt = input.now + tradeNotificationRetryDelayMs(attempt);
+      this.run(
+        `UPDATE notification_outbox SET state = 'pending', lease_token = NULL,
+         lease_until = NULL, next_attempt_at = ?, last_error = ?, updated_at = ?
+         WHERE id = ? AND state = 'leased' AND lease_token = ?`,
+        nextAttemptAt, input.reason.slice(0, 500), input.now, input.id, input.leaseToken,
+      );
+      return "pending";
     });
   }
 
