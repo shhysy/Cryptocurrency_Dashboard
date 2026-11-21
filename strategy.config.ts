@@ -47,24 +47,23 @@ export const strategyConfig = {
     weeklyPeriod: 200, // 周线 MA200（约 4 年线）
     directionWeeks: 4, // BTC 判断 MA200 方向：与 4 周前比
     // 价格 / MA200 ≤ max 得 points 分；从严到宽匹配，命中第一档即停。
-    // V3.3 细化：原来两档粗粒度（≤1.00/≤1.05），现分六档拉开梯度，越低于 MA200 分数越高。
+    // 严格对应《策略3.3.xlsx》：0.70/0.80/0.90/1.00/1.05五档，分值30/25/20/15/10。
     tiers: [
       { max: 0.7, points: 30 },
-      { max: 0.8, points: 24 },
-      { max: 0.9, points: 18 },
-      { max: 1.0, points: 12 },
-      { max: 1.05, points: 6 },
+      { max: 0.8, points: 25 },
+      { max: 0.9, points: 20 },
+      { max: 1.0, points: 15 },
+      { max: 1.05, points: 10 },
     ],
   },
   fearGreed: {
     // 恐惧贪婪指数 ≤ max 得 points 分；从严到宽匹配，命中第一档即停。
-    // V3.3 细化：原来两档粗粒度（≤25/≤40），现分六档拉开梯度，低贪婪高分更鼓励抄底。
+    // 严格对应《策略3.3.xlsx》：≤10/20/30/40五档（最后一档>40为0分）。
     tiers: [
       { max: 10, points: 30 },
-      { max: 15, points: 25 },
-      { max: 25, points: 20 },
-      { max: 35, points: 10 },
-      { max: 40, points: 5 },
+      { max: 20, points: 25 },
+      { max: 30, points: 20 },
+      { max: 40, points: 15 },
     ],
     extremeFear: 10, // 备用金的「极度恐惧」门槛：按策略3.3参数中心F&G阈值1执行；与C2评分细分档位解耦
     overheat: 80, // ≥ 80：过热，进入止盈检查
