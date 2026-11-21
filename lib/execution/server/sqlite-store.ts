@@ -388,14 +388,14 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       );
       if (!lock || Number(lock.lease_until) <= lease.now) return false;
       const until = lease.now + leaseMs;
-      this.run(
+      if (this.run(
         "UPDATE account_lock SET lease_until = ?, updated_at = ? WHERE singleton = 1 AND intent_id = ? AND attempt = ? AND lease_token = ? AND lease_until > ?",
         until, lease.now, lease.intentId, lease.attempt, lease.leaseToken, lease.now,
-      );
-      this.run(
+      ) !== 1) return false;
+      if (this.run(
         "UPDATE order_attempts SET lease_until = ?, updated_at = ? WHERE intent_id = ? AND attempt = ? AND lease_token = ?",
         until, lease.now, lease.intentId, lease.attempt, lease.leaseToken,
-      );
+      ) !== 1) throw new Error("订单attempt租约记录缺失，拒绝只更新账户锁");
       this.run(
         "INSERT INTO audit_events(intent_id, event_type, created_at) VALUES (?, 'execution_lease_renewed', ?)",
         lease.intentId, lease.now,
@@ -434,6 +434,8 @@ export class SqliteExecutionStore implements LocalExecutionStore {
         ON CONFLICT(task_id) DO NOTHING`,
         `reconcile:${input.intentId}`, input.now + 5_000, input.now, input.now,
       );
+      const reconcileTask = this.get("SELECT task_type FROM scheduler_tasks WHERE task_id = ?", `reconcile:${input.intentId}`);
+      if (reconcileTask?.task_type !== "reconcile_intent") throw new Error("对账任务ID已被其他任务类型占用");
       this.run(
         "INSERT INTO audit_events(intent_id, event_type, created_at) VALUES (?, 'intent_marked_submitting', ?)",
         input.intentId, input.now,
@@ -471,6 +473,8 @@ export class SqliteExecutionStore implements LocalExecutionStore {
         ON CONFLICT(task_id) DO NOTHING`,
         `reconcile:${input.intentId}`, input.now + 1_000, input.now, input.now,
       );
+      const reconcileTask = this.get("SELECT task_type FROM scheduler_tasks WHERE task_id = ?", `reconcile:${input.intentId}`);
+      if (reconcileTask?.task_type !== "reconcile_intent") throw new Error("对账任务ID已被其他任务类型占用");
       this.run(
         "INSERT INTO audit_events(intent_id, event_type, created_at) VALUES (?, 'intent_marked_unknown', ?)",
         input.intentId, input.now,
@@ -595,7 +599,9 @@ export class SqliteExecutionStore implements LocalExecutionStore {
           "SELECT * FROM scheduler_tasks WHERE task_id = ?",
           input.schedulerLease.taskId,
         );
-        if (!scheduler || scheduler.state !== "leased" ||
+        if (input.schedulerLease.taskType !== "reconcile_intent" ||
+            input.schedulerLease.taskId !== `reconcile:${input.intentId}` ||
+            !scheduler || scheduler.state !== "leased" ||
             Number(scheduler.attempt) !== input.schedulerLease.attempt ||
             scheduler.lease_token !== input.schedulerLease.leaseToken ||
             Number(scheduler.lease_until) <= now) {
@@ -662,7 +668,9 @@ export class SqliteExecutionStore implements LocalExecutionStore {
               Number(existing.attempt) !== input.attempt || existing.order_id !== input.exchangeOrderId ||
               existing.side !== intent.side || existing.price !== fill.price || existing.qty !== fill.qty ||
               existing.quote_qty !== fill.quoteQty || existing.commission !== fill.commission ||
-              existing.commission_asset !== fill.commissionAsset || Number(existing.filled_at) !== fill.filledAt ||
+              existing.commission_asset !== fill.commissionAsset ||
+              existing.commission_usdt !== commissionUsdt ||
+              Number(existing.filled_at) !== fill.filledAt ||
               (existing.sell_kind ?? null) !== sellKind) {
             throw new Error("tradeId已存在但成交内容或订单归属不一致，拒绝覆盖");
           }
