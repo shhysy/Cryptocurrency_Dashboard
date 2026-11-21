@@ -394,7 +394,8 @@ describe("本地Trader服务端SELL执行", () => {
       submitOrder,
     });
 
-    expect(result.skipped).toBe(2);
+    // 旧订单本轮已成功只读恢复，不计入 skipped；只有新卖单因 STALE 被跳过。
+    expect(result.skipped).toBe(1);
     expect(f.findOrderByClientOrderId).toHaveBeenCalledWith("BTCUSDT", "gpt-stale-recovery-1");
     expect(f.store.sellEvents.claimSellEventForSubmission).not.toHaveBeenCalled();
     expect(submitOrder).not.toHaveBeenCalled();
