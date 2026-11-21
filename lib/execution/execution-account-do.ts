@@ -2,7 +2,13 @@ import {
   validateServerExecutionIntent,
   type ServerExecutionIntent,
 } from "./server-execution-core";
-import { expiredSchedulerLeaseDecision } from "./scheduler-task-core";
+import {
+  expiredSchedulerLeaseDecision,
+  schedulerTaskRetryAt,
+  SCHEDULER_TASK_MAX_ATTEMPTS,
+  SCHEDULER_TASK_LEASE_MS,
+  validateSchedulerTaskInput,
+} from "./scheduler-task-core";
 
 interface SqlCursor {
   toArray(): unknown[];
@@ -215,6 +221,252 @@ export class ExecutionAccountDO {
     await this.ready;
     const url = new URL(request.url);
 
+    if (url.pathname === "/internal/scheduler/enqueue" && request.method === "POST") {
+      let input: unknown;
+      try {
+        const rawBody = await request.text();
+        if (new TextEncoder().encode(rawBody).byteLength > 16_384) {
+          return Response.json({ error: "调度任务请求体过大" }, { status: 413 });
+        }
+        input = JSON.parse(rawBody);
+      } catch {
+        return Response.json({ error: "调度任务JSON无效" }, { status: 400 });
+      }
+      const now = Date.now();
+      if (!validateSchedulerTaskInput(input, now)) {
+        return Response.json({ error: "调度任务类型、taskId或dueAt无效" }, { status: 400 });
+      }
+      const task = input;
+      try {
+        const result = this.state.storage.transactionSync(() => {
+          const sql = this.state.storage.sql;
+          const inserted = sql.exec(
+            `INSERT INTO scheduler_tasks(
+              task_id, task_type, due_at, state, attempt, next_attempt_at, created_at, updated_at
+            ) VALUES (?, ?, ?, 'pending', 0, 0, ?, ?)
+            ON CONFLICT(task_id) DO NOTHING RETURNING task_id`,
+            task.taskId, task.taskType, task.dueAt, now, now,
+          ).toArray();
+          const rows = sql.exec(
+            "SELECT task_id, task_type, due_at, state, attempt FROM scheduler_tasks WHERE task_id = ?",
+            task.taskId,
+          ).toArray();
+          const row = rows[0] as {
+            task_id?: string; task_type?: string; due_at?: number; state?: string; attempt?: number;
+          } | undefined;
+          if (!row || row.task_type !== task.taskType || row.due_at !== task.dueAt) {
+            throw new Error("taskId已存在但任务内容不同，拒绝覆盖");
+          }
+          if (inserted.length > 0) {
+            sql.exec(
+              "INSERT INTO audit_events(event_type, payload_hash, created_at) VALUES ('scheduler_task_enqueued', ?, ?)",
+              task.taskId, now,
+            );
+          }
+          return { created: inserted.length > 0, taskId: row.task_id, state: row.state, attempt: row.attempt };
+        });
+        await this.scheduleSchedulerAlarm(now);
+        return Response.json({ accepted: true, ...result }, { status: result.created ? 201 : 200 });
+      } catch (error) {
+        return Response.json({
+          accepted: false,
+          error: error instanceof Error ? error.message : "调度任务入队失败",
+        }, { status: 409 });
+      }
+    }
+
+    if (url.pathname === "/internal/scheduler/claim" && request.method === "POST") {
+      let input: Record<string, unknown>;
+      try {
+        const rawBody = await request.text();
+        if (new TextEncoder().encode(rawBody).byteLength > 16_384) {
+          return Response.json({ error: "调度领取请求体过大" }, { status: 413 });
+        }
+        const parsed: unknown = JSON.parse(rawBody);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return Response.json({ error: "调度领取参数无效" }, { status: 400 });
+        }
+        input = parsed as Record<string, unknown>;
+      } catch {
+        return Response.json({ error: "调度领取JSON无效" }, { status: 400 });
+      }
+      const limit = input.limit === undefined ? 1 : input.limit;
+      const taskType = input.taskType;
+      if (!Number.isSafeInteger(limit) || (limit as number) < 1 || (limit as number) > 10 ||
+          (taskType !== undefined && taskType !== "reconcile_intent" && taskType !== "health_check")) {
+        return Response.json({ error: "limit或taskType无效" }, { status: 400 });
+      }
+      const now = Date.now();
+      try {
+        const tasks = this.state.storage.transactionSync(() => {
+          const sql = this.state.storage.sql;
+          const candidates = sql.exec(
+            `SELECT task_id, task_type, due_at, attempt
+             FROM scheduler_tasks
+             WHERE state = 'pending' AND due_at <= ? AND next_attempt_at <= ?
+               AND (? IS NULL OR task_type = ?)
+             ORDER BY MAX(due_at, next_attempt_at) ASC, created_at ASC
+             LIMIT ?`,
+            now, now, taskType ?? null, taskType ?? null, limit,
+          ).toArray();
+          const claimed: Array<{
+            taskId: string; taskType: string; dueAt: number; attempt: number;
+            leaseToken: string; leaseUntil: number;
+          }> = [];
+          for (const value of candidates) {
+            if (!value || typeof value !== "object") continue;
+            const row = value as {
+              task_id?: unknown; task_type?: unknown; due_at?: unknown; attempt?: unknown;
+            };
+            if (typeof row.task_id !== "string" ||
+                (row.task_type !== "reconcile_intent" && row.task_type !== "health_check") ||
+                !Number.isSafeInteger(row.due_at) || !Number.isSafeInteger(row.attempt)) continue;
+            const attempt = (row.attempt as number) + 1;
+            if (attempt > SCHEDULER_TASK_MAX_ATTEMPTS) continue;
+            const leaseToken = crypto.randomUUID();
+            const leaseUntil = now + SCHEDULER_TASK_LEASE_MS;
+            const updated = sql.exec(
+              `UPDATE scheduler_tasks
+               SET state = 'leased', attempt = ?, lease_token = ?, lease_until = ?, updated_at = ?
+               WHERE task_id = ? AND state = 'pending' AND attempt = ?
+                 AND due_at <= ? AND next_attempt_at <= ?
+               RETURNING task_id`,
+              attempt, leaseToken, leaseUntil, now, row.task_id, row.attempt, now, now,
+            ).toArray();
+            if (updated.length !== 1) continue;
+            sql.exec(
+              "INSERT INTO audit_events(event_type, payload_hash, created_at) VALUES ('scheduler_task_claimed', ?, ?)",
+              row.task_id, now,
+            );
+            claimed.push({
+              taskId: row.task_id,
+              taskType: row.task_type,
+              dueAt: row.due_at as number,
+              attempt,
+              leaseToken,
+              leaseUntil,
+            });
+          }
+          return claimed;
+        });
+        await this.scheduleSchedulerAlarm(now);
+        return Response.json({ accepted: true, tasks });
+      } catch (error) {
+        return Response.json({
+          accepted: false,
+          error: error instanceof Error ? error.message : "调度任务领取失败",
+        }, { status: 409 });
+      }
+    }
+
+    if ((url.pathname === "/internal/scheduler/ack" ||
+         url.pathname === "/internal/scheduler/retry") && request.method === "POST") {
+      let input: Record<string, unknown>;
+      try {
+        const rawBody = await request.text();
+        if (new TextEncoder().encode(rawBody).byteLength > 16_384) {
+          return Response.json({ error: "调度回执请求体过大" }, { status: 413 });
+        }
+        const parsed: unknown = JSON.parse(rawBody);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return Response.json({ error: "调度回执参数无效" }, { status: 400 });
+        }
+        input = parsed as Record<string, unknown>;
+      } catch {
+        return Response.json({ error: "调度回执JSON无效" }, { status: 400 });
+      }
+      const taskId = typeof input.taskId === "string" ? input.taskId : "";
+      const attempt = input.attempt;
+      const leaseToken = typeof input.leaseToken === "string" ? input.leaseToken : "";
+      const isAck = url.pathname.endsWith("/ack");
+      const reason = typeof input.reason === "string" ? input.reason.slice(0, 500) : "任务执行失败";
+      if (!/^[A-Za-z0-9:_-]{1,160}$/.test(taskId) ||
+          !Number.isSafeInteger(attempt) || (attempt as number) <= 0 ||
+          leaseToken.length < 16 || leaseToken.length > 128) {
+        return Response.json({ error: "taskId、attempt或leaseToken无效" }, { status: 400 });
+      }
+      const now = Date.now();
+      try {
+        const result = this.state.storage.transactionSync(() => {
+          const sql = this.state.storage.sql;
+          const rows = sql.exec(
+            "SELECT state, attempt, lease_token, lease_until FROM scheduler_tasks WHERE task_id = ?",
+            taskId,
+          ).toArray();
+          const row = rows[0] as {
+            state?: string; attempt?: number; lease_token?: string; lease_until?: number | null;
+          } | undefined;
+          if (!row) throw new Error("调度任务不存在");
+          if (isAck && row.state === "completed" &&
+              row.attempt === attempt && row.lease_token === leaseToken) {
+            return { completed: true, idempotent: true };
+          }
+          if (row.state !== "leased" || row.attempt !== attempt ||
+              row.lease_token !== leaseToken || !Number.isSafeInteger(row.lease_until) ||
+              (row.lease_until as number) <= now) {
+            throw new Error("调度租约已过期或fencing token不匹配");
+          }
+          if (isAck) {
+            const updated = sql.exec(
+              `UPDATE scheduler_tasks
+               SET state = 'completed', lease_until = NULL, next_attempt_at = 0,
+                   last_error = NULL, updated_at = ?
+               WHERE task_id = ? AND state = 'leased' AND attempt = ?
+                 AND lease_token = ? AND lease_until > ?
+               RETURNING task_id`,
+              now, taskId, attempt, leaseToken, now,
+            ).toArray();
+            if (updated.length !== 1) throw new Error("任务状态已变化，ack被拒绝");
+            sql.exec(
+              "INSERT INTO audit_events(event_type, payload_hash, created_at) VALUES ('scheduler_task_completed', ?, ?)",
+              taskId, now,
+            );
+            return { completed: true, idempotent: false };
+          }
+          const nextAttemptAt = schedulerTaskRetryAt(attempt as number, now);
+          if (nextAttemptAt === null) {
+            const updated = sql.exec(
+              `UPDATE scheduler_tasks
+               SET state = 'manual_review', lease_token = NULL, lease_until = NULL,
+                   last_error = ?, updated_at = ?
+               WHERE task_id = ? AND state = 'leased' AND attempt = ?
+                 AND lease_token = ? AND lease_until > ?
+               RETURNING task_id`,
+              reason, now, taskId, attempt, leaseToken, now,
+            ).toArray();
+            if (updated.length !== 1) throw new Error("任务状态已变化，manual_review写入失败");
+            sql.exec(
+              "INSERT INTO audit_events(event_type, payload_hash, created_at) VALUES ('scheduler_task_manual_review', ?, ?)",
+              taskId, now,
+            );
+            return { state: "manual_review" as const };
+          }
+          const updated = sql.exec(
+            `UPDATE scheduler_tasks
+             SET state = 'pending', lease_token = NULL, lease_until = NULL,
+                 next_attempt_at = ?, last_error = ?, updated_at = ?
+             WHERE task_id = ? AND state = 'leased' AND attempt = ?
+               AND lease_token = ? AND lease_until > ?
+             RETURNING task_id`,
+            nextAttemptAt, reason, now, taskId, attempt, leaseToken, now,
+          ).toArray();
+          if (updated.length !== 1) throw new Error("任务状态已变化，retry写入失败");
+          sql.exec(
+            "INSERT INTO audit_events(event_type, payload_hash, created_at) VALUES ('scheduler_task_retry_scheduled', ?, ?)",
+            taskId, now,
+          );
+          return { state: "pending" as const, nextAttemptAt };
+        });
+        await this.scheduleSchedulerAlarm(now);
+        return Response.json({ ok: true, ...result });
+      } catch (error) {
+        return Response.json({
+          ok: false,
+          error: error instanceof Error ? error.message : "调度任务回执失败",
+        }, { status: 409 });
+      }
+    }
+
     if (url.pathname === "/internal/health" && request.method === "GET") {
       const rows = this.state.storage.sql.exec(
         "SELECT COUNT(*) AS total FROM order_intents",
@@ -237,6 +489,8 @@ export class ExecutionAccountDO {
         String(now),
         now,
       );
+      this.dispatchDueHealthChecks(now);
+      await this.scheduleSchedulerAlarm(now);
       const currentAlarm = await this.state.storage.getAlarm();
       if (currentAlarm === null || currentAlarm <= now) {
         await this.state.storage.setAlarm(now + 5 * 60_000);
@@ -867,6 +1121,72 @@ export class ExecutionAccountDO {
     return Response.json({ error: "内部执行协调器路径不存在" }, { status: 404 });
   }
 
+  /** 仅在DO本地SQLite内执行无外部副作用的health_check任务。 */
+  private dispatchDueHealthChecks(now: number): void {
+    this.state.storage.transactionSync(() => {
+      const sql = this.state.storage.sql;
+      const rows = sql.exec(
+        `SELECT task_id, attempt FROM scheduler_tasks
+         WHERE task_type = 'health_check' AND state = 'pending'
+           AND due_at <= ? AND next_attempt_at <= ?
+         ORDER BY MAX(due_at, next_attempt_at) ASC, created_at ASC LIMIT 10`,
+        now, now,
+      ).toArray();
+      for (const value of rows) {
+        if (!value || typeof value !== "object") continue;
+        const row = value as { task_id?: unknown; attempt?: unknown };
+        if (typeof row.task_id !== "string" || !Number.isSafeInteger(row.attempt)) continue;
+        const attempt = (row.attempt as number) + 1;
+        const leaseToken = crypto.randomUUID();
+        const leaseUntil = now + SCHEDULER_TASK_LEASE_MS;
+        const claimed = sql.exec(
+          `UPDATE scheduler_tasks
+           SET state = 'leased', attempt = ?, lease_token = ?, lease_until = ?, updated_at = ?
+           WHERE task_id = ? AND task_type = 'health_check' AND state = 'pending'
+             AND attempt = ? AND due_at <= ? AND next_attempt_at <= ?
+           RETURNING task_id`,
+          attempt, leaseToken, leaseUntil, now, row.task_id, row.attempt, now, now,
+        ).toArray();
+        if (claimed.length !== 1) continue;
+        const intentRows = sql.exec("SELECT COUNT(*) AS total FROM order_intents").toArray();
+        const intentCount = intentRows[0] && typeof intentRows[0] === "object"
+          ? Number((intentRows[0] as { total?: number }).total ?? 0) : 0;
+        const completed = sql.exec(
+          `UPDATE scheduler_tasks
+           SET state = 'completed', lease_until = NULL, next_attempt_at = 0,
+               last_error = NULL, updated_at = ?
+           WHERE task_id = ? AND state = 'leased' AND attempt = ? AND lease_token = ?
+             AND lease_until > ? RETURNING task_id`,
+          now, row.task_id, attempt, leaseToken, now,
+        ).toArray();
+        if (completed.length === 1) {
+          sql.exec(
+            "INSERT INTO audit_events(event_type, payload_hash, created_at) VALUES ('scheduler_health_check_completed', ?, ?)",
+            `${row.task_id}:intents=${intentCount}`, now,
+          );
+        }
+      }
+    });
+  }
+
+  private async scheduleSchedulerAlarm(now: number): Promise<void> {
+    const rows = this.state.storage.sql.exec(
+      `SELECT MIN(CASE
+        WHEN state = 'pending' AND task_type = 'health_check'
+          THEN MAX(due_at, next_attempt_at)
+        WHEN state = 'leased' THEN lease_until
+        ELSE NULL END) AS next_at
+       FROM scheduler_tasks
+       WHERE state = 'leased' OR (state = 'pending' AND task_type = 'health_check')`,
+    ).toArray();
+    const nextAt = rows[0] && typeof rows[0] === "object"
+      ? (rows[0] as { next_at?: unknown }).next_at
+      : null;
+    if (typeof nextAt === "number" && Number.isSafeInteger(nextAt) && nextAt > 0) {
+      await this.state.storage.setAlarm(Math.max(now + 1_000, nextAt));
+    }
+  }
+
   async alarm(): Promise<void> {
     await this.ready;
     const now = Date.now();
@@ -914,12 +1234,16 @@ export class ExecutionAccountDO {
       }
     });
 
+    this.dispatchDueHealthChecks(now);
+
     const dueRows = sql.exec(
       `SELECT MIN(CASE
-        WHEN state = 'pending' THEN MAX(due_at, next_attempt_at)
+        WHEN state = 'pending' AND task_type = 'health_check'
+          THEN MAX(due_at, next_attempt_at)
         WHEN state = 'leased' THEN lease_until
         ELSE NULL END) AS next_at
-       FROM scheduler_tasks WHERE state IN ('pending', 'leased')`,
+       FROM scheduler_tasks
+       WHERE state = 'leased' OR (state = 'pending' AND task_type = 'health_check')`,
     ).toArray();
     const nextAt = dueRows[0] && typeof dueRows[0] === "object"
       ? (dueRows[0] as { next_at?: unknown }).next_at
