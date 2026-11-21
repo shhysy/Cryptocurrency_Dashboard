@@ -183,3 +183,12 @@
 - 过程中的首轮测试暴露夹具问题：未决Promise不会保持Node事件循环，子进程提前退出导致SIGKILL断言失败。已在夹具中加入保持进程存活的定时器，修正后重新跑完整CI。
 - 最新GitHub Actions Run `44887848264`，HEAD `b39ef69912a2578403bb829051bdf7f8cb818520`：**77 files / 536 tests通过**，TypeScript typecheck通过，Next.js production build通过。另新增状态接口Host/Origin/反向代理头访问边界测试。
 - **结论：** M1-03所要求的SQLite文件 + OS级进程强杀 + 重启后按原clientOrderId只读恢复、不重复POST，已具备自动化集成测试证据；任务状态仍等待Claude独立复核，不抢先标[x]。此测试使用模拟只读交易所响应，不等于Testnet真实订单演练（M2）。
+
+
+
+### GPT安全复核：移除浏览器自动交易循环，避免双执行器（2026-11-21）
+
+- 复核发现旧`ExecutionBackground`仍会在浏览器打开时运行IndexedDB BUY/SELL后台节拍；如果用户同时启动本地Trader，旧浏览器执行路径会与SQLite Trader形成双执行器风险。
+- 已从`components/Dashboard.tsx`移除该后台组件，并删除`components/ExecutionBackground.tsx`。浏览器不再后台自动提交BUY/SELL；本地`scripts/trader.ts`成为唯一常驻自动执行入口。
+- 看板中的浏览器队列仍是旧IndexedDB记录/策略预览，不等于本地Trader SQLite订单。旧浏览器队列不会自动迁移到SQLite，也不应再被当作Trader真实执行状态；真实状态以新增的本地SQLite只读面板为准。
+- 需要继续核对策略后处理：`Dashboard.tsx`此前通过浏览器IndexedDB的SELL事件/成交台账调用`applyPostTakeProfitRebuy`；本地Trader的`getDashboard`尚未接入SQLite版同一后处理。这是当前发现的策略一致性缺口，下一步必须让Trader和服务端看板统一使用SQLite成交台账，未完成前不能宣称策略3.3完整自动执行。
