@@ -1,6 +1,8 @@
 import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import type { SellEventRecord } from "../sell-store.browser";
+import type { TradeLedgerEntry } from "../types";
 
 export interface TraderStatusSnapshot {
   generatedAt: number;
@@ -252,6 +254,98 @@ export async function readTraderStatusSnapshot(options: {
       ...base,
       database: { ...base.database, reason: "Trader数据库读取失败或结构不兼容；未返回不完整统计" },
     };
+  } finally {
+    db?.close();
+  }
+}
+
+
+export interface TraderStrategyHistory {
+  sellEvents: SellEventRecord[];
+  tradeLedger: TradeLedgerEntry[];
+}
+
+/**
+ * Loads the complete strategy replay history from the existing Trader DB.
+ * A missing database is distinct from a damaged database: missing returns null;
+ * any read/schema/row-integrity error throws so strategy execution can fail closed.
+ */
+export async function readTraderStrategyHistory(options: { dbPath?: string } = {}): Promise<TraderStrategyHistory | null> {
+  const dbPath = resolve(options.dbPath ?? process.env.TRADER_DB_PATH ?? "data/trader.db");
+  const file = await stat(dbPath).catch(() => null);
+  if (!file?.isFile()) return null;
+
+  let db: DatabaseSync | null = null;
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true });
+    db.exec("PRAGMA query_only = ON");
+    const sellRows = db.prepare(
+      `SELECT event_key, symbol, kind, status, requested_qty, filled_qty, created_at, updated_at,
+              exchange_order_id, client_order_id, fill_ids_json, last_error,
+              exchange_terminal_status, fill_reconcile_completed_at, lot_step_size
+       FROM sell_events ORDER BY created_at ASC`,
+    ).all() as Array<Record<string, unknown>>;
+    const ledgerRows = db.prepare(
+      `SELECT id, fill_id, order_id, symbol, side, time, price, qty, quote_qty,
+              commission, commission_asset, commission_usdt, realized_pnl_usdt,
+              sell_kind, base_ratio_at_buy
+       FROM trade_ledger ORDER BY time ASC, id ASC`,
+    ).all() as Array<Record<string, unknown>>;
+
+    const sellEvents = sellRows.map((row): SellEventRecord => {
+      let fillIds: unknown;
+      try { fillIds = JSON.parse(String(row.fill_ids_json ?? "[]")); }
+      catch { throw new Error("卖出事件成交ID JSON损坏"); }
+      if (!Array.isArray(fillIds) || !fillIds.every((id) => typeof id === "string")) {
+        throw new Error("卖出事件成交ID列表格式无效");
+      }
+      return {
+        eventKey: String(row.event_key),
+        symbol: String(row.symbol),
+        kind: String(row.kind),
+        status: String(row.status) as SellEventRecord["status"],
+        requestedQty: Number(row.requested_qty),
+        filledQty: row.filled_qty == null ? undefined : Number(row.filled_qty),
+        createdAt: Number(row.created_at),
+        updatedAt: Number(row.updated_at),
+        exchangeOrderId: row.exchange_order_id == null ? null : String(row.exchange_order_id),
+        clientOrderId: row.client_order_id == null ? undefined : String(row.client_order_id),
+        fillIds: fillIds as string[],
+        lastError: row.last_error == null ? null : String(row.last_error),
+        exchangeTerminalStatus: row.exchange_terminal_status == null ? undefined : String(row.exchange_terminal_status),
+        fillReconcileCompletedAt: row.fill_reconcile_completed_at == null ? undefined : Number(row.fill_reconcile_completed_at),
+        lotStepSize: row.lot_step_size == null ? undefined : Number(row.lot_step_size),
+      };
+    });
+    const tradeLedger = ledgerRows.map((row): TradeLedgerEntry => {
+      if (row.side !== "BUY" && row.side !== "SELL") throw new Error("成交台账side字段无效");
+      return {
+        id: String(row.id),
+        fillId: String(row.fill_id),
+        orderId: String(row.order_id),
+        symbol: String(row.symbol),
+        side: row.side,
+        time: Number(row.time),
+        price: Number(row.price),
+        qty: Number(row.qty),
+        quoteQty: Number(row.quote_qty),
+        commission: Number(row.commission),
+        commissionAsset: String(row.commission_asset),
+        commissionUsdt: Number(row.commission_usdt),
+        realizedPnlUsdt: row.realized_pnl_usdt == null ? null : Number(row.realized_pnl_usdt),
+        sellKind: row.sell_kind == null ? undefined : String(row.sell_kind) as TradeLedgerEntry["sellKind"],
+        baseRatioAtBuy: row.base_ratio_at_buy == null ? undefined : Number(row.base_ratio_at_buy),
+      };
+    });
+    if (sellEvents.some((event) => !Number.isFinite(event.requestedQty) ||
+        !Number.isFinite(event.createdAt) || !Number.isFinite(event.updatedAt)) ||
+        tradeLedger.some((fill) => !Number.isFinite(fill.qty) || fill.qty <= 0 ||
+          !Number.isFinite(fill.price) || fill.price <= 0 || !Number.isFinite(fill.time))) {
+      throw new Error("成交台账包含无效数值");
+    }
+    return { sellEvents, tradeLedger };
+  } catch {
+    throw new Error("本地Trader成交/卖出事件台账读取失败，已阻断策略后处理");
   } finally {
     db?.close();
   }
