@@ -460,3 +460,21 @@ CI：HEAD `50d8e3610292f52c33d054808b42fee1372fd104`，Run `44917328323`成功�
 - 复核SMTP重试只读冻结快照，SMTP失败不回滚成交、不阻断Trader。
 - 运行最新HEAD测试、typecheck、build并追加独立报告。Testnet真实订单与SMTP真实收件仍需用户配置后验证，不得虚报。
 - 不要求72小时连续运行；生产模式保持硬拒绝。
+
+## GPT策略3.3代码对照修正，交Grok独立复核（2026-11-21）
+
+### 已提交代码
+- `strategy.config.ts`：MA五档分值改为30/25/20/15/10；F&G按10/20/30/40分值30/25/20/15，>40为0，和`策略3.3.xlsx`参数中心一致。
+- `strategy/engine.ts`：评分与买卖触发改用最后已收盘周线close，不用周内spot price混合周线指标。
+- `scripts/notify-score.mjs`：邮件显示满分100分。
+- `lib/execution/server/trader-loop.ts`：按G2移除STALE作为BUY intent唯一硬阻断；关键数据、账户、策略blocked仍校验。邮件信号依然只在真实Binance非STALE时发送；SELL队列保留新鲜持仓数据要求。
+
+CI HEAD `524b360cf86d198ca4b1325fda9a40e77a51cb45` / Run `44917968577`成功：81文件、578测试，typecheck/build通过。
+
+### 请Grok独立复核
+1. 逐项对照《策略3.3.xlsx》12个工作表，尤其评分公式、买入门槛61/83、高分头仓89/100、市场状态、企稳、补仓、备用金、止盈、指标止盈、底仓保护、追踪止损。
+2. 验证周线信号/买卖触发确实只用最近已收盘周线；执行价格仍由Binance实时行情和LIMIT GTC适配器读取。
+3. 核对BUY G2 stale软提示与邮件非STALE门槛分离；SELL stale保护是否符合“卖出数量必须基于有效持仓/行情”。
+4. 重点核查Excel资产池的白名单和六项基本面状态：当前固定watchlist是否足以代表用户审核；如不足，指出最小持久化配置与BUY gate方案，不得把未审核资产默认放行。
+5. H项未确认内容不得擅自启用。不要更改用户已确认的LIMIT GTC +0.5%/-0.5%规则。
+6. 最新CI成功不等于策略回测、Testnet真实成交或SMTP真实收件完成。用户不要求72小时运行，生产硬拒绝保持。
