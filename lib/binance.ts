@@ -503,7 +503,7 @@ export async function submitTraderSpotLimitOrder(
     throw new Error(mode === "testnet" ? "服务端缺少 Binance Testnet API Key/Secret" : "服务端缺少 Binance Production API Key/Secret");
   }
   if (!/^[A-Z0-9]{5,24}$/.test(input.symbol)) throw new Error("交易对格式无效");
-  if (!/^(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$/.test(input.amount) || Number(input.amount) <= 0) {
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/.test(input.amount) || Number(input.amount) <= 0) {
     throw new Error("订单数量或金额无效");
   }
   if (!/^[A-Za-z0-9_-]{1,36}$/.test(input.clientOrderId)) throw new Error("clientOrderId格式无效");
