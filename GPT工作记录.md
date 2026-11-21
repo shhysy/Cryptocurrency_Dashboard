@@ -197,3 +197,4 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - 已补充一致性检查：reserved reservation必须对应有效的执行中intent和匹配account_lock(singleton=1,intent_id,attempt)；account_lock反向也必须对应同attempt且处于执行中的intent。任何不一致都会触发安全停机计数。
 - 新增SQLite测试：queued intent + reserved reservation + 缺失account_lock必须返回非零计数。
 - 提交：6c0fc91797685f64317d61f5ec29bb1bacc0bd95、399907566bffd8617d072798b93c405692a71436。等待CI；尚未宣布通过。
+- 增加正向回归测试：intent=reserved、reservation=reserved、account_lock(singleton=1且intent/attempt匹配)时 countExecutionManualReview()必须为0，验证新安全检查不会误伤合法在途订单。提交922082c73df197e14cd5e5f47d3f79a211ba46f6；等待CI。
