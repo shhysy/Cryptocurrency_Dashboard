@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { getDashboard } from "@/lib/service";
 import { binanceReconcileAdapter } from "@/lib/execution/binance-reconcile.server";
 import { serverExecutionIntentId } from "@/lib/execution/server-execution-core";
@@ -13,9 +12,6 @@ interface DurableObjectStubLike {
 interface DurableObjectNamespaceLike {
   idFromName(name: string): unknown;
   get(id: unknown): DurableObjectStubLike;
-}
-interface WorkerEnv {
-  EXECUTION_ACCOUNT?: DurableObjectNamespaceLike;
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -105,7 +101,8 @@ function isoWeek(now: number): string {
 /**
  * 仅在显式启用Testnet intent创建时运行。
  * 信号、金额和交易方向均由服务端getDashboard重新计算，不接受浏览器提交的信号内容。
- * 此路由只创建DO intent，不提交Binance订单。
+ * 此路由只创建执行层 intent，不提交Binance订单。
+ * 本地未绑定执行账户时返回 503（看板与信号仍可用）。
  */
 export async function POST(req: Request) {
   if (!authenticated(req)) {
@@ -138,10 +135,13 @@ export async function POST(req: Request) {
       }, { status: 409 });
     }
 
-    const context = getCloudflareContext();
-    const env = context.env as unknown as WorkerEnv;
-    const namespace = env.EXECUTION_ACCOUNT;
-    if (!namespace) return NextResponse.json({ error: "Durable Object执行账户绑定未配置" }, { status: 503 });
+    const namespace = (globalThis as { EXECUTION_ACCOUNT?: DurableObjectNamespaceLike }).EXECUTION_ACCOUNT;
+    if (!namespace) {
+      return NextResponse.json({
+        error: "本地模式未启用执行账户绑定；看板信号与建议仍可使用，自动 intent 创建仅在绑定执行层后可用",
+        local: true,
+      }, { status: 503 });
+    }
     const coordinator = namespace.get(namespace.idFromName("binance-spot-primary"));
 
     const balances = await binanceReconcileAdapter.getAccountBalances();
@@ -206,7 +206,7 @@ export async function POST(req: Request) {
       if (!response.ok || payload.accepted !== true || payload.intentId !== intentId) {
         results.push({
           intentId, symbol, side, kind: action.kind,
-          state: payload.error ?? `DO intent创建失败（HTTP ${response.status}）`,
+          state: payload.error ?? `执行层 intent 创建失败（HTTP ${response.status}）`,
           created: false,
         });
         continue;
