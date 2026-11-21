@@ -21,6 +21,16 @@ describe("成交通知邮件", () => {
     expect(mocks.sendSmtpTextMail).not.toHaveBeenCalled();
   });
 
+  it("邮件开关已打开但SMTP未配置时不领取Outbox事件", async () => {
+    vi.stubEnv("TRADE_FILL_MAIL_ENABLED", "1");
+    vi.stubEnv("SMTP_HOST", "");
+    vi.stubEnv("SMTP_USER", "");
+    vi.stubEnv("SMTP_PASS", "");
+    const result = await dispatchTradeFillMail([{ id: "trade-fill:BTCUSDT:1", symbol: "BTCUSDT", side: "BUY" }]);
+    expect(result).toMatchObject({ ok: true, sent: false });
+    expect(mocks.sendSmtpTextMail).not.toHaveBeenCalled();
+  });
+
   it("正文包含交易所真实成交数量、金额、手续费、订单ID和成交时间", () => {
     const body = buildTradeFillMailBody([{
       id: "trade-fill:ETHUSDT:1001", fillId: "1001", exchangeOrderId: "2001",
