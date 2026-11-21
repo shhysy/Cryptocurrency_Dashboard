@@ -21,7 +21,7 @@ function confirmed(event: SellEventRecord): boolean {
 }
 
 function tierOf(event: SellEventRecord): number | null {
-  const match = event.eventKey.match(/:止盈([1-3])(?::续卖\\d+)*$/);
+  const match = event.eventKey.match(/:止盈([1-3])(?::续卖\d+)*$/);
   return match ? Number(match[1]) : null;
 }
 
