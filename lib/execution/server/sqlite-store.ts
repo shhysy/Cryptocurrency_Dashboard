@@ -232,6 +232,7 @@ export class SqliteExecutionStore implements LocalExecutionStore {
     };
     this.notificationOutbox = {
       enqueueSystemAlert: (event) => this.enqueueSystemAlert(event),
+      countExecutionManualReview: () => this.countExecutionManualReview(),
       claimDue: (input) => this.claimDueNotifications(input),
       markSent: (input) => this.markNotificationSent(input),
       markFailed: (input) => this.markNotificationFailed(input),
@@ -1231,6 +1232,19 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       if (!ledger) throw new Error("卖出成交写入后无法读取台账");
       return { recorded: true, ledger: parseTradeLedger(ledger) };
     });
+  }
+
+  private async countExecutionManualReview(): Promise<number> {
+    const row = this.get(
+      `SELECT
+        (SELECT COUNT(*) FROM order_intents WHERE state = 'manual_review') +
+        (SELECT COUNT(*) FROM sell_events WHERE status = 'blocked') AS total`,
+    );
+    const total = Number(row?.total ?? 0);
+    if (!Number.isSafeInteger(total) || total < 0) {
+      throw new Error("SQLite执行人工复核计数无效");
+    }
+    return total;
   }
 
   private async enqueueSystemAlert(event: SystemAlertNotificationEvent): Promise<{ created: boolean }> {
