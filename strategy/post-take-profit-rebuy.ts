@@ -21,7 +21,7 @@ function confirmed(event: SellEventRecord): boolean {
 }
 
 function tierOf(event: SellEventRecord): number | null {
-  const match = event.eventKey.match(/:止盈([1-3])$/);
+  const match = event.eventKey.match(/:止盈([1-3])(?::续卖\\d+)*$/);
   return match ? Number(match[1]) : null;
 }
 
@@ -97,9 +97,15 @@ export function applyPostTakeProfitRebuy(
     );
     const replay = replayAverageCost(coin, symbolSells);
     // 任何未终态或需人工复核的止盈事件都先冻结本币新动作，避免未知/部分写入订单与新BUY并发。
-    const unresolvedSell = symbolEvents.find((event) =>
-      ["pending", "reconcile_required", "blocked"].includes(event.status)
-    );
+    const unresolvedSell = symbolEvents.find((event) => {
+      if (["pending", "reconcile_required", "blocked"].includes(event.status)) return true;
+      if (event.status !== "partially_filled") return false;
+      const remaining = event.requestedQty - (event.filledQty ?? 0);
+      const hasContinuation = symbolEvents.some((child) =>
+        child.eventKey.startsWith(`${event.eventKey}:续卖`)
+      );
+      return remaining > EPSILON && !hasContinuation;
+    });
     if (unresolvedSell) {
       return blockedSignal(coin, "存在未终态或需人工复核的SELL事件；暂停本币新买入与回补，先完成订单对账");
     }
