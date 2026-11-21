@@ -33,6 +33,23 @@ async function writeStopFile(reason: string): Promise<void> {
   await writeFile(join(process.cwd(), "data", "STOP"), `${new Date().toISOString()} ${reason}\n`, "utf8");
 }
 
+async function enqueueCriticalTraderAlert(
+  store: Awaited<ReturnType<typeof openLocalExecutionStore>>,
+  id: string,
+  title: string,
+  message: string,
+): Promise<void> {
+  const occurredAt = Date.now();
+  const alert = buildSystemAlertNotificationEvent({
+    id,
+    title,
+    message: redactSecrets(message).slice(0, 1_500),
+    occurredAt,
+  }, occurredAt);
+  const queued = await store.notificationOutbox.enqueueSystemAlert(alert);
+  safeLog("[Trader] 安全告警已持久化入队", { created: queued.created, eventId: alert.id });
+}
+
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return Promise.resolve();
   return new Promise((resolveSleep) => {
@@ -94,9 +111,25 @@ async function main(): Promise<void> {
     safeLog(`[Trader] 已启动 mode=${mode}；单实例锁已获取`);
 
     while (!controller.signal.aborted) {
-      const stopped = await stopFileExists();
+      const stopFilePresent = await stopFileExists();
+      const manualReviewCount = await store.countExecutionManualReview();
+      if (manualReviewCount > 0 && !stopFilePresent) {
+        const reason = `检测到${manualReviewCount}项BUY/SELL订单需要人工复核，自动暂停新交易`;
+        await writeStopFile(reason);
+        try {
+          await enqueueCriticalTraderAlert(
+            store,
+            `trader-alert:manual-review:${Date.now()}`,
+            "Trader检测到订单人工复核",
+            reason,
+          );
+        } catch (alertError) {
+          safeError("[Trader] 人工复核告警入队失败；data/STOP已写入：", alertError);
+        }
+      }
+      const stopped = stopFilePresent || manualReviewCount > 0;
       const effectiveMode: TraderMode = stopped ? "off" : mode;
-      if (stopped) safeError("[Trader] 检测到data/STOP：暂停新信号和新订单，只继续只读对账");
+      if (stopped) safeError("[Trader] 检测到STOP或订单人工复核：暂停新信号和新订单，只继续只读对账");
       try {
         const result = await runTraderCycle({
           mode: effectiveMode,
@@ -106,16 +139,31 @@ async function main(): Promise<void> {
           submitOrder: submitTraderSpotMarketOrder,
           log: (message) => safeLog(`[Trader] ${message}`),
         });
+        if (result.manualReview > 0 && !stopped) {
+          const reason = `订单对账产生${result.manualReview}项人工复核，自动暂停新交易`;
+          await writeStopFile(reason);
+          try {
+            await enqueueCriticalTraderAlert(
+              store,
+              `trader-alert:manual-review:${Date.now()}`,
+              "Trader订单对账需要人工复核",
+              reason,
+            );
+          } catch (alertError) {
+            safeError("[Trader] 对账人工复核告警入队失败；data/STOP已写入：", alertError);
+          }
+        }
         let dash: Awaited<ReturnType<typeof getDashboard>> | null = null;
-        if (effectiveMode !== "off") {
+        if (effectiveMode !== "off" && result.manualReview === 0) {
           dash = await getDashboard();
           const sell = await enqueueServerSellSignals(dash, store);
           safeLog("[Trader] SELL入队", sell);
         }
+        const sellMode: TraderMode = result.manualReview > 0 ? "off" : effectiveMode;
         try {
-          // 即使data/STOP已触发，也继续恢复旧SELL订单；off模式不会创建新事件或POST新订单。
+          // STOP/off/人工复核只禁止新SELL；已有订单仍继续只读恢复。
           const execution = await runServerSellCycle({
-            mode: effectiveMode,
+            mode: sellMode,
             store,
             adapter: binanceReconcileAdapter,
             dashboard: dash,
@@ -123,6 +171,20 @@ async function main(): Promise<void> {
             log: (message) => safeLog(`[Trader] ${message}`),
           });
           safeLog("[Trader] SELL执行/对账", execution);
+          if (execution.blocked > 0 && !stopped && result.manualReview === 0) {
+            const reason = `SELL执行链路有${execution.blocked}项被阻断并转人工复核，自动暂停新交易`;
+            await writeStopFile(reason);
+            try {
+              await enqueueCriticalTraderAlert(
+                store,
+                `trader-alert:sell-blocked:${Date.now()}`,
+                "Trader SELL执行需要人工复核",
+                reason,
+              );
+            } catch (alertError) {
+              safeError("[Trader] SELL人工复核告警入队失败；data/STOP已写入：", alertError);
+            }
+          }
         } catch (sellError) {
           safeError("[Trader] SELL执行链路失败，计入连续故障熔断", sellError);
           throw sellError;
@@ -136,18 +198,15 @@ async function main(): Promise<void> {
         safeError("[Trader] 本轮失败；不会自动重发任何未知订单：", error);
         if (breaker.recordFailure()) {
           const reason = redactSecrets(error instanceof Error ? error.message : "未知异常").slice(0, 1_500);
-          const occurredAt = Date.now();
           await writeStopFile(`连续失败达到阈值 ${breaker.count}`);
           safeError("[Trader] 已触发熔断并写入 data/STOP");
           try {
-            const alert = buildSystemAlertNotificationEvent({
-              id: `trader-alert:circuit-breaker:${occurredAt}`,
-              title: "Trader连续故障熔断",
-              message: `连续失败达到阈值 ${breaker.count}。最近一次失败：${reason}`,
-              occurredAt,
-            }, occurredAt);
-            const queued = await store.notificationOutbox.enqueueSystemAlert(alert);
-            safeLog("[Trader] 熔断告警已持久化入队", { created: queued.created, eventId: alert.id });
+            await enqueueCriticalTraderAlert(
+              store,
+              `trader-alert:circuit-breaker:${Date.now()}`,
+              "Trader连续故障熔断",
+              `连续失败达到阈值 ${breaker.count}。最近一次失败：${reason}`,
+            );
           } catch (alertError) {
             safeError("[Trader] 熔断告警入队失败；data/STOP已写入，需人工检查本地日志：", alertError);
           }
