@@ -302,3 +302,9 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - 最新代码HEAD：`9c484af66fd34fa432891dedba974e4075ce1448`。
 - CI Run：`44918408437`成功，81个测试文件、580项测试通过；TypeScript typecheck与Next.js production build通过。
 - [查看CI](https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44918408437)
+
+## 修复真实Outbox投递遗漏（2026-11-21）
+
+复查完整SMTP投递路径时发现：Outbox事件已经冻结`businessSnapshot`，但`notification-outbox-dispatcher.ts`调用`dispatchTradeFillMail`时漏传该字段，导致真实邮件正文无法显示BUY计划/累计预算及SELL实现盈亏/持仓。已补传，并新增`notification-outbox-dispatcher.test.ts`断言；同时修正旧订单策略档位为null时的邮件类型兼容。
+
+最新HEAD `ae827e29f5496db4e001e72d0e6629ea8300a86d`，CI Run `44918697059`成功：81文件、580项测试通过，typecheck/Next build通过。
