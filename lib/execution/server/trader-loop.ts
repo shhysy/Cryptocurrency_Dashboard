@@ -7,7 +7,7 @@ import {
   serverExecutionIntentId,
   type ServerExecutionIntent,
 } from "../server-execution-core";
-import type { LocalExecutionStore, SchedulerTaskLease } from "./store";
+import type { IntentClaimResult, LocalExecutionStore } from "./store";
 
 export type TraderMode = "off" | "dry-run" | "testnet" | "production";
 type ReconcileAdapter = ReturnType<typeof createBinanceReconcileAdapter>;
