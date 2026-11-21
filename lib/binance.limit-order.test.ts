@@ -54,8 +54,8 @@ describe("Trader自动订单使用LIMIT GTC", () => {
   it("BUY使用参考价+0.5%、LIMIT GTC和LOT_SIZE数量", async () => {
     const { fetchMock, calls } = mockFetch("BUY");
     vi.stubGlobal("fetch", fetchMock);
-    const { submitTraderSpotMarketOrder } = await import("./binance");
-    const result = await submitTraderSpotMarketOrder({
+    const { submitTraderSpotLimitOrder } = await import("./binance");
+    const result = await submitTraderSpotLimitOrder({
       side: "BUY", symbol: "BTCUSDT", amount: "100", clientOrderId: "limit-test-001",
     });
     expect(result.status).toBe("NEW");
