@@ -261,7 +261,19 @@ export async function runServerSellCycle(
   if (deps.mode !== "testnet") return result;
   // 只要仍有SELL订单未进入交易所终态，就不再并发提交其他SELL。
   const afterRecovery = await deps.store.sellEvents.listSellEvents();
-  if (afterRecovery.some((item) => item.status === "reconcile_required")) {
+  const incompletePartialChain = afterRecovery.some((item) => {
+    if (item.status !== "partially_filled") return false;
+    const remaining = item.requestedQty - (item.filledQty ?? 0);
+    if (remaining <= Math.max(1e-12, item.requestedQty * 1e-12)) return false;
+    const child = afterRecovery.find((candidate) =>
+      candidate.eventKey === `${item.eventKey}:续卖1`
+    );
+    const tolerance = Math.max(1e-12, remaining * 1e-10);
+    return !child || child.status === "blocked" ||
+      child.symbol !== item.symbol || child.kind !== item.kind ||
+      Math.abs(child.requestedQty - remaining) > tolerance;
+  });
+  if (afterRecovery.some((item) => item.status === "reconcile_required") || incompletePartialChain) {
     result.skipped += 1;
     return result;
   }
