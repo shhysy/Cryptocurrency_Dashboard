@@ -12,6 +12,18 @@ export interface WatchItem {
   futures?: boolean;
   /** 币安现货没有的品种：填 Yahoo 代码（备用） */
   yahoo?: string;
+  /** 策略3.3人工审核结果；缺省即未审核，禁止新增BUY。 */
+  buyReview?: {
+    whitelist: "approved" | "pending" | "rejected";
+    fundamentals: {
+      projectInactive: boolean;
+      delistingOrLiquidityFailure: boolean;
+      unresolvedMajorSecurityIncident: boolean;
+      largeUnlockWithin30Days: boolean;
+      majorRegulatoryRisk: boolean;
+      competitivenessOrDemandDeteriorating: boolean;
+    };
+  };
 }
 
 export const quote = "USDT";
@@ -22,11 +34,45 @@ export function isSignalOnly(w: WatchItem): boolean {
 }
 
 export const watchlist: WatchItem[] = [
-  { symbol: "BTC", name: "Bitcoin", color: "#f7931a" },
-  { symbol: "ETH", name: "Ethereum", color: "#8c9eff" },
+  {
+    symbol: "BTC", name: "Bitcoin", color: "#f7931a",
+    buyReview: { whitelist: "approved", fundamentals: {
+      projectInactive: false, delistingOrLiquidityFailure: false,
+      unresolvedMajorSecurityIncident: false, largeUnlockWithin30Days: false,
+      majorRegulatoryRisk: false, competitivenessOrDemandDeteriorating: false,
+    } },
+  },
+  {
+    symbol: "ETH", name: "Ethereum", color: "#8c9eff",
+    buyReview: { whitelist: "pending", fundamentals: {
+      projectInactive: false, delistingOrLiquidityFailure: false,
+      unresolvedMajorSecurityIncident: false, largeUnlockWithin30Days: false,
+      majorRegulatoryRisk: false, competitivenessOrDemandDeteriorating: false,
+    } },
+  },
   { symbol: "BNB", name: "BNB", color: "#e87ba4" },
   { symbol: "UNI", name: "Uniswap", color: "#c084fc" },
-  { symbol: "PAXG", name: "黄金 (PAXG)", color: "#e8b84a" },
+  {
+    symbol: "PAXG", name: "黄金 (PAXG)", color: "#e8b84a",
+    buyReview: { whitelist: "approved", fundamentals: {
+      projectInactive: false, delistingOrLiquidityFailure: false,
+      unresolvedMajorSecurityIncident: false, largeUnlockWithin30Days: false,
+      majorRegulatoryRisk: false, competitivenessOrDemandDeteriorating: false,
+    } },
+  },
   // 币安现货无 CL；U 本位永续 CLUSDT（WTI）自 2026-04 上线，公开行情可拉周线
   { symbol: "CL", name: "原油 (WTI)", color: "#64748b", futures: true },
 ];
+
+
+/**
+ * 策略3.3新增买入许可：必须明确白名单通过，且六项基本面风险均为false。
+ * 缺失资产记录、缺失字段、signal-only品种一律拒绝；该规则不影响卖出。
+ */
+export function isBuyAssetEligible(symbol: string): boolean {
+  const item = watchlist.find((entry) => entry.symbol === symbol);
+  if (!item || isSignalOnly(item) || item.buyReview?.whitelist !== "approved") return false;
+  const checks = item.buyReview.fundamentals;
+  return Boolean(checks) && Object.values(checks).length === 6 &&
+    Object.values(checks).every((value) => value === false);
+}
