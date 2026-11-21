@@ -39,6 +39,18 @@ describe("持久化调度任务安全原语", () => {
     expect(validateSchedulerTaskInput({ taskId: "bad id", taskType: "health_check", dueAt: now }, now)).toBe(false);
   });
 
+  it("允许最大长度的reconcile任务ID承载原始intentId", () => {
+    const intentId = `v33:${"x".repeat(156)}`;
+    const taskId = `reconcile:${intentId}`;
+    expect(taskId.length).toBe(170);
+    expect(validateSchedulerTaskInput({
+      taskId, taskType: "reconcile_intent", dueAt: now,
+    }, now)).toBe(true);
+    expect(validateSchedulerTaskInput({
+      taskId: `${taskId}x`, taskType: "reconcile_intent", dueAt: now,
+    }, now)).toBe(false);
+  });
+
   it("创建固定时长的新租约", () => {
     const lease = createSchedulerTaskLease("health:primary", 1, now, "0123456789abcdef");
     expect(lease.leaseUntil).toBe(now + SCHEDULER_TASK_LEASE_MS);
