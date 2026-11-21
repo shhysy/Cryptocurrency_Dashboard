@@ -62,9 +62,11 @@ export function btcMarketState(
   const currentMa = sma(closes, cfg.ma.weeklyPeriod);
   const before = sma(closes.slice(0, -cfg.ma.directionWeeks), cfg.ma.weeklyPeriod);
   if (currentMa === null || before === null) return null;
-  const px = price;
-  if (px < currentMa && currentMa < before) return "bear";
-  if (px >= currentMa && currentMa >= before) return "bull";
+  // 市场状态按最近一根已收盘周线判断，禁止用周内实时价提前切换牛熊状态。
+  const weeklyClose = closes.at(-1);
+  if (weeklyClose === undefined) return null;
+  if (weeklyClose < currentMa && currentMa < before) return "bear";
+  if (weeklyClose >= currentMa && currentMa >= before) return "bull";
   return "transition";
 }
 
@@ -79,10 +81,10 @@ export function stableItems(
   const closes = closed.map((candle) => candle.c);
   const currentRsi = rsi(closes, cfg.rsi.period);
   const before = rsi(closes.slice(0, -1), cfg.rsi.period);
-  const low4 = Math.min(price, ...closed.slice(-4).map((c) => c.l));
+  const low4 = Math.min(...closed.slice(-4).map((c) => c.l));
   const low8 = Math.min(...closed.slice(-12, -4).map((c) => c.l));
   return [
-    closed[closed.length - 1].h < price,
+    closed[closed.length - 1].c > closed[closed.length - 2].h,
     currentRsi !== null && before !== null && currentRsi < cfg.rsi.stabilizeBelow && currentRsi > before,
     low4 >= low8,
   ];
@@ -218,11 +220,12 @@ function planSell(c: Ctx): Action | null {
   }
 
   const firstBuy = Math.min(...input.buys.map((t) => t.time));
-  // 追踪止损按买入后的周线最高价（high）计算，不用周收盘价低估峰值。
-  const peak = Math.max(...input.weekly.filter((k) => k.t + WEEK > firstBuy).map((k) => k.h), input.price);
+  // 追踪止损严格按Excel口径：持仓后的最高周收盘价作为峰值，并以最近已收盘周线收盘价判断是否跌破追踪线。
+  const weeklyClose = input.weekly.at(-1)?.c ?? input.price;
+  const peak = Math.max(...input.weekly.filter((k) => k.t + WEEK > firstBuy).map((k) => k.c), weeklyClose);
   if (peak >= input.avgCost * profile.trailStart) {
     const line = peak * (1 - profile.trailDrawdown);
-    if (input.price <= line && cycleQty > 0) {
+    if (weeklyClose <= line && cycleQty > 0) {
       return { kind: "trailStop", label: "追踪止损", side: "sell", plannedUsdt: null, usdt: cycleQty * input.price, qty: cycleQty, sellPct: cycleQty / input.qty, limits: [], blocked: [], notes: [`价格 ${usd(input.price)} ≤ 追踪线 ${usd(line)}（峰值 ${usd(peak)} 回撤 ${pct(cfg.profiles[c.group].trailDrawdown)}）`, ...notes] };
     }
   }
