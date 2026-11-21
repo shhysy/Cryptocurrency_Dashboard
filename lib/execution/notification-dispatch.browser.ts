@@ -19,7 +19,7 @@ function assertDispatchableEvent(event: TradeNotificationOutboxEvent): void {
   }
 }
 
-function workerEvent(event: TradeNotificationOutboxEvent) {
+function workerEvent(event: Extract<TradeNotificationOutboxEvent, { type: "confirmed_trade_fill" }>) {
   return {
     id: event.id,
     type: event.type,
@@ -71,14 +71,19 @@ export async function dispatchPendingTradeNotifications(): Promise<{
   }
   const batch = await claimTradeNotificationOutboxBatch(20);
   if (batch.length === 0) return { claimed: 0, sent: 0, failed: 0, reason: null };
+  const tradeFillBatch = batch.filter(
+    (event): event is Extract<TradeNotificationOutboxEvent, { type: "confirmed_trade_fill" }> =>
+      event.type === "confirmed_trade_fill",
+  );
 
   let failure: string | null = null;
   try {
-    for (const event of batch) assertDispatchableEvent(event);
+    if (tradeFillBatch.length !== batch.length) throw new Error("浏览器成交通知队列包含非成交事件，拒绝投递");
+    for (const event of tradeFillBatch) assertDispatchableEvent(event);
     const response = await fetch("/api/trade-fill-notifications", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ events: batch.map(workerEvent) }),
+      body: JSON.stringify({ events: tradeFillBatch.map(workerEvent) }),
       cache: "no-store",
       credentials: "same-origin",
     });
