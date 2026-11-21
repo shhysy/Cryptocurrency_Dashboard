@@ -24,12 +24,11 @@ const trade = (price: number, qty: number, weeks: number, id = `t${weeks}`): Tra
 
 function coin(closes: number[], over: Partial<CoinInput> = {}): CoinInput {
   const weekly = candles(closes);
-  // 模拟 Binance 返回的最后一根当前未收盘周线，其余周线均已收盘。
-  const currentWeekOpen = 300 * WEEK;
+  // 模拟策略输入中的最后一根已收盘周线；另有专门用例覆盖当前未收盘周线。
   const timedWeekly = weekly.map((candle, index) => ({
     ...candle,
-    // 保留历史周线相对交易时间的顺序，只把最后一根标记为当前未收盘周线。
-    t: index === weekly.length - 1 ? currentWeekOpen : index * WEEK,
+    // 将最后一根周线放在当前周开始前一周，确保默认测试快照只含已收盘周线。
+    t: index === weekly.length - 1 ? 299 * WEEK : index * WEEK,
   }));
   return { symbol: "BTC", price: closes.at(-1)!, weekly: timedWeekly, qty: 0, avgCost: null, invested: 0, marketValue: 0, buys: [], ...over };
 }
@@ -66,12 +65,12 @@ describe("企稳三项", () => {
   it("底部回升：三项全满足", () => {
     const weekly = candles(bottoming());
     const currentWeekOpen = weekly.at(-1)!.t;
-    expect(stableItems(weekly, 43, undefined, currentWeekOpen + 1)).toEqual([true, true, true]);
+    expect(stableItems(weekly, 43, undefined, currentWeekOpen + WEEK + 1)).toEqual([true, true, true]);
   });
   it("仍在创新低：三项全不满足", () => {
     const weekly = candles(falling());
     const currentWeekOpen = weekly.at(-1)!.t;
-    expect(stableItems(weekly, 40, undefined, currentWeekOpen + 1)).toEqual([false, false, false]);
+    expect(stableItems(weekly, 40, undefined, currentWeekOpen + WEEK + 1)).toEqual([false, false, false]);
   });
   it("数据太少 -> null", () => {
     expect(stableItems(candles([1, 2, 3]), 3)).toBeNull();
