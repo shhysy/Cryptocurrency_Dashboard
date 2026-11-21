@@ -521,12 +521,14 @@ export class ExecutionAccountDO {
       const rows = this.state.storage.sql.exec(
         "SELECT COUNT(*) AS total FROM order_intents",
       ).toArray();
+      const alarmAt = await this.state.storage.getAlarm();
       return Response.json({
         ok: true,
         storage: "sqlite",
         intentCount: rows[0] && typeof rows[0] === "object"
           ? (rows[0] as { total?: number }).total ?? 0
           : 0,
+        alarmAt,
       });
     }
 
