@@ -890,3 +890,14 @@
 - 多账户DO隔离；
 - Cloudflare线上实例部署/重启与Testnet只读恢复演练。
 - 生产BUY/SELL、Simple Earn真实赎回、Outbox生产投递仍关闭。
+
+
+## DO真实SQLite终态事务回滚补充（2026-11-21）
+
+- 扩展DO内部健康快照，只返回表记录数量和持久化Alarm时间，不暴露订单敏感字段。
+- 本地Wrangler/workerd集成脚本现在会创建BUY intent并预留10 USDT，进入submitting后故意提交逐笔成交与交易所累计完全一致、但USDT实际消耗20 USDT（超过reservation）的终态finalize请求。
+- finalize会在SQLite事务内先写入fill，再因实际消耗超过预留而拒绝；测试随后读取真实SQLite计数，确认fillCount=0、reservationCount=1、activeLockCount=1，证明失败时成交写入、预留结算和账户锁释放整体回滚。
+- FakeSql健康快照测试桩也按fills/reservations/account_lock/scheduler_tasks分别返回计数，避免不同表计数混淆。
+- CI Run `44868105813`成功：64个测试文件、506项测试；本地Cloudflare DO SQLite集成、typecheck、Next.js build、OpenNext build全部通过。链接：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44868105813
+- 后续FakeSql计数桩修正Run `44868143736`成功：https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44868143736
+- 当前真实SQLite集成已覆盖重启持久化、幂等/冲突入队、Alarm时间持久化、scheduler lease续期、并发claim和终态事务回滚；仍未覆盖旧schema升级样本、自然过期lease takeover/Alarm实际触发、多账户隔离及Cloudflare线上实例。
