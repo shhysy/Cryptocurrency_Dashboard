@@ -359,6 +359,56 @@ export class ExecutionAccountDO {
       }
     }
 
+    if (url.pathname === "/internal/scheduler/renew" && request.method === "POST") {
+      let input: Record<string, unknown>;
+      try {
+        const rawBody = await request.text();
+        if (new TextEncoder().encode(rawBody).byteLength > 16_384) {
+          return Response.json({ error: "调度续租请求体过大" }, { status: 413 });
+        }
+        const parsed: unknown = JSON.parse(rawBody);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return Response.json({ error: "调度续租参数无效" }, { status: 400 });
+        }
+        input = parsed as Record<string, unknown>;
+      } catch {
+        return Response.json({ error: "调度续租JSON无效" }, { status: 400 });
+      }
+      const taskId = typeof input.taskId === "string" ? input.taskId : "";
+      const attempt = input.attempt;
+      const leaseToken = typeof input.leaseToken === "string" ? input.leaseToken : "";
+      if (!/^[A-Za-z0-9:_-]{1,160}$/.test(taskId) ||
+          !Number.isSafeInteger(attempt) || (attempt as number) <= 0 ||
+          leaseToken.length < 16 || leaseToken.length > 128) {
+        return Response.json({ error: "taskId、attempt或leaseToken无效" }, { status: 400 });
+      }
+      const now = Date.now();
+      try {
+        const renewed = this.state.storage.transactionSync(() => {
+          const updated = this.state.storage.sql.exec(
+            `UPDATE scheduler_tasks
+             SET lease_until = ?, updated_at = ?
+             WHERE task_id = ? AND state = 'leased' AND attempt = ?
+               AND lease_token = ? AND lease_until > ?
+             RETURNING task_id`,
+            now + SCHEDULER_TASK_LEASE_MS, now, taskId, attempt, leaseToken, now,
+          ).toArray();
+          if (updated.length !== 1) throw new Error("调度租约已过期或fencing token不匹配");
+          this.state.storage.sql.exec(
+            "INSERT INTO audit_events(event_type, payload_hash, created_at) VALUES ('scheduler_task_lease_renewed', ?, ?)",
+            taskId, now,
+          );
+          return { leaseUntil: now + SCHEDULER_TASK_LEASE_MS };
+        });
+        return Response.json({ ok: true, ...renewed });
+      } catch (error) {
+        return Response.json({
+          ok: false,
+          error: error instanceof Error ? error.message : "调度租约续期失败",
+        }, { status: 409 });
+      }
+    }
+
     if ((url.pathname === "/internal/scheduler/ack" ||
          url.pathname === "/internal/scheduler/retry") && request.method === "POST") {
       let input: Record<string, unknown>;
@@ -477,6 +527,49 @@ export class ExecutionAccountDO {
         intentCount: rows[0] && typeof rows[0] === "object"
           ? (rows[0] as { total?: number }).total ?? 0
           : 0,
+      });
+    }
+
+    if (url.pathname === "/internal/reconcile-context" && request.method === "GET") {
+      const intentId = url.searchParams.get("intentId") ?? "";
+      if (!/^[A-Za-z0-9:_-]{1,160}$/.test(intentId)) {
+        return Response.json({ error: "intentId无效" }, { status: 400 });
+      }
+      const intentRows = this.state.storage.sql.exec(
+        "SELECT intent_id, state, symbol, side, attempt, client_order_id FROM order_intents WHERE intent_id = ?",
+        intentId,
+      ).toArray();
+      const intent = intentRows[0] as {
+        intent_id?: string; state?: string; symbol?: string; side?: string;
+        attempt?: number; client_order_id?: string | null;
+      } | undefined;
+      if (!intent || !intent.symbol || (intent.side !== "BUY" && intent.side !== "SELL")) {
+        return Response.json({ error: "订单意图不存在或字段无效" }, { status: 404 });
+      }
+      const terminal = ["filled", "partial_terminal", "canceled", "expired", "rejected"].includes(intent.state ?? "");
+      if (terminal) {
+        return Response.json({ intentId, state: intent.state, terminal: true });
+      }
+      const lockRows = this.state.storage.sql.exec(
+        "SELECT intent_id, attempt, lease_token, lease_until FROM account_lock WHERE singleton = 1",
+      ).toArray();
+      const lock = lockRows[0] as {
+        intent_id?: string; attempt?: number; lease_token?: string; lease_until?: number;
+      } | undefined;
+      if (!lock || lock.intent_id !== intentId || lock.attempt !== intent.attempt ||
+          !lock.lease_token || !Number.isSafeInteger(lock.lease_until)) {
+        return Response.json({ error: "订单缺少匹配的账户活动锁，禁止自动对账" }, { status: 409 });
+      }
+      return Response.json({
+        intentId,
+        state: intent.state,
+        symbol: intent.symbol,
+        side: intent.side,
+        attempt: intent.attempt,
+        clientOrderId: intent.client_order_id,
+        leaseToken: lock.lease_token,
+        leaseUntil: lock.lease_until,
+        terminal: false,
       });
     }
 
@@ -848,6 +941,14 @@ export class ExecutionAccountDO {
               "INSERT INTO audit_events(intent_id, event_type, created_at) VALUES (?, 'intent_marked_submitting', ?)",
               intentId, now,
             );
+            // POST前即持久化只读对账任务；若执行器在提交前后崩溃，后台只按原clientOrderId查单。
+            sql.exec(
+              `INSERT INTO scheduler_tasks(
+                task_id, task_type, due_at, state, attempt, next_attempt_at, created_at, updated_at
+              ) VALUES (?, 'reconcile_intent', ?, 'pending', 0, 0, ?, ?)
+              ON CONFLICT(task_id) DO NOTHING`,
+              intentId, now + 5_000, now, now,
+            );
             return { intentId, attempt, clientOrderId: order.client_order_id, state: "submitting" };
           }
 
@@ -868,6 +969,13 @@ export class ExecutionAccountDO {
           sql.exec(
             "INSERT INTO audit_events(intent_id, event_type, created_at) VALUES (?, 'intent_marked_unknown', ?)",
             intentId, now,
+          );
+          sql.exec(
+            `INSERT INTO scheduler_tasks(
+              task_id, task_type, due_at, state, attempt, next_attempt_at, created_at, updated_at
+            ) VALUES (?, 'reconcile_intent', ?, 'pending', 0, 0, ?, ?)
+            ON CONFLICT(task_id) DO NOTHING`,
+            intentId, now + 1_000, now, now,
           );
           return { intentId, attempt, clientOrderId: order.client_order_id, state: "unknown", locked: true };
         });
@@ -904,6 +1012,10 @@ export class ExecutionAccountDO {
       const cumulativeQuoteQty = typeof input.cumulativeQuoteQty === "string" ? input.cumulativeQuoteQty : "";
       const exchangeTerminalAt = input.exchangeTerminalAt;
       const fills = input.fills;
+      const schedulerTaskId = typeof input.schedulerTaskId === "string" ? input.schedulerTaskId : "";
+      const schedulerAttempt = input.schedulerAttempt;
+      const schedulerLeaseToken = typeof input.schedulerLeaseToken === "string" ? input.schedulerLeaseToken : "";
+      const hasSchedulerFence = schedulerTaskId !== "" || schedulerAttempt !== undefined || schedulerLeaseToken !== "";
       const terminalStatuses = ["FILLED", "CANCELED", "EXPIRED", "EXPIRED_IN_MATCH", "REJECTED"];
       if (!intentId || !Number.isSafeInteger(attempt) || (attempt as number) <= 0 ||
           !leaseToken || !/^[0-9]{1,32}$/.test(exchangeOrderId) ||
@@ -914,7 +1026,10 @@ export class ExecutionAccountDO {
           compareDecimalStrings(cumulativeQuoteQty, "0") === null ||
           compareDecimalStrings(executedQty, "0")! < 0 ||
           compareDecimalStrings(cumulativeQuoteQty, "0")! < 0 ||
-          !Array.isArray(fills) || fills.length > 1000) {
+          !Array.isArray(fills) || fills.length > 1000 ||
+          (hasSchedulerFence && (schedulerTaskId !== intentId ||
+            !Number.isSafeInteger(schedulerAttempt) || (schedulerAttempt as number) <= 0 ||
+            schedulerLeaseToken.length < 16 || schedulerLeaseToken.length > 128))) {
         return Response.json({ error: "交易所终态或累计成交字段无效" }, { status: 400 });
       }
 
@@ -976,6 +1091,22 @@ export class ExecutionAccountDO {
               lock.lease_token !== leaseToken || !Number.isSafeInteger(lock.lease_until) ||
               (lock.lease_until as number) <= now) {
             throw new Error("账户锁或租约不匹配/已过期，拒绝终态释放");
+          }
+          if (hasSchedulerFence) {
+            const schedulerRows = sql.exec(
+              "SELECT state, attempt, lease_token, lease_until FROM scheduler_tasks WHERE task_id = ?",
+              schedulerTaskId,
+            ).toArray();
+            const scheduler = schedulerRows[0] as {
+              state?: string; attempt?: number; lease_token?: string; lease_until?: number;
+            } | undefined;
+            if (!scheduler || scheduler.state !== "leased" ||
+                scheduler.attempt !== schedulerAttempt ||
+                scheduler.lease_token !== schedulerLeaseToken ||
+                !Number.isSafeInteger(scheduler.lease_until) ||
+                (scheduler.lease_until as number) <= now) {
+              throw new Error("调度任务租约已过期或fencing token不匹配，拒绝终态结算");
+            }
           }
 
           const intentRows = sql.exec(
@@ -1177,7 +1308,7 @@ export class ExecutionAccountDO {
         WHEN state = 'leased' THEN lease_until
         ELSE NULL END) AS next_at
        FROM scheduler_tasks
-       WHERE state = 'leased' OR (state = 'pending' AND task_type = 'health_check')`,
+       WHERE state = 'leased' OR (state = 'pending' AND task_type IN ('health_check', 'reconcile_intent'))`,
     ).toArray();
     const nextAt = rows[0] && typeof rows[0] === "object"
       ? (rows[0] as { next_at?: unknown }).next_at
@@ -1199,8 +1330,8 @@ export class ExecutionAccountDO {
       now,
     );
 
-    // Alarm只做持久化租约恢复和下一次唤醒安排，不在SQLite事务中执行网络请求，
-    // 也不会把任务伪标记为完成。真正的只读任务执行器在后续任务中接入。
+    // Alarm只做持久化租约恢复和下一次唤醒安排，不在SQLite事务中执行网络请求；
+    // reconcile_intent由Worker Cron消费，Alarm负责保证租约到期后再次唤醒。
     this.state.storage.transactionSync(() => {
       const expiredRows = sql.exec(
         `SELECT task_id, attempt FROM scheduler_tasks
@@ -1243,7 +1374,7 @@ export class ExecutionAccountDO {
         WHEN state = 'leased' THEN lease_until
         ELSE NULL END) AS next_at
        FROM scheduler_tasks
-       WHERE state = 'leased' OR (state = 'pending' AND task_type = 'health_check')`,
+       WHERE state = 'leased' OR (state = 'pending' AND task_type IN ('health_check', 'reconcile_intent'))`,
     ).toArray();
     const nextAt = dueRows[0] && typeof dueRows[0] === "object"
       ? (dueRows[0] as { next_at?: unknown }).next_at
