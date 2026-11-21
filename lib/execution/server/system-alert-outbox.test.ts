@@ -69,6 +69,34 @@ describe("Trader系统告警SQLite Outbox", () => {
     }
   });
 
+  it("大量更早的成交Outbox不会因类型过滤而饿死熔断告警", async () => {
+    const store = await openStore();
+    try {
+      const db = (store as unknown as { database: { exec(sql: string): void } }).database;
+      for (let index = 0; index < 15; index += 1) {
+        const id = `trade-fill:BTCUSDT:backlog-${index}`;
+        const payload = JSON.stringify({ id, type: "confirmed_trade_fill" });
+        db.exec(`INSERT INTO notification_outbox(
+          id, payload_json, state, attempt, next_attempt_at, created_at, updated_at
+        ) VALUES ('${id}', '${payload}', 'pending', 0, 0, ${NOW - 100 + index}, ${NOW - 100 + index})`);
+      }
+      const alert = buildSystemAlertNotificationEvent({
+        id: "trader-alert:circuit-breaker:1800000000002",
+        title: "Trader连续故障熔断",
+        message: "连续失败达到阈值",
+        occurredAt: NOW,
+      }, NOW);
+      await store.notificationOutbox.enqueueSystemAlert(alert);
+      const alerts = await store.notificationOutbox.claimDue({
+        now: NOW + 1, leaseMs: 30_000, limit: 10, eventTypes: ["system_alert"],
+      });
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0].event.id).toBe(alert.id);
+    } finally {
+      store.close();
+    }
+  });
+
   it("损坏的系统告警载荷不会被发送而会转人工复核", async () => {
     const store = await openStore();
     try {
