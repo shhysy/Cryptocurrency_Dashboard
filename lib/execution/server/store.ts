@@ -109,6 +109,26 @@ export interface SellEventRepository {
 
 export interface TradeLedgerRepository {
   listTradeLedger(): Promise<TradeLedgerEntry[]>;
+  /** BUY GTC开放订单逐笔真实成交入账，保留交易所原始十进制字符串。 */
+  recordConfirmedBuyFill(input: {
+    fill: {
+      tradeId: string;
+      orderId: string;
+      symbol: string;
+      price: string;
+      qty: string;
+      quoteQty: string;
+      commission: string;
+      commissionUsdt: string;
+      commissionAsset: string;
+      filledAt: number;
+    };
+    intentId: string;
+    attempt: number;
+    leaseToken: string;
+    schedulerLease: SchedulerTaskLease;
+    now: number;
+  }): Promise<{ recorded: boolean; ledger: TradeLedgerEntry }>;
   /** 成交fill、台账与通知Outbox必须在同一事务内写入。 */
   recordConfirmedSellFill(
     fill: ExecutionFill,
