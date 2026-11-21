@@ -23,7 +23,7 @@ npm run typecheck
 
 ## 当前完成边界（本地优先）
 
-看板信号、持仓与成本在本机 Next.js 可用；浏览器不持有 Binance Secret。当前 `npm run trader` 已有本地常驻进程、SQLite 存储、BUY执行/对账和SELL服务端提交/只读对账代码；SELL已接入服务端预检、底仓保护、成交核验和台账入账，并有Mock集成测试。尚未完成专用Testnet真实订单演练、进程级崩溃恢复验收、用户SMTP真实投递验证、Simple Earn服务端赎回及生产验收。SMTP Outbox与按日日志轮转代码已有Mock/CI验证。生产模式仍由代码硬拒绝。**当前版本不是可实盘版本，不能仅填真实 Key 就启动交易。**
+看板信号、持仓与成本在本机 Next.js 可用；浏览器不持有 Binance Secret。浏览器旧自动交易循环和浏览器端现货下单开关已关闭，本地Trader是唯一自动执行入口。当前 `npm run trader` 已有本地常驻进程、SQLite 存储、BUY执行/对账和SELL服务端提交/只读对账代码；SELL已接入服务端预检、底仓保护、成交核验和台账入账，并有Mock集成测试。已补SQLite真实文件+子进程SIGKILL+重启只读恢复集成测试；尚未完成专用Testnet真实订单演练、用户SMTP真实投递验证、Simple Earn服务端赎回及生产验收。SMTP Outbox与按日日志轮转代码已有Mock/CI验证。生产模式仍由代码硬拒绝。**当前版本不是可实盘版本，不能仅填真实 Key 就启动交易。**
 
 ## 策略逻辑
 
