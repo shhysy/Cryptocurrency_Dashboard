@@ -72,6 +72,30 @@ describe("成交通知邮件", () => {
     expect(mocks.sendSmtpTextMail).toHaveBeenCalledTimes(1);
   });
 
+  it("SMTP失败后重试同一冻结业务快照，邮件内容不漂移", async () => {
+    vi.stubEnv("TRADE_FILL_MAIL_ENABLED", "1");
+    vi.stubEnv("SMTP_HOST", "smtp.example.com");
+    vi.stubEnv("SMTP_USER", "bot@example.com");
+    vi.stubEnv("SMTP_PASS", "test-password");
+    vi.stubEnv("MAIL_TO", "owner@example.com");
+    const event = {
+      id: "trade-fill:BTCUSDT:retry-1", symbol: "BTCUSDT", side: "BUY",
+      filledQty: 0.1, fillPrice: 50000, quoteQty: 5000, filledAt: 1_800_000_000_000,
+      businessSnapshot: {
+        side: "BUY" as const, strategyTier: "add" as const, plannedUsdt: "6000",
+        cumulativeFilledQty: "0.1", cumulativeQuoteQty: "5000",
+        cumulativeCommissionUsdt: "1", averageFillPrice: "50000", remainingBudgetUsdt: "999",
+      },
+    };
+    mocks.sendSmtpTextMail.mockRejectedValueOnce(new Error("SMTP暂时不可用"));
+    expect((await dispatchTradeFillMail([event])).sent).toBe(false);
+    mocks.sendSmtpTextMail.mockResolvedValueOnce(undefined);
+    expect((await dispatchTradeFillMail([event])).sent).toBe(true);
+    expect(mocks.sendSmtpTextMail).toHaveBeenCalledTimes(2);
+    expect(mocks.sendSmtpTextMail.mock.calls[0]?.[1]).toBe(mocks.sendSmtpTextMail.mock.calls[1]?.[1]);
+    expect(mocks.sendSmtpTextMail.mock.calls[1]?.[1]).toContain("剩余计划预算：999 USDT");
+  });
+
   it("SMTP异常返回sent=false供Outbox退避重试", async () => {
     vi.stubEnv("TRADE_FILL_MAIL_ENABLED", "1");
     vi.stubEnv("SMTP_HOST", "smtp.example.com");
