@@ -48,10 +48,10 @@ describe("Binance订单终态对账计划", () => {
     });
   });
 
-  it("活动单、未找到和查询失败均不生成终态结算", async () => {
+  it("开放订单返回已核验逐笔成交，未找到和查询失败不生成终态结算", async () => {
     const input = { symbol: "BTCUSDT", clientOrderId: "client-55", expectedSide: "SELL" as const };
     await expect(buildBinanceReconcilePlan(adapter({ order: { ...order, status: "PARTIALLY_FILLED" } }), input))
-      .resolves.toMatchObject({ kind: "wait" });
+      .resolves.toMatchObject({ kind: "open_fills", status: "PARTIALLY_FILLED", fills: [{ tradeId: "101", price: "65000.00" }] });
     await expect(buildBinanceReconcilePlan(adapter({
       findError: new Error('Binance 400: {"code":-2013,"msg":"Order does not exist"}'),
     }), input)).resolves.toMatchObject({ kind: "not_found" });
