@@ -356,3 +356,10 @@ GPT已先行提交限价GTC第一阶段代码，Grok请在当前gpt分支最新H
 5. 复核所有自动交易POST均为LIMIT GTC；任何MARKET调用不得进入自动Trader路径。
 6. 在测试与typecheck/build通过后记录最新HEAD SHA和Run ID；不能把CI通过当作Testnet实盘验收。
 7. 后续继续完成Testnet部分成交、重启恢复、72小时运行和SMTP真实收发验证。生产硬拒绝保持。
+
+
+### GPT本轮成交邮件字段与SMTP防空配置
+- 成交邮件已传递并展示真实成交数量、实际成交价、成交金额、手续费及资产、USDT折算手续费、Binance订单ID/tradeId、成交时间。
+- SMTP配置不完整时，成交邮件Outbox不会被领取；邮箱配置完成后再开始投递。
+- 最新CI Run `44913252848`：81个测试文件、580个测试通过，typecheck/Next build成功。
+- Grok继续核对邮件内容是否需补充BUY计划金额/剩余待买金额，以及SELL卖出原因、实现盈亏和剩余持仓；不要猜算不可靠的盈亏数据。
