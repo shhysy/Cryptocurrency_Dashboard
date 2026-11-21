@@ -93,7 +93,7 @@ export interface SchedulerTaskRepository {
   }): Promise<SchedulerTaskLease[]>;
   renew(lease: SchedulerTaskLease, now: number, leaseMs: number): Promise<boolean>;
   ack(lease: SchedulerTaskLease, now: number): Promise<boolean>;
-  retry(lease: SchedulerTaskLease, now: number, reason: string): Promise<"pending" | "manual_review" | "lease_lost">;
+  retry(lease: SchedulerTaskLease, now: number, reason: string): Promise<"pending" | "manual_review" | "lease_lost">;\n  /** 交易所订单仍为NEW/PARTIALLY_FILLED时按固定间隔重排，不累计故障重试次数。 */\n  defer(lease: SchedulerTaskLease, now: number, delayMs: number, reason: string): Promise<boolean>;
   recoverExpired(now: number): Promise<number>;
 }
 
