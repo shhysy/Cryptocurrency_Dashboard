@@ -11,7 +11,8 @@ export class ConsecutiveFailureBreaker {
   }
   recordFailure(): boolean {
     this.failures += 1;
-    return this.failures >= this.threshold;
+    // 只在首次跨过阈值时触发熔断；后续失败不重复执行熔断副作用。
+    return this.failures === this.threshold;
   }
   get count(): number {
     return this.failures;
