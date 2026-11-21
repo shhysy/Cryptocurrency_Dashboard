@@ -496,4 +496,65 @@ describe("本地Trader服务端SELL执行", () => {
     }));
   });
 
+
+  it("SELL处于PARTIALLY_FILLED时立即按真实tradeId增量入账并保持只读跟踪", async () => {
+    const f = fixture();
+    f.setEvent({ status: "reconcile_required", clientOrderId: "gpt-open-partial-sell-1" });
+    f.findOrderByClientOrderId.mockResolvedValue({
+      kind: "found",
+      order: {
+        symbol: "BTCUSDT",
+        orderId: 127,
+        clientOrderId: "gpt-open-partial-sell-1",
+        side: "SELL",
+        status: "PARTIALLY_FILLED",
+        origQty: "0.2",
+        executedQty: "0.1",
+        cummulativeQuoteQty: "10",
+        time: 1_800_000_000_000,
+        updateTime: 1_800_000_000_001,
+      },
+    });
+    f.listOrderTrades.mockResolvedValue({
+      complete: true,
+      pagesRead: 1,
+      trades: [{
+        id: 458,
+        orderId: 127,
+        symbol: "BTCUSDT",
+        side: "SELL",
+        price: "100",
+        qty: "0.1",
+        quoteQty: "10",
+        commission: "0.001",
+        commissionAsset: "BTC",
+        time: 1_800_000_000_001,
+      }],
+    });
+    const submitOrder = vi.fn();
+
+    const result = await runServerSellCycle({
+      mode: "testnet",
+      store: f.store,
+      adapter: f.adapter,
+      dashboard: f.dashboard,
+      submitOrder,
+      now: () => 1_800_000_000_002,
+    });
+
+    expect(result.reconciled).toBe(1);
+    expect(f.store.tradeLedger.recordConfirmedSellFill).toHaveBeenCalledTimes(1);
+    expect(f.store.tradeLedger.recordConfirmedSellFill).toHaveBeenCalledWith(
+      expect.objectContaining({ fillId: "458", orderId: "127", side: "SELL", qty: 0.1 }),
+      "take_profit",
+    );
+    expect(f.getEvent()).toMatchObject({
+      status: "reconcile_required",
+      filledQty: 0.1,
+      fillIds: ["458"],
+      exchangeOrderId: "127",
+    });
+    expect(submitOrder).not.toHaveBeenCalled();
+  });
+
 });
