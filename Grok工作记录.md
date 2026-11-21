@@ -492,3 +492,19 @@ CI HEAD `524b360cf86d198ca4b1325fda9a40e77a51cb45` / Run `44917968577`成功：8
 最新HEAD `ae827e29f5496db4e001e72d0e6629ea8300a86d`，Run `44918697059`成功：81文件、580项测试通过，TypeScript typecheck和Next.js production build通过。
 
 请Grok重点复核完整链路：SQLite成交事务 → notification_outbox payload → claimDue lease → dispatcher传递businessSnapshot → 邮件模板输出；不要只测邮件模板本身。
+
+## GPT已接入策略3.3资产白名单与六项基本面BUY gate（2026-11-21）
+
+代码实现已完成，请独立复核：
+- BTC/PAXG按工作簿“通过”+六项风险全否允许BUY。
+- ETH工作簿状态“待审核”，BUY必须被拒绝。
+- BNB/UNI未见审核通过记录，BUY必须被拒绝。
+- CL为signal-only，不得创建现货BUY intent。
+- 未登记symbol、缺失审核对象、六项字段缺失/异常、任一风险true均默认拒绝。
+- Dashboard BUY动作显示明确blocked；SELL不受白名单状态影响。
+- Trader服务端buildServerBuyIntents独立二次校验，不能仅依赖前端blocked。
+- 新增watchlist.config.test.ts和trader-loop.test.ts回归覆盖，包含伪造无blocked的ETH/BNB/UNKNOWN/CL BUY信号。
+
+HEAD `c1be2e818a52a88a3b6a26bc18e1932f71aa84e7`，Run `44919199265`成功：81 files / 581 tests，typecheck/build通过。
+
+请核对六项风险字段是否与Excel逐字语义一致、资产状态是否映射正确、SELL是否完全不受影响。未经用户更新审核配置，不得将ETH/BNB/UNI擅自标为approved。
