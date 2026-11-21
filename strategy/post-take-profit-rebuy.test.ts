@@ -67,10 +67,10 @@ describe("post-take-profit average-cost rebuy", () => {
     };
     const result = applyPostTakeProfitRebuy(data(), [interrupted], [sell]);
     expect(result.coins[0].signal.tag).toBe("暂缓");
-    expect(result.coins[0].signal.action.blocked.join()).toContain("索引与SQLite确认成交不一致");
+    expect(result.coins[0].signal.action.blocked.join()).toContain("未终态或需人工复核");
   });
 
-  it("SELL事件仍在对账状态但订单身份和全部成交索引已持久化时可进入均价回补", () => {
+  it("SELL事件仍在对账状态时即使成交索引完整也必须等待终态", () => {
     const interrupted = {
       ...event,
       status: "reconcile_required" as const,
@@ -78,6 +78,19 @@ describe("post-take-profit average-cost rebuy", () => {
       fillIds: ["sell-1"],
     };
     const result = applyPostTakeProfitRebuy(data(), [interrupted], [sell]);
+    expect(result.coins[0].signal.tag).toBe("暂缓");
+    expect(result.coins[0].signal.action.blocked.join()).toContain("未终态或需人工复核");
+  });
+
+  it("SELL部分成交进入终态且成交索引完整后才允许均价回补", () => {
+    const terminalPartial = {
+      ...event,
+      status: "partially_filled" as const,
+      exchangeOrderId: "11",
+      filledQty: 0.2,
+      fillIds: ["sell-1"],
+    };
+    const result = applyPostTakeProfitRebuy(data(), [terminalPartial], [sell]);
     expect(result.coins[0].signal.action.label).toBe("均价回补第 1 档");
     expect(result.coins[0].signal.action.side).toBe("buy");
   });
