@@ -12,8 +12,8 @@ let childLogs = "";
 
 function startWorker() {
   childLogs = "";
-  child = spawn("npx", [
-    "wrangler", "dev",
+  child = spawn(process.execPath, [
+    "node_modules/wrangler/bin/wrangler.js", "dev",
     "--config", "wrangler.test.jsonc",
     "--local",
     "--ip", "127.0.0.1",
@@ -24,6 +24,7 @@ function startWorker() {
     cwd: process.cwd(),
     env: { ...process.env, WRANGLER_SEND_METRICS: "false", CI: "1" },
     stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
   });
   child.stdout.on("data", (chunk) => { childLogs += chunk.toString(); });
   child.stderr.on("data", (chunk) => { childLogs += chunk.toString(); });
@@ -32,12 +33,15 @@ function startWorker() {
 async function stopWorker() {
   if (!child || child.exitCode !== null) return;
   const current = child;
-  current.kill("SIGTERM");
+  // Wrangler启动workerd子进程；杀整个进程组，避免CI脚本退出后遗留监听端口。
+  try { process.kill(-current.pid, "SIGTERM"); } catch {}
   await Promise.race([
     new Promise((resolve) => current.once("exit", resolve)),
-    delay(8_000),
+    delay(5_000),
   ]);
-  if (current.exitCode === null) current.kill("SIGKILL");
+  try { process.kill(-current.pid, "SIGKILL"); } catch {}
+  current.stdout?.destroy();
+  current.stderr?.destroy();
 }
 
 async function waitForWorker() {
