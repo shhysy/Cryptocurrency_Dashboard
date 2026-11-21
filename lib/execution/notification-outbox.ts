@@ -1,27 +1,11 @@
 import type { ExecutionFill } from "./types";
 
-export interface TradeNotificationOutboxEvent {
+interface NotificationOutboxBase {
   id: string;
-  type: "confirmed_trade_fill" | "system_alert";
-  side?: "BUY" | "SELL";
-  symbol?: string;
-  fillId?: string;
-  exchangeOrderId?: string;
-  filledQty?: number;
-  fillPrice?: number;
-  quoteQty?: number;
-  commission?: number;
-  commissionAsset?: string;
-  commissionUsdt?: number;
-  filledAt?: number;
-  severity?: "critical";
-  title?: string;
-  message?: string;
-  occurredAt?: number;
   status: "pending" | "sending" | "sent" | "failed";
-  /** 租约到期前，避免多标签页同时投递同一事件。 */
+  /** 租约到期前，避免多个调度器同时投递同一事件。 */
   leaseUntil: number | null;
-  /** 围栏令牌：租约被其他标签页收回后，旧调度器不能再标记完成。 */
+  /** 围栏令牌：租约被其他调度器收回后，旧调度器不能再标记完成。 */
   leaseToken: string | null;
   nextAttemptAt: number | null;
   attemptCount: number;
@@ -31,13 +15,32 @@ export interface TradeNotificationOutboxEvent {
   sentAt: number | null;
 }
 
-export interface SystemAlertNotificationEvent extends TradeNotificationOutboxEvent {
+export interface ConfirmedTradeFillNotificationEvent extends NotificationOutboxBase {
+  type: "confirmed_trade_fill";
+  side: "BUY" | "SELL";
+  symbol: string;
+  fillId: string;
+  exchangeOrderId: string;
+  filledQty: number;
+  fillPrice: number;
+  quoteQty: number;
+  commission: number;
+  commissionAsset: string;
+  commissionUsdt: number;
+  filledAt: number;
+}
+
+export interface SystemAlertNotificationEvent extends NotificationOutboxBase {
   type: "system_alert";
   severity: "critical";
   title: string;
   message: string;
   occurredAt: number;
 }
+
+export type TradeNotificationOutboxEvent =
+  | ConfirmedTradeFillNotificationEvent
+  | SystemAlertNotificationEvent;
 
 /** 熔断/安全告警使用与成交通知相同的持久化Outbox，不在交易异常路径中直接发网络邮件。 */
 export function buildSystemAlertNotificationEvent(input: {
@@ -48,7 +51,8 @@ export function buildSystemAlertNotificationEvent(input: {
 }, now = Date.now()): SystemAlertNotificationEvent {
   if (!input.id.startsWith("trader-alert:") || !input.title.trim() ||
       !input.message.trim() || input.message.length > 2_000 ||
-      !Number.isSafeInteger(now) || now <= 0) {
+      !Number.isSafeInteger(now) || now <= 0 ||
+      (input.occurredAt !== undefined && (!Number.isSafeInteger(input.occurredAt) || input.occurredAt <= 0))) {
     throw new Error("Trader系统告警事件字段无效");
   }
   return {
