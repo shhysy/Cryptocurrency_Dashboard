@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { openLocalExecutionDatabase } from "./sqlite-database";
 
@@ -36,7 +37,7 @@ describe("本地执行SQLite数据库基础设施", () => {
       const version = database.prepare(
         "SELECT MAX(version) AS version FROM schema_migrations",
       ).get() as { version: number };
-      expect(version.version).toBe(1);
+      expect(version.version).toBe(2);
       const foreignKeys = database.prepare("PRAGMA foreign_keys").get() as { foreign_keys: number };
       expect(foreignKeys.foreign_keys).toBe(1);
     } finally {
@@ -59,9 +60,56 @@ describe("本地执行SQLite数据库基础设施", () => {
       ).get("test_persist") as { event_type: string; created_at: number };
       expect(row).toEqual({ event_type: "test_persist", created_at: 123 });
       const versions = second.prepare("SELECT COUNT(*) AS total FROM schema_migrations").get() as { total: number };
-      expect(versions.total).toBe(1);
+      expect(versions.total).toBe(2);
     } finally {
       second.close();
+    }
+  });
+
+  it("旧版v1数据库会升级并保留订单表数据", async () => {
+    const path = await databasePath();
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(join(path, ".."), { recursive: true }));
+    const legacy = new DatabaseSync(path);
+    legacy.exec(`
+      CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);
+      INSERT INTO schema_migrations(version, applied_at) VALUES (1, 100);
+      CREATE TABLE order_intents (
+        intent_id TEXT PRIMARY KEY,
+        strategy_event_id TEXT NOT NULL UNIQUE,
+        strategy_version TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        side TEXT NOT NULL,
+        quote_asset TEXT NOT NULL,
+        amount TEXT NOT NULL,
+        state TEXT NOT NULL,
+        attempt INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        exchange_order_id TEXT,
+        client_order_id TEXT UNIQUE,
+        exchange_terminal_at INTEGER,
+        fills_reconciled_at INTEGER,
+        last_error TEXT
+      );
+      INSERT INTO order_intents(
+        intent_id, strategy_event_id, strategy_version, symbol, side, quote_asset,
+        amount, state, attempt, created_at, updated_at
+      ) VALUES ('v33:BTC:head:2026W47', 'BTC:head:2026W47', '3.3', 'BTCUSDT',
+        'BUY', 'USDT', '100', 'queued', 0, 100, 100);
+    `);
+    legacy.close();
+
+    const upgraded = await openLocalExecutionDatabase({ path });
+    try {
+      const columns = upgraded.prepare("PRAGMA table_info(order_intents)").all() as Array<{ name: string }>;
+      expect(columns.some((column) => column.name === "base_ratio_at_signal")).toBe(true);
+      const intent = upgraded.prepare("SELECT amount FROM order_intents WHERE intent_id = ?")
+        .get("v33:BTC:head:2026W47") as { amount: string };
+      expect(intent.amount).toBe("100");
+      const version = upgraded.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number };
+      expect(version.version).toBe(2);
+    } finally {
+      upgraded.close();
     }
   });
 
