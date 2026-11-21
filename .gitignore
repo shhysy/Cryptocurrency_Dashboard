@@ -18,3 +18,10 @@ dash.tmp.json
 
 # 邮件通知去重状态（本地）
 data/notify-state.json
+
+# 本地常驻执行器运行态
+data/*.db
+data/*.db-*
+data/STOP
+data/trader.lock
+logs/
