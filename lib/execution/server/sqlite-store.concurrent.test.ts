@@ -26,6 +26,7 @@ function buyIntent(): ServerExecutionIntent {
     intentId: serverExecutionIntentId(eventId),
     strategyEventId: eventId,
     strategyVersion: "3.3",
+    strategyTier: "head",
     symbol: "BTCUSDT",
     side: "BUY",
     quoteAsset: "USDT",
