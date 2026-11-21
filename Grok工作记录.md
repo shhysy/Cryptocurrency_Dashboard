@@ -224,7 +224,7 @@
 2. 审核`strategy.config.ts`备用金极度恐惧阈值10，确认它与C2评分档位的五档配置彼此独立。
 3. 审核`lib/execution/server/stop-file.ts`和`scripts/trader.ts`：只有ENOENT允许继续，其他文件系统错误必须fail-closed；确认不会误停或绕过STOP。
 4. 审核SELL每个tick最多提交一笔新订单、STALE时旧订单只读恢复优先的状态机。
-5. 使用当前HEAD的CI Run `44891430947`作为代码基线（包含Run `44891236638`的78 files / 555 tests策略/Trader代码验收，以及后续熔断和运维文档修改；最终tests、typecheck、build均通过），不要引用早期失败Run作为最终结果。
+5. 使用代码基线HEAD `8af219546d5368b6690b74831c27c301c8b72859`的CI Run `44891430947`作为已通过证据（包含Run `44891236638`的78 files / 555 tests策略/Trader代码验收，以及后续熔断和运维文档修改；tests、typecheck、build均通过）。当前分支HEAD `088a9b085a926e90e01a424d53f1d229e6caa1d3`仅追加清单/工作记录，Run `44891524751`仍在执行；复核时请核对该Run，不要引用早期失败Run作为最终结果。
 7. 额外复核`ConsecutiveFailureBreaker`是否只在首次达到阈值时触发，检查`.env.example`的`TRADER_CIRCUIT_FAILURES`和`docs/运维手册.md`的Testnet命令是否一致。
 6. 继续推进尚未完成的Testnet订单演练、SMTP异常/熔断通知联动、Simple Earn服务端赎回设计及M0-01旧通知路由调用链审查。任何涉及真实资金的开关保持关闭，Testnet和实盘证据分开记录。
 
