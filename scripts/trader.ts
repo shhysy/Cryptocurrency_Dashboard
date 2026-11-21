@@ -1,4 +1,4 @@
-import { access, writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { getServerBinanceSpotMode, hasCredentials, submitTraderSpotMarketOrder } from "@/lib/binance";
 import { getDashboard } from "@/lib/service";
@@ -13,6 +13,7 @@ import { parseAutoTradeMode, assertProductionAuthorized } from "@/lib/execution/
 import { runStartupSelfCheck } from "@/lib/execution/server/startup-self-check";
 import { ConsecutiveFailureBreaker } from "@/lib/execution/server/circuit-breaker";
 import { safeError, safeLog } from "@/lib/execution/server/safe-log";
+import { isStopFilePresent } from "@/lib/execution/server/stop-file";
 
 function readPollInterval(): number {
   const value = Number(process.env.TRADER_POLL_INTERVAL_MS ?? "15000");
@@ -23,12 +24,7 @@ function readPollInterval(): number {
 }
 
 async function stopFileExists(): Promise<boolean> {
-  try {
-    await access(join(process.cwd(), "data", "STOP"));
-    return true;
-  } catch {
-    return false;
-  }
+  return isStopFilePresent(join(process.cwd(), "data", "STOP"));
 }
 
 async function writeStopFile(reason: string): Promise<void> {
