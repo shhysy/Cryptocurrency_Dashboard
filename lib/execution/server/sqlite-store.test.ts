@@ -252,6 +252,46 @@ describe("本地SQLite执行存储", () => {
     }
   });
 
+  it("终态结算必须持有对应reconcile scheduler lease fencing token", async () => {
+    const store = await openLocalExecutionStore({ path: await tempDbPath() });
+    const value = intent("SELL");
+    try {
+      const { claim, lease } = await claimAndSubmit(store, value);
+      const [task] = await store.scheduler.claimDue({
+        now: NOW + 5_001, leaseMs: 30_000, limit: 1, taskType: "reconcile_intent",
+      });
+      expect(task).toBeDefined();
+      const input = {
+        intentId: value.intentId,
+        attempt: claim.lease.attempt,
+        leaseToken: lease.token,
+        now: NOW + 31_100,
+        exchangeOrderId: "12350",
+        exchangeStatus: "FILLED" as const,
+        executedQty: "0.05",
+        cumulativeQuoteQty: "5",
+        exchangeTerminalAt: NOW + 31_000,
+        fills: [{
+          tradeId: "90004", orderId: "12350", price: "100", qty: "0.05",
+          quoteQty: "5", commission: "0", commissionAsset: "USDT",
+          filledAt: NOW + 30_999,
+        }],
+      };
+      await expect(store.finalizeReconciledOrder({
+        ...input,
+        schedulerLease: { ...task!, leaseToken: "stale-scheduler-token" },
+      })).rejects.toThrow("fencing token");
+      const stillOpen = await store.getIntent(value.intentId);
+      expect(stillOpen?.state).toBe("reconciling");
+      await expect(store.finalizeReconciledOrder({
+        ...input,
+        schedulerLease: task!,
+      })).resolves.toMatchObject({ state: "filled" });
+    } finally {
+      store.close();
+    }
+  });
+
   it("超出reservation时fill写入、台账、Outbox和释放操作全部回滚", async () => {
     const path = await tempDbPath();
     const store = await openLocalExecutionStore({ path });
