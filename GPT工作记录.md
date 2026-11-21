@@ -180,3 +180,11 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - 新增15条旧成交积压场景测试，确保单独启用告警时仍能及时领取告警。
 - CI Run `44895636959`：79 files / 565 tests通过；typecheck/build通过。
 - 最新HEAD：`f672ffdf1a3b72dd63bb10872b3107f5da3cd145`。
+
+## 2026-11-21｜Trader人工复核计数漏项修复
+
+- 复核 lib/execution/server/sqlite-store.ts 发现：countExecutionManualReview()只统计 order_intents.manual_review 与 sell_events.blocked，没有独立统计 reservations.manual_review。
+- 正常 markManualReview 事务会同步更新intent和reservation，但数据库损坏、旧版本状态或人工修复造成孤立reservation时，Trader可能漏掉该人工复核状态。
+- 已将 reservations.state='manual_review' 纳入停机计数；纯通知Outbox的manual_review不纳入交易停机计数，避免邮件投递失败被误判成订单风险。
+- 新增 system-alert-outbox.test.ts 回归用例：intent保持queued而资金预留为manual_review时，必须返回非零人工复核计数。
+- 提交：686abb159ade4c3e47540fd55d865ffeafc921b8、8d1ba294b3b93dbc2c73578d436ff0db05317010。等待最新GitHub Actions验证；未声称测试已通过。
