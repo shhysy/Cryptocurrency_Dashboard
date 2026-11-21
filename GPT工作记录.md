@@ -792,3 +792,35 @@
 - 尚未增加逐币signalAsOf/策略输入哈希/事件到期证明；更新时间45分钟和STALE检查只是第一层门槛。
 - 真实Cloudflare DO SQLite与Testnet演练未完成；intent创建不代表下单。
 - 生产BUY/SELL、Simple Earn真实赎回、Outbox生产投递继续关闭。
+
+
+## Worker Cron受控Testnet策略意图扫描（2026-11-21）
+
+### 本轮实现
+- 新增 `lib/execution/strategy-intent-cron.server.ts`：通过Worker自引用Service Binding向同一OpenNext Worker发起受保护的`POST /api/execution/intents`请求，使用服务端Dashboard Basic Auth和同源Origin。
+- Worker Cron每分钟在满足以下条件时触发服务端策略扫描：`BINANCE_SPOT_ENVIRONMENT=testnet`、`BINANCE_TESTNET_INTENT_CREATION_ENABLED`、`BINANCE_TESTNET_INTENT_SCAN_ENABLED`均开启，且至少一个Testnet BUY/SELL服务端方向开关开启；缺少Service Binding或Dashboard密码则fail-closed。
+- 扫描API仍在Next.js服务端重新计算策略3.3信号；只创建DO intent，不提交Binance订单。STALE/过期数据返回409并标记skipped，不会当成扫描成功。
+- `app/api/execution/intents/route.ts`新增逐方向服务端开关检查：BUY关闭时不创建BUY intent，SELL关闭时不创建SELL intent。
+- 新增环境变量`BINANCE_TESTNET_INTENT_SCAN_ENABLED=0`，默认关闭；生产模式在Cron触发器和API入口双重硬拒绝。
+- Worker先尝试策略intent扫描（单独捕获失败，不阻断现有订单对账），随后领取并处理reconcile_intent任务。
+- 新增`strategy-intent-cron.server.test.ts`覆盖Testnet开关、方向开关、自引用请求认证、STALE跳过和API错误；策略意图API测试补充方向关闭拒绝。
+
+### 提交与CI
+- `b030b1fc5bb5b48a570bd036c443f2372a197a1f`：新增Testnet策略意图Cron触发器。
+- `e9f1f627f61618b13a0445a0fea4c9221a7d4e6f`：新增Testnet策略意图Cron安全测试。
+- `1a758717d68f54643a0818386a48253fc8b0271a`：接入Cron受控Testnet策略意图扫描。
+- `c1d71f46d6c2a7046a898a39e367b077a2a4758e`：增加Testnet策略意图后台扫描开关。
+- `8bd2b280127bc6640a4b824cfa44d46556c30434`：按服务端方向开关限制策略意图创建（首轮CI因测试未同步方向开关环境变量而失败，已修正）。
+- `ecfff7f31c62c818f8543e9c87ebf49605048992`：补充Testnet方向开关拒绝测试。
+- `1027f0318832fdb0f33d96006450915773eeb280`：统一Testnet策略扫描开关布尔值解析。
+- 文档同步：`137e46c579ed52cdcfc738c0aa713b6e9ee8b94e`、`ab66762d4ef3dfdcdca0fb9f89fe2ae8d2c8dbfc`。
+- 最新可核验代码CI Run `44866693276` 成功，测试与typecheck通过；Worker/Cron集成Run `44866697296` 成功；Run `44866724247` 文档同步成功。对应链接：
+  - https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44866693276
+  - https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44866697296
+  - https://github.com/shhysy/Cryptocurrency_Dashboard/actions/runs/44866724247
+
+### 尚未完成
+- 真实Cloudflare部署中的Service Binding自调用、Cron触发和Durable Object SQLite持久化尚未验证；当前仅CI构建和Mock/Fake SQL测试。
+- 自动扫描只创建queued intent，不做claim/reservation、不提交订单；仍需完成信号时效证明、账户级原子预留和服务端Testnet执行器。
+- 扫描开关默认关闭，没有启用真实Testnet扫描，也没有发送任何订单。
+- 生产BUY/SELL、Simple Earn真实赎回和Outbox生产投递继续关闭。
