@@ -754,7 +754,7 @@ describe("BUY GTC开放订单增量成交", () => {
       expect((db.prepare("SELECT COUNT(*) AS total FROM fills").get() as { total: number }).total).toBe(1);
       expect((db.prepare("SELECT COUNT(*) AS total FROM trade_ledger").get() as { total: number }).total).toBe(1);
       expect((db.prepare("SELECT COUNT(*) AS total FROM notification_outbox WHERE id LIKE 'trade-fill:%'").get() as { total: number }).total).toBe(1);
-      expect((db.prepare("SELECT state FROM reservations").get() as { state: string }).state).toBe("reserved");
+      expect((db.prepare("SELECT state FROM reservations").get() as { state: string }).state).toBe("settled");
       expect((db.prepare("SELECT state, attempt FROM scheduler_tasks WHERE task_id = ?").get("reconcile:" + value.intentId) as { state: string; attempt: number }).state).toBe("completed");
     } finally {
       db.close();
