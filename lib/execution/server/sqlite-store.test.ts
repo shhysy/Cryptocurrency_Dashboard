@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { serverExecutionIntentId, type ServerExecutionIntent } from "../server-execution-core";
+import { schedulerTaskRetryAt } from "../scheduler-task-core";
 import type { SellEventRecord } from "../sell-store.browser";
 import type { ExecutionFill } from "../types";
 import { openLocalExecutionDatabase } from "./sqlite-database";
@@ -425,6 +426,53 @@ describe("本地SQLite执行存储", () => {
       }
     } finally {
       store.close();
+    }
+  });
+
+  it("scheduler重试耗尽时将订单和reservation一起转manual_review并保留账户锁", async () => {
+    const path = await tempDbPath();
+    const store = await openLocalExecutionStore({ path });
+    const value = intent("SELL");
+    try {
+      const created = await store.createIntent(value);
+      expect(created.created).toBe(true);
+      const claim = await store.claimIntent({
+        intentId: value.intentId, availableAsset: "BTC", availableAmount: "1",
+        snapshotAt: NOW, now: NOW, leaseMs: 30_000,
+      });
+      expect(claim).not.toBeNull();
+      await store.markSubmitting({
+        intentId: value.intentId, attempt: claim!.lease.attempt,
+        leaseToken: claim!.lease.token, clientOrderId: claim!.intent.clientOrderId!, now: NOW + 1,
+      });
+      await store.markUnknown({
+        intentId: value.intentId, attempt: claim!.lease.attempt,
+        leaseToken: claim!.lease.token, reason: "unknown", now: NOW + 2,
+      });
+
+      let clock = NOW + 5_001;
+      for (let attempt = 1; attempt <= 8; attempt += 1) {
+        const [task] = await store.scheduler.claimDue({ now: clock, leaseMs: 30_000, limit: 1 });
+        expect(task?.attempt).toBe(attempt);
+        const result = await store.scheduler.retry(task!, clock, "测试对账持续未知");
+        if (attempt < 8) {
+          expect(result).toBe("pending");
+          clock = schedulerTaskRetryAt(attempt, clock)!;
+        } else {
+          expect(result).toBe("manual_review");
+        }
+      }
+      expect((await store.getIntent(value.intentId))?.state).toBe("manual_review");
+    } finally {
+      store.close();
+    }
+    const db = await openLocalExecutionDatabase({ path });
+    try {
+      expect((db.prepare("SELECT state FROM reservations").get() as { state: string }).state).toBe("manual_review");
+      expect((db.prepare("SELECT COUNT(*) AS total FROM account_lock").get() as { total: number }).total).toBe(1);
+      expect((db.prepare("SELECT state FROM scheduler_tasks").get() as { state: string }).state).toBe("manual_review");
+    } finally {
+      db.close();
     }
   });
 
