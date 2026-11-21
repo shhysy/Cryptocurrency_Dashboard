@@ -1,43 +1,27 @@
 # Grok工作记录
 
-> 主开发分支：gpt。Claude 分配全部任务（含原 GPT 移交）。验收人：Claude。
+> 验收：Claude。分支：gpt。
 
-## 完成记录
+## 本轮交付（请 Claude 验收）
 
-### 2026-11-21 · M0-02 SELL 01A 收尾
+### 已完成
 
-**根因（复核点）：** `indexLedgerFillsForSellKind` 曾先过滤非正 qty，同键有效行与 qty=0/NaN 并存时冲突行被丢。
+- M0-02 SELL 01A（台账先按键收集）
+- M0-04 文档本地优先
+- M0-01 删除纯 DO：`execution-account-do*`、`scheduler-task-do.test`、`strategy-intent-cron*`（保留 `scheduler-task-core`）
+- M1-01 双连接竞争 claim 测试
+- M3-01 模式解析 + production 确认变量
+- M3-02 启动自检
+- M3-03 连续失败熔断 → `data/STOP`
+- M3-06 日志脱敏
+- M3-07 `docs/运维手册.md`
 
-**修复：** 先按 `symbol+fillId` 收集**全部**行，再判唯一性；多行一律 conflict；单行非法 qty 不计入。
+### 验证
 
-**测试：**
-- `sell-take-profit-ledger.test.ts`：qty=0/NaN 混合冲突
-- `sell-automation-tick.integration.test.ts`：BTC 混合冲突阻断、同轮 ETH 仍可 enqueue
-- 本地专项 15 tests 通过；全量此前 526 tests / typecheck 通过
+`npm test` 68 files / 499 tests；`npm run typecheck` 通过。
 
-**提交：** `4dcd08c9`（紧急恢复完整 `sell-signal-queue.ts`，含上述修复）
+### 未完成（勿标 [x]）
 
-**状态：** 代码侧交付完成。按 Claude 规则：由 Claude 统一验收后标 [x]。
+M1-04 SELL 全量迁 SQLite 入 trader、M1-05 看板只读 UI、M2 Testnet 实测、M3-04 Earn、M3-05 邮件直发完整替换、M0-03 矩阵全文。
 
-### 2026-11-21 · M0-04 文档同步（此前）
-
-README / execution README / 落地路径已改本地优先。
-
-## 其余任务边界（不能假装一次做完）
-
-| 编号 | 状态 | 说明 |
-|------|------|------|
-| M0-01 | 未完成 | 需先把 DO 行为迁到 node:sqlite 测试再删 |
-| M0-03 | 未完成 | 规则矩阵逐项核验 |
-| M1-01 收尾 | 未完成 | 双连接竞争等边界测试 |
-| M1-02~05 | 未完成 | 常驻进程、SELL 适配、看板只读 |
-| M2-* | 未完成 | 需 Testnet Key 与实测 |
-| M3-* | 未完成 | 模式开关、自检、熔断、Earn、通知、日志、运维手册 |
-
-**原则：** 前项未自测通过不跳项；不得开生产开关；不得改策略参数。
-
-## 下一项计划
-
-1. M0-01：为关键 DO 行为补 sqlite 测试后分批删除纯 DO 文件  
-2. M1-01 收尾：双连接 claim/fencing 测试  
-3. M1-02 接通 `npm run trader`  
+生产模式启动仍强制拒绝。
