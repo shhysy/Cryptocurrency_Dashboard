@@ -37,7 +37,7 @@ describe("本地执行SQLite数据库基础设施", () => {
       const version = database.prepare(
         "SELECT MAX(version) AS version FROM schema_migrations",
       ).get() as { version: number };
-      expect(version.version).toBe(2);
+      expect(version.version).toBe(3);
       const foreignKeys = database.prepare("PRAGMA foreign_keys").get() as { foreign_keys: number };
       expect(foreignKeys.foreign_keys).toBe(1);
     } finally {
@@ -60,7 +60,7 @@ describe("本地执行SQLite数据库基础设施", () => {
       ).get("test_persist") as { event_type: string; created_at: number };
       expect(row).toEqual({ event_type: "test_persist", created_at: 123 });
       const versions = second.prepare("SELECT COUNT(*) AS total FROM schema_migrations").get() as { total: number };
-      expect(versions.total).toBe(2);
+      expect(versions.total).toBe(3);
     } finally {
       second.close();
     }
@@ -107,7 +107,7 @@ describe("本地执行SQLite数据库基础设施", () => {
         .get("v33:BTC:head:2026W47") as { amount: string };
       expect(intent.amount).toBe("100");
       const version = upgraded.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number };
-      expect(version.version).toBe(2);
+      expect(version.version).toBe(3);
     } finally {
       upgraded.close();
     }
