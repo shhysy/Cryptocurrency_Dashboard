@@ -108,6 +108,7 @@ describe("本地Trader策略信号与执行循环", () => {
     const result = await runTraderCycle(deps);
     expect(result.signalsCreated).toBe(1);
     expect(store.createIntent).toHaveBeenCalledTimes(1);
+    expect(store.scheduler.recoverExpired).toHaveBeenCalledWith(1_800_000_000_100);
     expect(store.claimIntent).not.toHaveBeenCalled();
     expect(submitOrder).not.toHaveBeenCalled();
   });
