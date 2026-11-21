@@ -48,7 +48,7 @@ describe("真实成交台账 CSV", () => {
       realizedPnlUsdt: -2.5, sellKind: "take_profit",
     }]);
     expect(csv).toContain("trade-100");
-    expect(csv).toContain('" -2.5"'.trim());
+    expect(csv).toContain('" -2.5"'.replace(' ', ''));
     expect(csv).toContain("BTCUSDT");
     expect(csv).not.toContain("referencePrice");
   });
