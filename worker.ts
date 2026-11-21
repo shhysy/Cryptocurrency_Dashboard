@@ -2,6 +2,11 @@
 // @ts-ignore OpenNext在Cloudflare构建时生成该入口模块
 import openNextWorker from "./.open-next/worker.js";
 import { ExecutionAccountDO } from "./lib/execution/execution-account-do";
+import { binanceReconcileAdapter } from "./lib/execution/binance-reconcile.server";
+import {
+  dispatchReconcileIntentTask,
+  type ClaimedReconcileTask,
+} from "./lib/execution/reconcile-intent-dispatcher.server";
 
 interface WorkerExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -35,13 +40,32 @@ export default {
   ): void {
     const accountId = env.EXECUTION_ACCOUNT.idFromName("binance-spot-primary");
     const coordinator = env.EXECUTION_ACCOUNT.get(accountId);
-    ctx.waitUntil(coordinator.fetch("https://execution.internal/internal/watchdog", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        scheduledTime: controller.scheduledTime,
-        cron: controller.cron,
-      }),
+    ctx.waitUntil((async () => {
+      const watchdog = await coordinator.fetch("https://execution.internal/internal/watchdog", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          scheduledTime: controller.scheduledTime,
+          cron: controller.cron,
+        }),
+      });
+      if (!watchdog.ok) throw new Error(`DO watchdog failed: HTTP ${watchdog.status}`);
+
+      // Cron在页面关闭后持续领取并执行只读reconcile_intent任务。
+      // 订单POST能力不在此调度器中；所有不确定状态只查原clientOrderId。
+      const claimed = await coordinator.fetch("https://execution.internal/internal/scheduler/claim", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ limit: 5, taskType: "reconcile_intent" }),
+      });
+      if (!claimed.ok) throw new Error(`DO scheduler claim failed: HTTP ${claimed.status}`);
+      const payload = await claimed.json() as { tasks?: ClaimedReconcileTask[] };
+      if (!Array.isArray(payload.tasks)) throw new Error("DO scheduler claim response is invalid");
+      for (const task of payload.tasks) {
+        await dispatchReconcileIntentTask(coordinator, task, binanceReconcileAdapter);
+      }
+    })().catch((error) => {
+      console.error("[execution-scheduler]", error instanceof Error ? error.message : "后台对账调度失败");
     }));
   },
 };
