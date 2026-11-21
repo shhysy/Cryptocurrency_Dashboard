@@ -163,6 +163,24 @@ describe("本地Trader服务端SELL执行", () => {
     expect(submitOrder).not.toHaveBeenCalled();
   });
 
+  it("data/STOP对应off模式仍恢复旧SELL订单，但不读取行情、不创建新订单", async () => {
+    const f = fixture();
+    f.setEvent({ status: "reconcile_required", clientOrderId: "gpt-stop-recovery-1" });
+    const submitOrder = vi.fn();
+    const result = await runServerSellCycle({
+      mode: "off",
+      store: f.store,
+      adapter: f.adapter,
+      dashboard: null,
+      submitOrder,
+    });
+
+    expect(result.skipped).toBe(1);
+    expect(f.findOrderByClientOrderId).toHaveBeenCalledWith("BTCUSDT", "gpt-stop-recovery-1");
+    expect(f.store.sellEvents.claimSellEventForSubmission).not.toHaveBeenCalled();
+    expect(submitOrder).not.toHaveBeenCalled();
+  });
+
   it("按原clientOrderId只读对账，逐笔成交一致后才写台账并结束SELL事件", async () => {
     const f = fixture();
     f.setEvent({ status: "reconcile_required", clientOrderId: "gpt-original-123" });
