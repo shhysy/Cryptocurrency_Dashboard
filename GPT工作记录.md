@@ -318,3 +318,11 @@ GPT 无法继续工作，未完成任务（M0-01 删除批准后的执行、M0-0
 - 新增资产配置测试与Trader伪造BUY绕过测试。
 - HEAD `c1be2e818a52a88a3b6a26bc18e1932f71aa84e7`，CI Run `44919199265`成功：81文件、581测试通过，typecheck/build通过。
 - 后续如用户要启用ETH/BNB/UNI，需先在配置里明确白名单通过并填写六项风险结果；不能默认放行。
+
+## 邮件配置一致性修复与验收（2026-11-21）
+
+- .env.example中成交邮件开关修正为默认关闭：TRADE_FILL_MAIL_ENABLED=0，避免复制示例配置后误以为真实邮箱已经验证。
+- 策略信号邮件脚本 scripts/notify-score.mjs 现在按 .env.local 优先、.env 兼容的顺序读取配置；移除代码内硬编码的默认收件邮箱；SMTP_HOST必须由配置提供。
+- .env.example增加 MAIL_AUTO=1；运维手册明确策略信号邮件由Trader主循环触发，Trader在dry-run/Testnet且真实Binance非STALE时按55/75分门槛检查，无需另开notify进程。成交邮件需要配置SMTP后明确设置 TRADE_FILL_MAIL_ENABLED=1。
+- 最新HEAD a9665ef8dd57a0d090cc43dad66018971b550aa1，Run 44919447873成功：81文件、581项测试通过，typecheck与Next.js production build通过。
+- 真实SMTP投递仍需用户配置自己的SMTP凭证和收件地址后验证；未在仓库或对话中写入真实密码。
