@@ -97,6 +97,18 @@ async function claimAndSubmit(
 }
 
 describe("本地SQLite执行存储", () => {
+  it("持久化并读取BUY策略执行档位，不依赖事件ID解析", async () => {
+    const store = await openLocalExecutionStore({ path: await tempDbPath() });
+    try {
+      const value = intent("BUY", { strategyTier: "reserve" });
+      const created = await store.createIntent(value);
+      expect(created.intent.strategyTier).toBe("reserve");
+      expect((await store.getIntent(value.intentId))?.strategyTier).toBe("reserve");
+    } finally {
+      store.close();
+    }
+  });
+
   it("intent幂等创建、账户锁和资金预留原子claim", async () => {
     const path = await tempDbPath();
     const store = await openLocalExecutionStore({ path });
