@@ -68,7 +68,7 @@ describe("本地Trader策略信号与执行循环", () => {
     const intents = buildServerBuyIntents(dashboard());
     expect(intents).toHaveLength(1);
     expect(intents[0]).toMatchObject({
-      intentId: "v33:BTC:head:首仓:1700000000000",
+      intentId: "v33:BTC:head:1700000000000",
       strategyVersion: "3.3",
       symbol: "BTCUSDT",
       side: "BUY",
@@ -114,7 +114,7 @@ describe("本地Trader策略信号与执行循环", () => {
 
   it("Testnet POST结果不明时持久化unknown并保留原clientOrderId，绝不盲目重发", async () => {
     const value: ServerExecutionIntent = {
-      intentId: "v33:BTC:head:首仓:1700000000000",
+      intentId: "v33:BTC:head:1700000000000",
       strategyEventId: "BTC:head:首仓:1700000000000",
       strategyVersion: "3.3",
       symbol: "BTCUSDT",
