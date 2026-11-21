@@ -80,8 +80,8 @@ const INITIAL_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS fills (
     symbol TEXT NOT NULL,
     trade_id TEXT NOT NULL,
-    intent_id TEXT NOT NULL REFERENCES order_intents(intent_id),
-    attempt INTEGER NOT NULL,
+    intent_id TEXT REFERENCES order_intents(intent_id),
+    attempt INTEGER,
     order_id TEXT NOT NULL,
     side TEXT NOT NULL CHECK (side IN ('BUY', 'SELL')),
     price TEXT NOT NULL,
