@@ -2,8 +2,11 @@ import type { Candle, Trade } from "@/strategy/types";
 import { isSpotOrderSubmissionEnabled, resolveServerBinanceEnvironment } from "./binance-environment";
 import { isTraderOrderSubmissionAuthorized } from "./execution/server/auto-trade-mode";
 
+const AUTO_TRADE_SPOT_ENVIRONMENT = process.env.AUTO_TRADE_MODE === "testnet" || process.env.AUTO_TRADE_MODE === "production"
+  ? process.env.AUTO_TRADE_MODE
+  : process.env.BINANCE_SPOT_ENVIRONMENT;
 const SPOT_ENV = resolveServerBinanceEnvironment({
-  BINANCE_SPOT_ENVIRONMENT: process.env.BINANCE_SPOT_ENVIRONMENT,
+  BINANCE_SPOT_ENVIRONMENT: AUTO_TRADE_SPOT_ENVIRONMENT,
   BINANCE_TESTNET_API_KEY: process.env.BINANCE_TESTNET_API_KEY,
   BINANCE_TESTNET_API_SECRET: process.env.BINANCE_TESTNET_API_SECRET,
   BINANCE_API_KEY: process.env.BINANCE_API_KEY,
