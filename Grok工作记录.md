@@ -160,3 +160,15 @@
 - 提交：`8725454188`（测试完善），前置测试提交`8006213895`。
 - **验收边界：** 这是文件数据库关闭/重开 + 正式Trader循环的集成测试，不是操作系统级SIGKILL进程演练。M1-03仍为[~]，下一步需补子进程被强制终止后重启的端到端验证；不能把本测试说成完整kill/restart验收。
 - M1-05尚未修改：当前`ExecutionStatusPanel`仍读取浏览器IndexedDB，不能代表本地Trader SQLite状态。后续先实现只读状态投影与本机访问保护，再替换看板数据源。
+
+
+
+### GPT继续开发：M1-05本地Trader SQLite只读看板（2026-11-21）
+
+- 新增`lib/execution/server/trader-status.server.ts`：直接读取已有SQLite文件，使用只读连接，不创建数据库、不执行schema迁移；展示Trader锁PID/启动时间/心跳（不返回随机token）、STOP标记、运行模式、BUY intent、SELL事件、成交台账、资金预留和通知Outbox状态。
+- 新增`app/api/trader-status/route.ts`：必须显式设置`TRADER_STATUS_API_ENABLED=1`；仅允许localhost/127.0.0.1/::1 Host，拒绝Forwarded/X-Forwarded请求头；要求Next.js服务绑定loopback，禁止公网反向代理暴露。
+- `components/ExecutionStatusPanel.tsx`已改为每15秒读取本地Trader状态API；读取失败不会回退到浏览器IndexedDB冒充真实Trader状态；区分BUY金额与SELL数量单位。
+- 新增`lib/execution/server/trader-status.server.test.ts`：验证数据库不存在时不创建空库、读取真实SQLite订单、STOP/心跳展示、锁token不泄露及读取不修改订单状态。
+- GitHub Actions Run `44887541409`（HEAD `436aaa0a5610fd1722f51b67442ecac9c14039f4`）：测试、TypeScript typecheck、Next.js production build全部通过。
+- 运维手册已补充启用步骤：`TRADER_STATUS_API_ENABLED=1`，使用`npm run dev -- --hostname 127.0.0.1`并在同一机器/目录启动Trader。
+- **验收边界：** 代码和CI测试通过；仍需用户本机实际启动Next.js与Trader，确认PID/心跳/STOP/订单/成交数据展示正确。接口默认关闭，不可通过公网或代理访问。M1-05保持[~]，待本机验收。
