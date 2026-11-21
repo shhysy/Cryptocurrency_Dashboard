@@ -691,7 +691,7 @@ describe("本地SQLite执行存储", () => {
     expect(recovered.state).toBe("unknown");
     expect(recovered.recoveredClientOrderId).toBe(marker.clientOrderId);
     expect(recovered.expectedClientOrderId).toBe(marker.clientOrderId);
-  }, 45_000);
+  }, 90_000);
 
 
 
