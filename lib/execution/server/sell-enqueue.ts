@@ -24,8 +24,9 @@ export async function enqueueServerSellSignals(
       side: row.side,
       sellKind: row.sellKind,
     }));
-  } catch {
-    ledgerFills = undefined;
+  } catch (error) {
+    // 台账不可读时不能安全计算已卖数量/底仓边界；禁止创建任何新SELL事件。
+    throw new Error(`卖出成交台账读取失败，已阻断本轮全部SELL入队：${error instanceof Error ? error.message : "未知错误"}`);
   }
 
   const plan = buildSellEventReservations(data, existingEvents, { ledgerFills });
