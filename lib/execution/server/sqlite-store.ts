@@ -1154,7 +1154,7 @@ export class SqliteExecutionStore implements LocalExecutionStore {
       const row = this.get("SELECT * FROM sell_events WHERE event_key = ?", eventKey);
       if (!row) throw new Error("卖出事件不存在");
       const current = parseSellEvent(row);
-      if (!["pending", "reconcile_required"].includes(current.status) ||
+      if (!["pending", "reconcile_required", "partially_filled"].includes(current.status) ||
           (current.exchangeOrderId && current.exchangeOrderId !== exchangeOrderId)) {
         throw new Error("卖出事件状态不允许绑定订单，或订单ID已绑定");
       }
