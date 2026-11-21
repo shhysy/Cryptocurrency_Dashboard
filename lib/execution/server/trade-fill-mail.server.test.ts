@@ -21,8 +21,20 @@ describe("成交通知邮件", () => {
     expect(mocks.sendSmtpTextMail).not.toHaveBeenCalled();
   });
 
-  it("正文包含币种", () => {
-    expect(buildTradeFillMailBody([{ id: "1", symbol: "ETH", side: "SELL" }])).toContain("ETH");
+  it("正文包含交易所真实成交数量、金额、手续费、订单ID和成交时间", () => {
+    const body = buildTradeFillMailBody([{
+      id: "trade-fill:ETHUSDT:1001", fillId: "1001", exchangeOrderId: "2001",
+      symbol: "ETHUSDT", side: "SELL", filledQty: 0.25, fillPrice: 3000,
+      quoteQty: 750, commission: 0.75, commissionAsset: "USDT",
+      commissionUsdt: 0.75, filledAt: 1_800_000_000_000,
+    }]);
+    expect(body).toContain("ETHUSDT");
+    expect(body).toContain("0.25");
+    expect(body).toContain("750 USDT");
+    expect(body).toContain("0.75 USDT");
+    expect(body).toContain("2001");
+    expect(body).toContain("1001");
+    expect(body).toContain("2027-01-15");
   });
 
   it("显式启用并配置SMTP后真实调用SMTP发送适配器", async () => {
