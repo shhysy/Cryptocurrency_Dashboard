@@ -37,6 +37,12 @@ describe("成交通知邮件", () => {
       symbol: "ETHUSDT", side: "SELL", filledQty: 0.25, fillPrice: 3000,
       quoteQty: 750, commission: 0.75, commissionAsset: "USDT",
       commissionUsdt: 0.75, filledAt: 1_800_000_000_000,
+      businessSnapshot: {
+        side: "SELL", sellKind: "take_profit",
+        cumulativeFilledQty: "0.25", cumulativeQuoteQty: "750",
+        cumulativeCommissionUsdt: "0.75", averageFillPrice: "3000",
+        realizedPnlUsdt: 12.5, remainingPositionQty: 0.5,
+      },
     }]);
     expect(body).toContain("ETHUSDT");
     expect(body).toContain("0.25");
@@ -45,6 +51,8 @@ describe("成交通知邮件", () => {
     expect(body).toContain("2001");
     expect(body).toContain("1001");
     expect(body).toContain("2027-01-15");
+    expect(body).toContain("累计实现盈亏：12.5 USDT");
+    expect(body).toContain("剩余持仓数量：0.5");
   });
 
   it("显式启用并配置SMTP后真实调用SMTP发送适配器", async () => {
