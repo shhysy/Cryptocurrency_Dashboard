@@ -24,6 +24,19 @@ export type TradeFillMailPayload = {
   commissionAsset?: string;
   commissionUsdt?: number;
   filledAt?: number;
+  businessSnapshot?: {
+    side: "BUY" | "SELL";
+    strategyTier?: "head" | "add" | "reserve";
+    sellKind?: "take_profit" | "indicator_profit" | "trail_stop" | "base_reduce";
+    plannedUsdt?: string;
+    cumulativeFilledQty: string;
+    cumulativeQuoteQty: string;
+    cumulativeCommissionUsdt: string;
+    averageFillPrice: string;
+    remainingBudgetUsdt?: string;
+    realizedPnlUsdt?: number;
+    remainingPositionQty?: number;
+  };
 };
 
 export function buildTradeFillMailBody(events: TradeFillMailPayload[]): string {
@@ -41,6 +54,24 @@ export function buildTradeFillMailBody(events: TradeFillMailPayload[]): string {
       `Binance订单ID：${event.exchangeOrderId ?? "未知"}`,
       `Binance成交ID：${event.fillId ?? event.id}`,
       `成交时间：${time}`,
+      ...(event.businessSnapshot?.side === "BUY" ? [
+        `策略档位：${event.businessSnapshot.strategyTier ?? "未知"}`,
+        `计划买入金额：${event.businessSnapshot.plannedUsdt ?? "未知"} USDT`,
+        `本订单累计成交数量：${event.businessSnapshot.cumulativeFilledQty}`,
+        `本订单累计成交金额：${event.businessSnapshot.cumulativeQuoteQty} USDT`,
+        `累计USDT手续费：${event.businessSnapshot.cumulativeCommissionUsdt} USDT`,
+        `本订单累计成交均价：${event.businessSnapshot.averageFillPrice} USDT`,
+        `剩余计划预算：${event.businessSnapshot.remainingBudgetUsdt ?? "未知"} USDT`,
+      ] : []),
+      ...(event.businessSnapshot?.side === "SELL" ? [
+        `卖出类型：${event.businessSnapshot.sellKind ?? "未知"}`,
+        `本订单累计卖出数量：${event.businessSnapshot.cumulativeFilledQty}`,
+        `本订单累计卖出金额：${event.businessSnapshot.cumulativeQuoteQty} USDT`,
+        `累计USDT手续费：${event.businessSnapshot.cumulativeCommissionUsdt} USDT`,
+        `本订单累计卖出均价：${event.businessSnapshot.averageFillPrice} USDT`,
+        `累计实现盈亏：${event.businessSnapshot.realizedPnlUsdt ?? "未知"} USDT`,
+        `剩余持仓数量：${event.businessSnapshot.remainingPositionQty ?? "未知"}`,
+      ] : []),
       "",
     ];
   });
