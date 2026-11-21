@@ -29,8 +29,8 @@ export async function runTestnetStrategyIntentScan(
   env: TestnetIntentScanEnv,
 ): Promise<TestnetIntentScanResult> {
   if (env.BINANCE_SPOT_ENVIRONMENT !== "testnet" ||
-      env.BINANCE_TESTNET_INTENT_CREATION_ENABLED !== "true" ||
-      env.BINANCE_TESTNET_INTENT_SCAN_ENABLED !== "true") {
+      !enabled(env.BINANCE_TESTNET_INTENT_CREATION_ENABLED) ||
+      !enabled(env.BINANCE_TESTNET_INTENT_SCAN_ENABLED)) {
     return { state: "disabled", reason: "Testnet策略扫描开关未同时启用" };
   }
   if (!enabled(env.BINANCE_TESTNET_BUY_ENABLED) &&
