@@ -139,6 +139,15 @@ export async function dispatchReconcileIntentTask(
     expectedSide: context.side,
   });
 
+  if (plan.kind === "open_fills") {
+    await postJson(coordinator, "/internal/scheduler/retry", {
+      taskId: task.taskId,
+      attempt: task.attempt,
+      leaseToken: task.leaseToken,
+      reason: "订单仍处于" + plan.status + "，等待下一轮只读对账",
+    });
+    return "retry_scheduled";
+  }
   if (plan.kind !== "finalize") {
     await postJson(coordinator, "/internal/scheduler/retry", {
       taskId: task.taskId,
