@@ -12,7 +12,8 @@ import { runNotificationOutboxCycle } from "@/lib/execution/server/notification-
 import { parseAutoTradeMode, assertProductionAuthorized } from "@/lib/execution/server/auto-trade-mode";
 import { runStartupSelfCheck } from "@/lib/execution/server/startup-self-check";
 import { ConsecutiveFailureBreaker } from "@/lib/execution/server/circuit-breaker";
-import { safeError, safeLog } from "@/lib/execution/server/safe-log";
+import { redactSecrets, safeError, safeLog } from "@/lib/execution/server/safe-log";
+import { buildSystemAlertNotificationEvent } from "@/lib/execution/notification-outbox";
 import { isStopFilePresent } from "@/lib/execution/server/stop-file";
 
 function readPollInterval(): number {
@@ -128,14 +129,28 @@ async function main(): Promise<void> {
         }
         const outbox = await runNotificationOutboxCycle(store);
         safeLog("[Trader] 成交通知Outbox", outbox);
-        if (outbox.failed > 0) throw new Error(`成交通知Outbox本轮失败${outbox.failed}项`);
+        if (outbox.failed > 0) safeError(`[Trader] 通知Outbox有${outbox.failed}项投递失败，已进入持久化退避重试；不因此中断交易循环`);
         breaker.recordSuccess();
         safeLog("[Trader] 本轮结果", result);
       } catch (error) {
         safeError("[Trader] 本轮失败；不会自动重发任何未知订单：", error);
         if (breaker.recordFailure()) {
+          const reason = redactSecrets(error instanceof Error ? error.message : "未知异常").slice(0, 1_500);
+          const occurredAt = Date.now();
           await writeStopFile(`连续失败达到阈值 ${breaker.count}`);
           safeError("[Trader] 已触发熔断并写入 data/STOP");
+          try {
+            const alert = buildSystemAlertNotificationEvent({
+              id: `trader-alert:circuit-breaker:${occurredAt}`,
+              title: "Trader连续故障熔断",
+              message: `连续失败达到阈值 ${breaker.count}。最近一次失败：${reason}`,
+              occurredAt,
+            }, occurredAt);
+            const queued = await store.notificationOutbox.enqueueSystemAlert(alert);
+            safeLog("[Trader] 熔断告警已持久化入队", { created: queued.created, eventId: alert.id });
+          } catch (alertError) {
+            safeError("[Trader] 熔断告警入队失败；data/STOP已写入，需人工检查本地日志：", alertError);
+          }
         }
       }
       await sleep(pollInterval, controller.signal);
