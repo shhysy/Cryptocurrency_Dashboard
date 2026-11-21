@@ -55,7 +55,8 @@ try {
       now: NOW + 2,
     });
     await writeFile(markerPath, JSON.stringify({ clientOrderId }));
-    // 保持SQLite连接和进程存活，等待父进程执行SIGKILL。
+    // SQLite同步句柄本身不会保持Node事件循环；定时器确保子进程真实存活，等待父进程SIGKILL。
+    setInterval(() => undefined, 1_000);
     await new Promise<void>(() => undefined);
   } else if (phase === "recover") {
     const marker = JSON.parse(await (await import("node:fs/promises")).readFile(markerPath, "utf8")) as {
