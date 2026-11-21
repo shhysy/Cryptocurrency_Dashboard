@@ -46,7 +46,7 @@ describe("Binance服务端只读对账适配器", () => {
       side: "BUY", qty: "0.00400000", commission: "0.00000400", commissionAsset: "BTC",
     });
     expect(() => normalizeBinanceReadTrade({ ...trade, commission: "-1" })).toThrow("commission");
-    expect(() => normalizeBinanceReadTrade({ ...trade, isBuyer: "true" })).toThrow("identity");
+    expect(() => normalizeBinanceReadTrade({ ...trade, isBuyer: "true" as unknown as boolean })).toThrow("身份");
   });
 
   it("严格解析账户余额并拒绝重复资产或非法数字", () => {
@@ -90,7 +90,7 @@ describe("Binance服务端只读对账适配器", () => {
 
   it("成交分页保留commission并检测不匹配订单，达到页数上限标记不完整", async () => {
     const calls: Array<Record<string, string | number>> = [];
-    const adapter = createBinanceReconcileAdapter(async <T>(_path, params = {}) => {
+    const adapter = createBinanceReconcileAdapter(async <T>( _path: string, params: Record<string, string | number> = {}) => {
       calls.push(params);
       return [trade] as T;
     });
