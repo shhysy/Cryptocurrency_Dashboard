@@ -1,6 +1,6 @@
 import { chmod, mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { getServerBinanceSpotMode, hasCredentials, submitTraderSpotMarketOrder } from "@/lib/binance";
+import { getServerBinanceSpotMode, hasCredentials, submitTraderSpotLimitOrder } from "@/lib/binance";
 import { getDashboard } from "@/lib/service";
 import { binanceReconcileAdapter } from "@/lib/execution/binance-reconcile.server";
 import { openLocalExecutionStore } from "@/lib/execution/server/sqlite-store";
@@ -150,7 +150,7 @@ async function main(): Promise<void> {
           store,
           getDashboard,
           adapter: binanceReconcileAdapter,
-          submitOrder: submitTraderSpotMarketOrder,
+          submitOrder: submitTraderSpotLimitOrder,
           log: (message) => safeLog(`[Trader] ${message}`),
         });
         if (result.manualReview > 0 && !stopped) {
@@ -190,7 +190,7 @@ async function main(): Promise<void> {
             store,
             adapter: binanceReconcileAdapter,
             dashboard: dash,
-            submitOrder: submitTraderSpotMarketOrder,
+            submitOrder: submitTraderSpotLimitOrder,
             log: (message) => safeLog(`[Trader] ${message}`),
           });
           safeLog("[Trader] SELL执行/对账", execution);
