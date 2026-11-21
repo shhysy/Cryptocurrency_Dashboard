@@ -98,7 +98,7 @@ describe("Trader系统告警SQLite Outbox", () => {
       db.exec(`INSERT INTO sell_events(
         event_key, symbol, kind, status, requested_qty, created_at, updated_at
       ) VALUES ('sell-review-1', 'ETH', 'take_profit', 'blocked', 0.1, ${NOW}, ${NOW})`);
-      expect(await store.notificationOutbox.countExecutionManualReview()).toBe(2);
+      expect(await store.countExecutionManualReview()).toBe(2);
     } finally {
       store.close();
     }
