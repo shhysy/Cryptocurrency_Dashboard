@@ -4,7 +4,7 @@
 
 ## 当前架构
 
-1. **行情与账户数据：** Dashboard 通过同源 `/api/dashboard` 获取服务端数据；需要签名的 Binance 只读请求由 `/api/binance/signed-read` 代理。API Key/Secret 仅由服务端环境变量读取，不进入浏览器包。
+1. **行情与账户数据：** Dashboard 通过同源 `/api/dashboard` 获取服务端数据；需要签名的 Binance 只读请求由 `/api/binance/signed-read` 代理。后台对账使用 `binance-reconcile.server.ts`，直接复用服务端签名GET allowlist，提供clientOrderId查单、按订单分页读取成交、账户余额和交易规则解析。API Key/Secret 仅由服务端环境变量读取，不进入浏览器包。
 2. **执行编排：** 浏览器侧 `ExecutionBackground` 在看板打开且标签页可见时运行周期任务；待买队列、待卖事件、资金预留和成交 Outbox 使用 IndexedDB。页面关闭后不会有常驻后台执行。
 3. **订单边界：** BUY/SELL统一通过同源服务端 `/api/binance/spot-order` 路由；服务端按 `BINANCE_SPOT_ENVIRONMENT` 选择Spot Testnet或Production端点，并分别校验 `BINANCE_TESTNET_BUY_ENABLED`、`BINANCE_TESTNET_SELL_ENABLED`、`BINANCE_PRODUCTION_BUY_ENABLED`、`BINANCE_PRODUCTION_SELL_ENABLED`。四路授权相互隔离，生产BUY/SELL开关默认关闭；生产路径虽然已有服务端适配器，但尚未完成账户级持久化协调、后台调度和最终生产验收，不能视为可直接实盘。旧 `/api/binance/testnet-order` 仅作为测试网兼容入口。
 4. **邮件通知：** 浏览器 Outbox 通过同源 `/api/trade-fill-notifications` 提交，服务端验证 Cloudflare Access 后使用 HMAC 转发到独立 Worker。Worker 只发送已确认成交邮件，不访问 Binance、不计算策略、不下单。
@@ -22,6 +22,7 @@
 | `buy-order-submit.browser.ts` / `sell-order-submit.browser.ts` | 受控测试网订单提交编排；生产开关关闭 |
 | `sync-buy-order.browser.ts` / `sync-sell-order.browser.ts` | 只读查单、成交核对与状态恢复 |
 | `fill-reconcile.ts` / `position-accounting.ts` | 成交事实校验、加权平均成本、底仓/周期仓及实现盈亏回放 |
+| `binance-reconcile.server.ts` | 服务端只读订单查单、成交分页、余额与交易规则解析；不具备POST/下单能力 |
 | `earn-redemption.browser.ts` / `wallet-funds.ts` | Spot与Simple Earn Flexible资金规划及受控赎回适配 |
 | `notification-outbox.ts` / `notification-dispatch.browser.ts` | 已确认成交事件持久化、幂等投递与失败重试 |
 
@@ -48,3 +49,11 @@
 
 - [执行层历史阶段记录](./PHASE_HISTORY.md)：合并保留原阶段文档，内容只作历史追溯，不作为当前状态依据。
 - `lib/trading/`：早期通用执行内核原型，未接入Dashboard；当前不得与 `lib/execution/` 并行启用。
+
+
+## Binance服务端只读对账适配器（阶段性交付）
+
+- `createBinanceReconcileAdapter()` 提供按 `symbol + origClientOrderId` 查单、按 `symbol + orderId` 分页读取myTrades、账户free/locked余额与交易对过滤器读取。
+- 查单明确区分not_found与限流/权限/网络错误；未知订单状态映射为UNKNOWN。成交分页达到5页仍未结束时返回`complete=false`，调用方不得据此完成终态结算。
+- 成交字段以十进制字符串保留，包含commission与commissionAsset；成交ID重复内容冲突时拒绝。余额重复资产、非法数字、缺失交易规则均fail-closed。
+- 当前只完成适配器与单元测试，尚未接入DO `reconcile_intent`消费器、账户级预留结算和真实Cloudflare运行时；不得将本阶段称为完整自动交易。
