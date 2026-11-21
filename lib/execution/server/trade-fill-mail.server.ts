@@ -34,8 +34,9 @@ export type TradeFillMailPayload = {
     cumulativeCommissionUsdt: string;
     averageFillPrice: string;
     remainingBudgetUsdt?: string;
-    realizedPnlUsdt?: number;
-    remainingPositionQty?: number;
+    realizedPnlUsdt?: number | null;
+    remainingPositionQty?: number | null;
+    accountingAvailable?: boolean;
   };
 };
 
@@ -69,8 +70,8 @@ export function buildTradeFillMailBody(events: TradeFillMailPayload[]): string {
         `本订单累计卖出金额：${event.businessSnapshot.cumulativeQuoteQty} USDT`,
         `累计USDT手续费：${event.businessSnapshot.cumulativeCommissionUsdt} USDT`,
         `本订单累计卖出均价：${event.businessSnapshot.averageFillPrice} USDT`,
-        `累计实现盈亏：${event.businessSnapshot.realizedPnlUsdt ?? "未知"} USDT`,
-        `剩余持仓数量：${event.businessSnapshot.remainingPositionQty ?? "未知"}`,
+        `累计实现盈亏：${event.businessSnapshot.realizedPnlUsdt ?? "无法核算，请检查成交台账"} USDT`,
+        `剩余持仓数量：${event.businessSnapshot.remainingPositionQty ?? "无法核算，请检查成交台账"}`,
       ] : []),
       "",
     ];
