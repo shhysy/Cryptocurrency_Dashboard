@@ -377,7 +377,7 @@ export class ExecutionAccountDO {
       const taskId = typeof input.taskId === "string" ? input.taskId : "";
       const attempt = input.attempt;
       const leaseToken = typeof input.leaseToken === "string" ? input.leaseToken : "";
-      if (!/^[A-Za-z0-9:_-]{1,160}$/.test(taskId) ||
+      if (!/^[A-Za-z0-9:_-]{1,170}$/.test(taskId) ||
           !Number.isSafeInteger(attempt) || (attempt as number) <= 0 ||
           leaseToken.length < 16 || leaseToken.length > 128) {
         return Response.json({ error: "taskId、attempt或leaseToken无效" }, { status: 400 });
@@ -430,7 +430,7 @@ export class ExecutionAccountDO {
       const leaseToken = typeof input.leaseToken === "string" ? input.leaseToken : "";
       const isAck = url.pathname.endsWith("/ack");
       const reason = typeof input.reason === "string" ? input.reason.slice(0, 500) : "任务执行失败";
-      if (!/^[A-Za-z0-9:_-]{1,160}$/.test(taskId) ||
+      if (!/^[A-Za-z0-9:_-]{1,170}$/.test(taskId) ||
           !Number.isSafeInteger(attempt) || (attempt as number) <= 0 ||
           leaseToken.length < 16 || leaseToken.length > 128) {
         return Response.json({ error: "taskId、attempt或leaseToken无效" }, { status: 400 });
@@ -947,7 +947,7 @@ export class ExecutionAccountDO {
                 task_id, task_type, due_at, state, attempt, next_attempt_at, created_at, updated_at
               ) VALUES (?, 'reconcile_intent', ?, 'pending', 0, 0, ?, ?)
               ON CONFLICT(task_id) DO NOTHING`,
-              intentId, now + 5_000, now, now,
+              `reconcile:${intentId}`, now + 5_000, now, now,
             );
             return { intentId, attempt, clientOrderId: order.client_order_id, state: "submitting" };
           }
@@ -975,7 +975,7 @@ export class ExecutionAccountDO {
               task_id, task_type, due_at, state, attempt, next_attempt_at, created_at, updated_at
             ) VALUES (?, 'reconcile_intent', ?, 'pending', 0, 0, ?, ?)
             ON CONFLICT(task_id) DO NOTHING`,
-            intentId, now + 1_000, now, now,
+            `reconcile:${intentId}`, now + 1_000, now, now,
           );
           return { intentId, attempt, clientOrderId: order.client_order_id, state: "unknown", locked: true };
         });
@@ -1027,7 +1027,7 @@ export class ExecutionAccountDO {
           compareDecimalStrings(executedQty, "0")! < 0 ||
           compareDecimalStrings(cumulativeQuoteQty, "0")! < 0 ||
           !Array.isArray(fills) || fills.length > 1000 ||
-          (hasSchedulerFence && (schedulerTaskId !== intentId ||
+          (hasSchedulerFence && (schedulerTaskId !== `reconcile:${intentId}` ||
             !Number.isSafeInteger(schedulerAttempt) || (schedulerAttempt as number) <= 0 ||
             schedulerLeaseToken.length < 16 || schedulerLeaseToken.length > 128))) {
         return Response.json({ error: "交易所终态或累计成交字段无效" }, { status: 400 });
