@@ -45,6 +45,15 @@ class SchedulerSqlFake {
         });
         rows = [{ task_id: taskId }];
       }
+    } else if (query.includes("UPDATE scheduler_tasks") && query.includes("SET lease_until = ?")) {
+      const [leaseUntil, updatedAt, taskId, attempt, leaseToken, now] = bindings as
+        [number, number, string, number, string, number];
+      const row = this.tasks.get(taskId);
+      if (row && row.state === "leased" && row.attempt === attempt &&
+          row.lease_token === leaseToken && Number(row.lease_until) > now) {
+        Object.assign(row, { lease_until: leaseUntil, updated_at: updatedAt });
+        rows = [{ task_id: taskId }];
+      }
     } else if (query.includes("UPDATE scheduler_tasks") && query.includes("SET state = 'completed'")) {
       const [updatedAt, taskId, attempt, leaseToken, now] = bindings as
         [number, string, number, string, number];
@@ -94,7 +103,7 @@ class SchedulerSqlFake {
     } else if (query.includes("SELECT MIN(CASE")) {
       const due = [...this.tasks.values()]
         .filter((row) => row.state === "leased" ||
-          (row.state === "pending" && row.task_type === "health_check"))
+          (row.state === "pending" && (row.task_type === "health_check" || row.task_type === "reconcile_intent")))
         .map((row) => row.state === "leased" ? Number(row.lease_until) :
           Math.max(Number(row.due_at), Number(row.next_attempt_at)));
       rows = [{ next_at: due.length ? Math.min(...due) : null }];
@@ -187,6 +196,29 @@ describe("DO持久化调度任务队列", () => {
     expect(sql.tasks.get(lease.taskId)).toMatchObject({
       state: "pending", lease_token: null, lease_until: null, attempt: 1,
     });
+  });
+
+  it("调度任务续租必须匹配当前未过期token，过期后不能复活", async () => {
+    const { coordinator, sql } = makeCoordinator();
+    await coordinator.fetch(post("/internal/scheduler/enqueue", {
+      taskId: "reconcile:renew:1", taskType: "reconcile_intent", dueAt: Date.now(),
+    }));
+    const claim = await coordinator.fetch(post("/internal/scheduler/claim", { taskType: "reconcile_intent" }));
+    const body = await claim.json() as { tasks: Array<{ taskId: string; attempt: number; leaseToken: string }> };
+    const lease = body.tasks[0]!;
+    const renew = await coordinator.fetch(post("/internal/scheduler/renew", lease));
+    expect(renew.status).toBe(200);
+    expect(sql.tasks.get(lease.taskId)?.lease_until).toBe(Date.now() + 30_000);
+
+    const stale = await coordinator.fetch(post("/internal/scheduler/renew", {
+      ...lease, leaseToken: "stale-scheduler-token",
+    }));
+    expect(stale.status).toBe(409);
+
+    vi.advanceTimersByTime(30_001);
+    const expired = await coordinator.fetch(post("/internal/scheduler/renew", lease));
+    expect(expired.status).toBe(409);
+    expect(await expired.json()).toMatchObject({ ok: false });
   });
 
   it("Alarm只自动完成无外部副作用的health_check，不擅自完成reconcile_intent", async () => {
